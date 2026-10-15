@@ -16,17 +16,25 @@ export function createUIEntity<T extends ComponentBase>(
   name: string,
   comp: new (...args: any[]) => T,
   param: any,
-  container?: Object3D[]
+  container?: Object3D[],
+  canUseOrillusion = false
 ): T {
-  try {
-    const ent = new Object3D();
-    ent.name = name;
-    const instance = ent.addComponent(comp, param);
-    if (container) container.push(ent);
-    return instance ?? new comp(param);
-  } catch {
-    return new comp(param);
+  if (canUseOrillusion) {
+    try {
+      const ent = new Object3D();
+      ent.name = name;
+      const instance = ent.addComponent(comp, param);
+      if (instance) {
+        if (container) container.push(ent);
+        return instance;
+      }
+    } catch {}
   }
+  const inst = new comp(param);
+  if (typeof (inst as any).init === "function" && !(inst as any).root) {
+    (inst as any).init(param);
+  }
+  return inst;
 }
 
 export class Hud extends ComponentBase {
@@ -80,21 +88,11 @@ export class Hud extends ComponentBase {
 
     // Windows Manager initialized before slots & menus
     this.wins = new Windows(game, win, this.root);
-    if (this.wins.ext?.invComp?.object3D) {
-      this.childEntities.push(this.wins.ext.invComp.object3D);
-    }
-    if (this.wins.ext?.equipComp?.object3D) {
-      this.childEntities.push(this.wins.ext.equipComp.object3D);
-    }
-    if (this.wins.statComp?.object3D) {
-      this.childEntities.push(this.wins.statComp.object3D);
-    }
-    if (this.wins.skillComp?.object3D) {
-      this.childEntities.push(this.wins.skillComp.object3D);
-    }
+
+    const canOrillusion = (game as any)?.r?.backend === "webgpu" && !!(game as any)?.r?.scene;
 
     // Left: Player level, IGN
-    this.playerTag = createUIEntity("PlayerStatusTag", PlayerStatusTag, { parent: this.dockLeft }, this.childEntities);
+    this.playerTag = createUIEntity("PlayerStatusTag", PlayerStatusTag, { parent: this.dockLeft }, this.childEntities, canOrillusion);
 
     // Center: 8 Square Menu Buttons + Dual HP/MP Stacked Bars + Centered EXP
     this.menu = createUIEntity(
@@ -146,10 +144,11 @@ export class Hud extends ComponentBase {
           },
         },
       },
-      this.childEntities
+      this.childEntities,
+      canOrillusion
     );
 
-    this.status = createUIEntity("StatusCapsule", StatusCapsule, { parent: this.dockCenter }, this.childEntities);
+    this.status = createUIEntity("StatusCapsule", StatusCapsule, { parent: this.dockCenter }, this.childEntities, canOrillusion);
     this.perfContainer = el("div", "dock-perf-container select-none pointer-events-none", this.status.root);
 
     // Right: Action Controls Header + Quick Slots Keyboard
@@ -171,14 +170,15 @@ export class Hud extends ComponentBase {
         getActionTip: (a: Action) => this.wins.actionTip(a),
         getActionIcon: (a: Action, off?: boolean) => this.wins.iconFor(a, off)
       },
-      this.childEntities
+      this.childEntities,
+      canOrillusion
     );
 
     // 4. Smart Idle/Expanded Chatbox
-    this.chat = createUIEntity("ChatComponent", ChatComponent, { parent: this.root, game }, this.childEntities);
+    this.chat = createUIEntity("ChatComponent", ChatComponent, { parent: this.root, game }, this.childEntities, canOrillusion);
 
     // 5. Parchment Minimap
-    this.mini = createUIEntity("MinimapComponent", MinimapComponent, { parent: this.root, onModeChange: () => this.layout() }, this.childEntities);
+    this.mini = createUIEntity("MinimapComponent", MinimapComponent, { parent: this.root, onModeChange: () => this.layout() }, this.childEntities, canOrillusion);
 
     // 6. Transient Gain Notifications
     this.gain = el("div", "gains", this.root);

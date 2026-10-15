@@ -5,288 +5,47 @@ import { FootholdTree, airMove, groundMove, type Foothold, type Ladder } from ".
 import { AH_TAX, AuctionHouse, goodsName, type Goods } from "./auction.ts";
 import {
   GEAR, MATS, MOB_MAT, ORES, cubeCost, gearStats, makeGear, randomGearFor, rollPotential, recipeGearId, starCost, starMat, starRate,
-  npcSellPrice, type Gear, type Recipe, type Slot, RARITY, isHoverItem,
+  npcSellPrice, type Gear, type Recipe, type Slot, RARITY, isHoverItem, gearIcon, matIcon,
 } from "./items.ts";
-import { DEFAULT_QUICK, ITEMS, SKILL, SKILL_DEFS, classFor, type ClassId, itemIconRaw, type Action, type SkillArt, type SkillDef } from "./skills.ts";
+import { DEFAULT_QUICK, ITEMS, SKILL, SKILL_DEFS, classFor, type ClassId, itemIcon, itemIconRaw, type Action, type SkillArt, type SkillDef } from "./skills.ts";
+import { preloadIcon } from "./util.ts";
 
-// ---------------------------------------------------------------- data types
-interface Back { sprite: Sprite; x: number; y: number; rx: number; ry: number; cx: number; cy: number; type: number; a: number; flip: boolean; front: boolean }
-export interface MapData {
-  id: number; name: string; street: string; bgm: string; bgmUrl: string; mark: string;
-  render: string; renderOrigin: { x: number; y: number };
-  miniMap: { url: string; centerX: number; centerY: number; width: number; height: number; mag: number };
-  footholds: Foothold[]; ladders: Ladder[];
-  spawns: { id: number; x: number; y: number; fh: number; rx0: number; rx1: number }[];
-  backs: Back[];
-}
-interface MobData { id: number; name: string; meta: any; books: Record<string, Sprite[]> }
-
-export interface ItemEffFrame {
-  url: string;
-  w: number;
-  h: number;
-  ox: number;
-  oy: number;
-  delay?: number;
-  z?: number;
-  pos?: number;
-  fixed?: boolean;
-}
-export interface ItemEffData {
-  id: number;
-  z: number;
-  pos?: number;
-  fixed?: boolean;
-  actions: Record<string, ItemEffFrame[]>;
-}
-
-// World links and constants
-export const FREE_MARKET_MAP = 910000000;
-export const HUNTING_AREAS = [100010000, 100020000, 101010000, 100000000];
-
-export const MAP_LINKS: Record<number, { left: number; right: number }> = {
-  100010000: { left: FREE_MARKET_MAP, right: 100020000 },
-  100020000: { left: FREE_MARKET_MAP, right: 101010000 },
-  101010000: { left: FREE_MARKET_MAP, right: 100000000 },
-  100000000: { left: FREE_MARKET_MAP, right: 100010000 },
-  910000000: { left: 100010000, right: 100010000 },
-};
-
-export interface RemotePlayer {
-  id: string;
-  name: string;
-  mapId: number;
-  x: number;
-  y: number;
-  targetX: number;
-  targetY: number;
-  face: number;
-  anim: string;
-  frame: number;
-  look: number[];
-  balloon?: { text: string; t: number };
-  lastTex?: Tex | null;
-  attackTimer?: number;
-  animTimer?: number;
-}
-
-const textTexCache = new Map<string, Tex>();
-const textTexPending = new Set<string>();
-
-const balloonSlices: Record<string, HTMLImageElement> = {};
-let balloonSlicesLoaded = false;
-let balloonSlicesLoading = false;
-
-function loadBalloonSlices() {
-  if (balloonSlicesLoaded || balloonSlicesLoading || typeof Image === "undefined") return;
-  balloonSlicesLoading = true;
-  const parts = ["nw", "n", "ne", "w", "c", "e", "sw", "s", "se", "arrow"];
-  let loaded = 0;
-  for (const p of parts) {
-    const img = new Image();
-    img.src = `/wz/ui/ChatBalloon/0/${p}`;
-    img.onload = () => {
-      loaded++;
-      if (loaded === parts.length) {
-        balloonSlicesLoaded = true;
-        balloonSlicesLoading = false;
-        // Invalidate fallback textures
-        for (const [k] of textTexCache) {
-          if (k.startsWith("balloon:")) textTexCache.delete(k);
-        }
-      }
-    };
-    img.onerror = () => {
-      balloonSlicesLoading = false;
-    };
-    balloonSlices[p] = img;
-  }
-}
-loadBalloonSlices();
-
-function renderTextTexture(r: Renderer, text: string, type: "name" | "balloon"): Tex | null {
-  const key = `${type}:${text}`;
-  const hit = textTexCache.get(key);
-  if (hit) return hit;
-  if (textTexPending.has(key)) return null;
-  textTexPending.add(key);
-
-  try {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    if (type === "name") {
-      ctx.font = "bold 11px Tahoma, Arial, sans-serif";
-      const tm = ctx.measureText(text);
-      const tw = Math.ceil(tm.width);
-      const padX = 6;
-      const w = Math.max(24, tw + padX * 2);
-      const h = 16;
-      canvas.width = w;
-      canvas.height = h;
-
-      ctx.font = "bold 11px Tahoma, Arial, sans-serif";
-      ctx.textBaseline = "middle";
-      ctx.textAlign = "center";
-
-      ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
-      ctx.beginPath();
-      if ((ctx as any).roundRect) (ctx as any).roundRect(0, 0, w, h, 3);
-      else ctx.rect(0, 0, w, h);
-      ctx.fill();
-
-      ctx.strokeStyle = "rgba(60, 60, 60, 0.8)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(text, w / 2, h / 2 + 0.5);
-    } else {
-      ctx.font = "bold 12px Arial, Tahoma, sans-serif";
-      const tm = ctx.measureText(text);
-      const tw = Math.ceil(tm.width);
-
-      const padX = 6;
-      const contentW = Math.max(14, tw + padX * 2);
-      const contentH = 14;
-
-      const cornerW = 6;
-      const cornerH = 6;
-      const arrowW = 13;
-      const arrowH = 13;
-
-      const bubbleW = cornerW + contentW + cornerW;
-      const bubbleH = cornerH + contentH + cornerH;
-      const totalW = Math.max(bubbleW, arrowW);
-      const totalH = bubbleH + arrowH - 5;
-
-      canvas.width = totalW;
-      canvas.height = totalH;
-
-      ctx.imageSmoothingEnabled = false;
-
-      if (balloonSlicesLoaded) {
-        const { nw, n, ne, w, c, e, sw, s, se, arrow } = balloonSlices;
-        const bx = Math.round((totalW - bubbleW) / 2);
-        const by = 0;
-
-        // Corners
-        ctx.drawImage(nw, bx, by, cornerW, cornerH);
-        ctx.drawImage(ne, bx + cornerW + contentW, by, cornerW, cornerH);
-        ctx.drawImage(sw, bx, by + cornerH + contentH, cornerW, cornerH);
-        ctx.drawImage(se, bx + cornerW + contentW, by + cornerH + contentH, cornerW, cornerH);
-
-        // Borders
-        ctx.drawImage(n, bx + cornerW, by, contentW, cornerH);
-        ctx.drawImage(s, bx + cornerW, by + cornerH + contentH, contentW, cornerH);
-        ctx.drawImage(w, bx, by + cornerH, cornerW, contentH);
-        ctx.drawImage(e, bx + cornerW + contentW, by + cornerH, cornerW, contentH);
-
-        // Center
-        ctx.drawImage(c, bx + cornerW, by + cornerH, contentW, contentH);
-
-        // Arrow tail pointing towards speaker (overlap bottom border by 5px for seamless ribbon connection)
-        const ax = Math.round((totalW - arrowW) / 2);
-        const ay = by + bubbleH - 5;
-        ctx.drawImage(arrow, ax, ay, arrowW, arrowH);
-      } else {
-        loadBalloonSlices();
-        ctx.fillStyle = "#ffffff";
-        ctx.strokeStyle = "#2b2b2b";
-        ctx.lineWidth = 1.2;
-        if ((ctx as any).roundRect) (ctx as any).roundRect(1, 1, totalW - 2, bubbleH - 2, 4);
-        else ctx.rect(1, 1, totalW - 2, bubbleH - 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      // Authentic MapleStory chat text (black, bold, centered)
-      ctx.font = "bold 12px Arial, Tahoma, sans-serif";
-      ctx.textBaseline = "middle";
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#000000";
-      ctx.fillText(text, totalW / 2, cornerH + contentH / 2 + 1);
-    }
-
-    createImageBitmap(canvas).then((bmp) => {
-      const tex = r.texture(bmp);
-      textTexCache.set(key, tex);
-      textTexPending.delete(key);
-    }).catch(() => {
-      textTexPending.delete(key);
-    });
-  } catch {
-    textTexPending.delete(key);
-  }
-
-  return null;
-}
-
-const BODY = [2000, 12000, 20000, 30030];
-/** The default avatar: body, head, hair, face (equip ids). */
-export const DEFAULT_LOOK = [2000, 12000, 20000, 30030];
-
-/**
- * A character frame URL. The server composes the equipped parts from the
- * local client's Character.wz — no remote asset service.
- */
-export const charUrlFor = (look: number[], anim: string, f: number, expr = "default", ef = 0) => {
-  let url = `/wz/char?eq=${look.join(",")}&action=${anim}&frame=${f}`;
-  if (expr !== "default") url += `&expr=${expr}`;
-  if (ef !== 0) url += `&ef=${ef}`;
-  return url;
-};
-export const BOSSES = [2220000, 3220000, 6130101, 9300003, 8220007, 5220000, 6300005];
-const STAGE_KILLS = 25;
-/**
- * Frame timing per animation, in ms. This is the FALLBACK used until the
- * real per-frame delays arrive from the server; the counts must not exceed
- * what the body actually ships or the extra frames 404 and the loop stalls
- * (the classic "idle animation freezes" bug — stand1 has 3 frames, not 4).
- */
-const ANIMS: Record<string, number[]> = {
-  stand1: [500, 500, 500], stand2: [500, 500, 500],
-  walk1: [180, 180, 180, 180], walk2: [180, 180, 180, 180],
-  alert: [500, 500, 500], jump: [200], prone: [100],
-  ladder: [250, 250], rope: [250, 250],
-  swingO1: [300, 150, 350], swingO2: [300, 150, 350], swingO3: [300, 150, 350],
-  swingOF: [200, 100, 100, 300], stabO1: [350, 450], stabO2: [350, 450], stabOF: [250, 150, 300],
-  swingT1: [300, 150, 350], swingT2: [300, 150, 350], swingT3: [300, 150, 350],
-  swingP1: [300, 150, 350], swingP2: [300, 150, 350],
-  shoot1: [300, 150, 350], shoot2: [300, 150, 350],
-  heal: [300, 150, 350], fly: [300, 300], sit: [100],
-};
-
-export const EXP_TABLE = [15, 34, 57, 92, 135, 372, 560, 840, 1242, 1716, 2360, 3216, 4200, 5460, 7050, 8840, 11040, 13716, 16680, 20216, 24402, 28980, 34320, 40512, 47216, 54900, 63666, 73080, 83720, 95700];
-export const expToLevel = (lv: number) => EXP_TABLE[Math.min(lv - 1, EXP_TABLE.length - 1)] * (lv > EXP_TABLE.length ? 1 + (lv - EXP_TABLE.length) * 0.15 : 1);
-
-const WALK = 135, JUMP = 560, CLIMB = 150;
-const rand = (a: number, b: number) => a + Math.random() * (b - a);
-
-// ---------------------------------------------------------------- entities
-interface Mob {
-  data: MobData; spawn: MapData["spawns"][number];
-  x: number; y: number; vx: number; vy: number; fh: Foothold | null; ignoreFh?: number;
-  dir: -1 | 1; state: "stand" | "move" | "hit1" | "die1" | "dead";
-  t: number; anim: number; frame: number; hp: number; maxHp: number;
-  aggro: number; hpShow: number; respawn: number; alpha: number;
-  mul: { exp: number; meso: number }; atk: number; boss?: boolean; skillT?: number; attacking?: string;
-  lastTex?: Tex | null; lastFr?: Sprite | null;
-}
-interface Drop { x: number; y: number; vx: number; vy: number; fh: Foothold | null; amount: number; item?: number; mat?: number; gear?: Gear; t: number; picked: number; ignoreFh?: number }
-interface Projectile { x: number; y: number; target: Mob; dmg: number; miss: boolean; t: number; skillId?: string; isShadow?: boolean; arcY?: number }
-interface Fx { frames: Sprite[]; x: number; y: number; flip: boolean; t: number; follow?: boolean }
-interface DmgText { value: number; miss: boolean; hurt: boolean; x: number; y: number; t: number }
-interface Portal { x: number; y: number; to: number; side: "left" | "right" }
-
-export interface Stats {
-  name: string; level: number; exp: number; hp: number; maxHp: number; mp: number; maxMp: number; meso: number; job: string; classId: ClassId;
-  str: number; dex: number; int: number; luk: number; ap: number; sp: number; baseHp: number; baseMp: number; fame: number;
-}
-export interface AutoSettings { battle: boolean; hp: boolean; hpPct: number; mp: boolean; mpPct: number; buff: boolean; loot: boolean; ap: boolean; boss: boolean; magnet: boolean }
-
-export type ChatKind = "system" | "exp" | "meso" | "level" | "notice" | "say" | "item";
+export * from "./game-types.ts";
+import {
+  type Back,
+  type MapData,
+  type MobData,
+  type ItemEffFrame,
+  type ItemEffData,
+  type RemotePlayer,
+  type Mob,
+  type Drop,
+  type Projectile,
+  type Fx,
+  type DmgText,
+  type Portal,
+  type Stats,
+  type AutoSettings,
+  type ChatKind,
+  FREE_MARKET_MAP,
+  HUNTING_AREAS,
+  MAP_LINKS,
+  BODY,
+  DEFAULT_LOOK,
+  charUrlFor,
+  BOSSES,
+  STAGE_KILLS,
+  ANIMS,
+  EXP_TABLE,
+  expToLevel,
+  WALK,
+  JUMP,
+  CLIMB,
+  rand,
+} from "./game-types.ts";
+import { WorldRenderer } from "./systems/render-system.ts";
+import { AutoCombatSystem } from "./systems/auto-combat.ts";
+import { StageSystem } from "./systems/stage-system.ts";
 
 const emptyGt = () => ({ watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, att: 0, strP: 0, dexP: 0, intP: 0, lukP: 0, hpP: 0, boss: 0, meso: 0, drop: 0, exp: 0 });
 
@@ -336,7 +95,23 @@ export class Game extends ComponentBase {
   gt = emptyGt();
 
   spawnDrop(item: Partial<Drop>, x: number, y = this.p.y - 20, vx = rand(-40, 40), vy = -400) {
+    const id = item.item ?? item.mat ?? item.gear?.id;
+    if (id) {
+      if (this.assets) this.assets.load(itemIconRaw(id));
+      preloadIcon(itemIcon(id));
+    }
     this.drops.push({ x, y, vx, vy, fh: null, amount: 0, t: 0, picked: 0, ...item });
+  }
+
+  preloadItemIcons() {
+    for (const idStr of Object.keys(this.inv)) preloadIcon(itemIcon(Number(idStr)));
+    for (const idStr of Object.keys(this.mats)) preloadIcon(matIcon(Number(idStr)));
+    for (const g of Object.values(this.eq)) if (g) preloadIcon(gearIcon(g.id));
+    for (const g of Object.values(this.visualEq)) if (g) preloadIcon(gearIcon(g.id));
+    for (const g of this.bag) if (g) preloadIcon(gearIcon(g.id));
+    for (const a of Object.values(this.quick)) {
+      if (a && a.t === "item") preloadIcon(itemIcon(a.id));
+    }
   }
   stage = { n: 1, kills: 0, best: 1 };
   boss: Mob | null = null;
@@ -386,6 +161,14 @@ export class Game extends ComponentBase {
       n.startsWith("admin")
     );
   }
+
+  setGm(val: boolean) {
+    try {
+      if (val) localStorage.setItem("ms_is_gm", "true");
+      else localStorage.removeItem("ms_is_gm");
+    } catch {}
+    this.onChange();
+  }
   potCd = 0;
   ahT = 0;
   timers = { regen: 0, recovery: 0, self: 0 };
@@ -407,6 +190,9 @@ export class Game extends ComponentBase {
     lastJumpTime: 0,
     retreatTime: 0,
     retreatDir: 1 as -1 | 1,
+    ladderIntent: null as "up" | "down" | null,
+    ladderTimeout: 0,
+    ladderTopStuckTimer: 0,
   };
 
   p = {
@@ -482,10 +268,11 @@ export class Game extends ComponentBase {
     this.look = this.computeLook();
     for (const [a, fr] of Object.entries(ANIMS)) fr.forEach((_, i) => loads.push(this.assets.load(charUrlFor(this.look, a, i))));
     const fxs = [this.fxData.dmg, this.fxData.dmgFirst, this.fxData.hurt, this.fxData.hurtFirst].flatMap((o: any) => Object.values(o));
-    for (const s of [...fxs, ...this.fxData.meso, ...this.fxData.portal, this.fxData.miss] as Sprite[]) if (s) loads.push(this.assets.load(s.url));
+    for (const s of [...fxs, ...this.fxData.meso, ...this.fxData.portal, this.fxData.miss, ...(this.fxData.levelUp ?? [])] as Sprite[]) if (s) loads.push(this.assets.load(s.url));
     for (const a of Object.values(this.skillArt)) for (const f of [...a.effect, ...a.effect0, ...a.hit, ...(a.ball ?? [])]) this.assets.load(f.url);
     await this.loadMap(startMap, "spawn");
     this.updateActiveItemEffs();
+    this.preloadItemIcons();
     await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 25000))]);
   }
 
@@ -1083,7 +870,11 @@ export class Game extends ComponentBase {
   }
   jobFor(level: number) {
     const c = this.class;
-    return level >= c.tabLevel[3] ? c.tabs[3] : level >= c.tabLevel[2] ? c.tabs[2] : c.tabs[1];
+    if (c.tabs.length >= 5 && level >= c.tabLevel[4]) return c.tabs[4];
+    if (c.tabs.length >= 4 && level >= c.tabLevel[3]) return c.tabs[3];
+    if (c.tabs.length >= 3 && level >= c.tabLevel[2]) return c.tabs[2];
+    if (c.tabs.length >= 2 && level >= c.tabLevel[1]) return c.tabs[1];
+    return c.tabs[0];
   }
   recalc() {
     const s = this.stats, gt = emptyGt();
@@ -1433,12 +1224,12 @@ export class Game extends ComponentBase {
       const speed = 720;
       const step = speed * dt;
       if (dist <= step || (dist < 22 && (pr.target.state === "dead" || pr.target.state === "die1"))) {
-        if (pr.target.state !== "dead" && pr.target.state !== "die1") {
+        if (pr.target?.data && pr.target.state !== "dead" && pr.target.state !== "die1") {
           this.damageMob(pr.target, pr.dmg, pr.miss);
-          if (pr.skillId) {
-            const art = this.skillArt[pr.skillId];
-            if (art?.hit?.length) this.fx.push({ frames: art.hit, x: pr.target.x, y: pr.target.y - 25, flip: this.p.face === 1, t: 0 });
-          }
+        }
+        if (pr.skillId) {
+          const art = this.skillArt[pr.skillId];
+          if (art?.hit?.length) this.fx.push({ frames: art.hit, x: pr.target.x, y: pr.target.y - 25, flip: this.p.face === 1, t: 0 });
         }
         pr.t = 99;
       } else {
@@ -1450,509 +1241,19 @@ export class Game extends ComponentBase {
   }
 
   // ------------------------------------------------------------ auto battle
-  liveMobs() { return this.mobs.filter((m) => m.state !== "dead" && m.state !== "die1" && m.alpha >= 1); }
-
-  /** Skills currently on the hotbar that this character has learned and is eligible for. */
-  hotbarSkills(): SkillDef[] {
-    const ids = new Set<string>();
-    for (const a of Object.values(this.quick)) {
-      if (a?.t === "skill") ids.add(a.id);
-    }
-    return SKILL_DEFS.filter((d) => ids.has(d.id) && this.lv(d.id) > 0 && this.skillEligible(d.id));
-  }
-
-  /**
-   * Evaluates all hotbar attack/ranged skills (and basic attack) against live mobs
-   * in both directions (dir and -dir), calculating exact AoE coverage, hit counts,
-   * estimated kills, and total damage.
-   * Returns the attack option that maximizes damage and kills as many monsters as possible.
-   */
-  findBestSkillAttack(preferredDir: -1 | 1): { id: string | null; range: number; face: -1 | 1; hitCount: number; score: number } {
-    const s = this.stats, p = this.p;
-    const [lo, hi] = this.damageRange();
-    const avgBase = (lo + hi) / 2;
-    const candidates: Array<{ d: SkillDef | null; lv: number; mp: number; range: number; targets: number; hits: number; dmgPct: number }> = [];
-
-    for (const d of this.hotbarSkills()) {
-      if (d.kind !== "attack" && d.kind !== "ranged") continue;
-      if (this.skillCd[d.id]?.left > 0) continue;
-      const lv = this.lv(d.id);
-      const mp = d.mp(lv);
-      if (s.mp < mp) continue;
-      candidates.push({
-        d,
-        lv,
-        mp,
-        range: d.range ?? 90,
-        targets: d.targets ?? 1,
-        hits: d.hits ?? 1,
-        dmgPct: d.dmg ? d.dmg(lv) : 100,
-      });
-    }
-
-    if (Object.values(this.quick).some((a) => a?.t === "attack") || candidates.length === 0) {
-      candidates.push({
-        d: null,
-        lv: 1,
-        mp: 0,
-        range: 85,
-        targets: 1,
-        hits: 1,
-        dmgPct: 100,
-      });
-    }
-
-    const mobs = this.liveMobs();
-    let best = { id: candidates[0]?.d?.id ?? null, range: candidates[0]?.range ?? 85, face: preferredDir, hitCount: 0, score: -1 };
-
-    const directions: Array<-1 | 1> = [preferredDir, preferredDir === 1 ? -1 : 1];
-
-    for (const dir of directions) {
-      for (const cand of candidates) {
-        const range = cand.range;
-        const x0 = dir === 1 ? p.x - 10 : p.x - range;
-        const x1 = dir === 1 ? p.x + range : p.x + 10;
-        const y0 = p.y - (cand.d ? 100 : 70);
-        const y1 = p.y + 10;
-
-        const inAoE = mobs.filter((m) => {
-          const b = this.mobBox(m);
-          return b.x1 > x0 && b.x0 < x1 && b.y1 > y0 && b.y0 < y1;
-        });
-
-        inAoE.sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x));
-        const hitMobs = inAoE.slice(0, cand.targets);
-        const hitCount = hitMobs.length;
-
-        const expectedDmg = avgBase * (cand.dmgPct / 100) * cand.hits;
-        let kills = 0;
-        let totalDmg = 0;
-        for (const m of hitMobs) {
-          totalDmg += Math.min(m.hp, expectedDmg);
-          if (m.hp <= expectedDmg) kills++;
-        }
-
-        const dirBonus = dir === preferredDir ? 15 : 0;
-        let score = 0;
-        if (hitCount > 0) {
-          score = (hitCount * 250) + (kills * 400) + (totalDmg * 0.1) - (cand.mp * 0.2) + dirBonus;
-        } else {
-          score = (cand.targets * 15) + (expectedDmg * 0.05) + (range * 0.05) - (cand.mp * 0.1) + dirBonus;
-        }
-
-        if (score > best.score) {
-          best = {
-            id: cand.d ? cand.d.id : null,
-            range,
-            face: dir,
-            hitCount,
-            score,
-          };
-        }
-      }
-    }
-
-    return best;
-  }
-
-  /** Picks the best attack among only the skills the player has assigned to their hotbar. */
-  bestAttack(dir: -1 | 1): { id: string | null; range: number } {
-    const res = this.findBestSkillAttack(dir);
+  liveMobs() { return AutoCombatSystem.liveMobs(this); }
+  hotbarSkills() { return AutoCombatSystem.hotbarSkills(this); }
+  findBestSkillAttack(preferredDir: -1 | 1) { return AutoCombatSystem.findBestSkillAttack(this, preferredDir); }
+  bestAttack(dir: -1 | 1) {
+    const res = AutoCombatSystem.findBestSkillAttack(this, dir);
     return { id: res.id, range: res.range };
   }
+  isWallBlocking(x: number, y: number, dir: -1 | 1) { return AutoCombatSystem.isWallBlocking(this.tree, x, y, dir); }
+  autoBuffHotbar() { AutoCombatSystem.autoBuffHotbar(this); }
+  platformBounds(fh: Foothold) { return AutoCombatSystem.platformBounds(this.tree, fh); }
+  runAuto(dt: number) { AutoCombatSystem.update(this, dt); }
 
-  /** Checks if an impassable wall (height > 75px) blocks horizontal movement in direction dir. */
-  isWallBlocking(x: number, y: number, dir: -1 | 1): boolean {
-    for (const w of this.tree.walls) {
-      const dx = (w.x1 - x) * dir;
-      if (dx >= 0 && dx <= 25) {
-        const top = Math.min(w.y1, w.y2);
-        const bot = Math.max(w.y1, w.y2);
-        if (y >= top && y <= bot + 20) {
-          if (y - top > 75) return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /** Auto-buffs only skills on the hotbar. */
-  autoBuffHotbar() {
-    for (const d of this.hotbarSkills()) {
-      if (d.kind !== "buff") continue;
-      if (this.skillCd[d.id]?.left > 0) continue;
-      const b = this.buffs[d.id];
-      if ((!b || b.left < 3) && this.stats.mp >= d.mp(this.lv(d.id)) + 10) {
-        this.useAction({ t: "skill", id: d.id }, true);
-        break;
-      }
-    }
-  }
-
-  /** Finds the horizontal span of the contiguous walkable platform for a foothold. */
-  platformBounds(fh: Foothold): { minX: number; maxX: number; leftWall: boolean; rightWall: boolean } {
-    const tree = this.tree;
-    let curr = fh;
-    let minX = curr.x1;
-    let leftWall = false;
-    let guard = 0;
-    while (curr.prev && guard++ < 32) {
-      const prev = tree.byId.get(curr.prev);
-      if (!prev) break;
-      if (prev.x1 === prev.x2) {
-        if (prev.y1 > prev.y2 && (prev.y1 - prev.y2) > 75) leftWall = true;
-        break;
-      }
-      curr = prev;
-      minX = curr.x1;
-    }
-    curr = fh;
-    let maxX = curr.x2;
-    let rightWall = false;
-    guard = 0;
-    while (curr.next && guard++ < 32) {
-      const next = tree.byId.get(curr.next);
-      if (!next) break;
-      if (next.x1 === next.x2) {
-        if (next.y2 < next.y1 && (next.y1 - next.y2) > 75) rightWall = true;
-        break;
-      }
-      curr = next;
-      maxX = curr.x2;
-    }
-    return { minX, maxX, leftWall, rightWall };
-  }
-
-  runAuto(dt: number) {
-    const ai = this.ai, p = this.p, tree = this.tree;
-    ai.keys.clear();
-    if (!this.auto.battle || this.map?.id === FREE_MARKET_MAP) return;
-    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "a", "A", "d", "D", "w", "W", "s", "S", "Alt", " ", "c", "C", "x", "X", "z", "Z"].some((k) => this.keys.has(k)) || Object.keys(this.quick).some((k) => this.pressed.has(k))) ai.hold = 1.2;
-    ai.hold = Math.max(0, ai.hold - dt);
-    ai.jumpCooldown = Math.max(0, ai.jumpCooldown - dt);
-    if (ai.hold > 0 || p.attack > 0) return;
-    if (this.auto.loot) ai.keys.add("z");
-    for (const [m, t] of ai.ban) if (t < this.time) ai.ban.delete(m);
-
-    // Active retreat to break out of jump loops or obstacles
-    if (ai.retreatTime > 0) {
-      ai.retreatTime -= dt;
-      ai.keys.add(ai.retreatDir > 0 ? "ArrowRight" : "ArrowLeft");
-      return;
-    }
-
-    // If area boss is defeated and auto-combat is ON, navigate to the right portal to advance to the next area!
-    if (this.areaBossDefeated && this.map.id !== FREE_MARKET_MAP) {
-      const rightPortal = this.portals.find((pt) => pt.side === "right");
-      if (rightPortal) {
-        if (Math.abs(rightPortal.x - p.x) < 35 && Math.abs(rightPortal.y - p.y) < 55) {
-          ai.keys.add("ArrowUp");
-          return;
-        }
-        const pDir = rightPortal.x > p.x ? "ArrowRight" : "ArrowLeft";
-        ai.keys.add(pDir);
-        if (rightPortal.y < p.y - 40 && ai.jumpCooldown <= 0) {
-          ai.keys.add("Alt");
-          ai.jumpCooldown = 0.6;
-        }
-        return;
-      }
-    }
-
-    ai.think -= dt;
-    const alive = this.liveMobs().filter((m) => !ai.ban.has(m));
-
-    // ---- Smarter target selection -------------------------------------------
-    // 1. Prioritize live mobs on the CURRENT contiguous platform first (edge to edge clearing).
-    // 2. Next, prefer mobs on the same horizontal band.
-    // 3. Finally, pick closest reachable mob.
-    const currentPlat = p.fh ? this.platformBounds(p.fh) : null;
-    if (!ai.target || ai.target.state === "dead" || ai.target.state === "die1" || ai.think <= 0) {
-      ai.think = 0.35;
-      let pool = alive;
-      if (currentPlat) {
-        const onCurrentPlat = alive.filter(
-          (m) => m.x >= currentPlat.minX - 15 && m.x <= currentPlat.maxX + 15 && Math.abs(m.y - p.y) < 30
-        );
-        if (onCurrentPlat.length > 0) pool = onCurrentPlat;
-      }
-      if (pool === alive) {
-        const sameBand = alive.filter((m) => Math.abs(m.y - p.y) < 65);
-        pool = sameBand.length ? sameBand : alive;
-      }
-      let best: Mob | null = null, bs = Infinity;
-      for (const m of pool) {
-        const sc = Math.abs(m.x - p.x) + Math.abs(m.y - p.y) * 2.8;
-        if (sc < bs) { bs = sc; best = m; }
-      }
-      if (best !== ai.target) ai.stuck = 0;
-      ai.target = best;
-    }
-
-    // Loot nearby drops when nothing is immediately pressing
-    const drop = this.auto.loot ? this.drops.find((d) => !d.picked && d.fh && Math.abs(d.y - p.y) < 30 && Math.abs(d.x - p.x) < 220) : null;
-    const t = ai.target;
-    const near = t && Math.abs(t.x - p.x) < 140 && Math.abs(t.y - p.y) < 60;
-    const goal = drop && !near ? { x: drop.x, y: drop.y } : t ? { x: t.x, y: t.y } : null;
-    if (!goal) return;
-    const dx = goal.x - p.x, dy = goal.y - p.y;
-    const dir = (dx >= 0 ? 1 : -1) as -1 | 1;
-
-    // ---- Area of Effect (AoE) Skill Combat Evaluation -----------------------
-    // Calculate best skill in either direction. If any skill hits monsters RIGHT NOW,
-    // face that direction and fire immediately!
-    const bestCombat = this.findBestSkillAttack(dir);
-    if (bestCombat.hitCount > 0) {
-      p.face = bestCombat.face;
-      this.startAttack(bestCombat.id);
-      return;
-    }
-
-    // Jump loop detection: jumping repeatedly in place without horizontal progress
-    if (p.fh && ai.lastJumpTime > 0 && this.time - ai.lastJumpTime > 0.28) {
-      if (Math.abs(p.x - ai.lastJumpX) < 18 && Math.abs(p.y - ai.lastJumpY) < 15) {
-        ai.jumpLoopCount++;
-        if (ai.jumpLoopCount >= 2) {
-          if (t) {
-            ai.ban.set(t, this.time + 6); // Ban target so we switch targets
-            ai.target = null;
-          }
-          ai.jumpLoopCount = 0;
-          ai.stuck = 0;
-          ai.retreatTime = 1.0;
-          ai.retreatDir = -dir as -1 | 1;
-          ai.lastJumpTime = 0;
-          return;
-        }
-      } else {
-        ai.jumpLoopCount = 0;
-      }
-      ai.lastJumpTime = 0;
-    }
-
-    // Stuck detection
-    if (Math.abs(p.x - ai.lastX) < 1.5 && !p.ladder) ai.stuck += dt; else ai.stuck = Math.max(0, ai.stuck - dt * 2);
-    ai.lastX = p.x;
-    if (ai.stuck > 3.0 && t) {
-      ai.ban.set(t, this.time + 6);
-      ai.target = null;
-      ai.stuck = 0;
-      ai.retreatTime = 0.9;
-      ai.retreatDir = -dir as -1 | 1;
-      return;
-    }
-
-    if (ai.ladderCooldown > 0) ai.ladderCooldown -= dt;
-
-    // Ladders & ropes climbing
-    if (p.ladder) {
-      const L = p.ladder;
-      if (dy < -12) {
-        // Target is higher up: climb upwards until we land on the top floor
-        ai.keys.add("ArrowUp");
-        // Near top of ladder: step or jump off towards horizontal goal
-        if (p.y <= L.y1 + 4) {
-          ai.keys.add(dx >= 0 ? "ArrowRight" : "ArrowLeft");
-          ai.pressed.add(" ");
-          ai.ladderCooldown = 0.6;
-        }
-      } else if (dy > 12) {
-        // Target is lower down: climb downwards
-        ai.keys.add("ArrowDown");
-        // Near bottom of ladder: step or jump off
-        if (p.y >= L.y2 - 6) {
-          ai.keys.add(dx >= 0 ? "ArrowRight" : "ArrowLeft");
-          ai.ladderCooldown = 0.6;
-        }
-      } else {
-        // At approximately target's vertical level: dismount horizontally towards target
-        ai.keys.add(dx >= 0 ? "ArrowRight" : "ArrowLeft");
-        ai.pressed.add(" ");
-        ai.ladderCooldown = 0.6;
-      }
-      return;
-    }
-
-    // Airborne handling: air control, ladder grabbing, coyote jump, and War Leap double jump
-    if (!p.fh) {
-      if (Math.abs(dx) > 8) ai.keys.add(dir > 0 ? "ArrowRight" : "ArrowLeft");
-
-      // Mid-air ladder grab if intersecting a ladder leading toward goal (only if cooldown expired)
-      if (ai.ladderCooldown <= 0) {
-        const airLadder = this.map.ladders.find(
-          (L) => Math.abs(L.x - p.x) < 25 && p.y > L.y1 - 15 && p.y < L.y2 + 15 && ((dy < -10 && L.y1 < p.y) || (dy > 10 && L.y2 > p.y))
-        );
-        if (airLadder) {
-          ai.keys.add(dy < 0 ? "ArrowUp" : "ArrowDown");
-          return;
-        }
-      }
-
-      // Coyote jump if stepped 1px off platform edge
-      if (p.coyote > 0 && ai.jumpCooldown <= 0) {
-        ai.pressed.add(" ");
-        ai.jumpCooldown = 0.35;
-        ai.lastJumpX = p.x;
-        ai.lastJumpY = p.y;
-        ai.lastJumpTime = this.time;
-        return;
-      }
-
-      // Double jump (War Leap) across gaps or upwards
-      const leapOnHotbar = Object.values(this.quick).some((a) => a?.t === "skill" && a.id === "1001008");
-      if (leapOnHotbar && !p.leapt && this.lv("1001008") > 0 && p.airTime >= 0.08 && (Math.abs(dx) > 35 || dy < -15)) {
-        ai.pressed.add(" ");
-      }
-      return;
-    }
-
-    // Platform navigation
-    const plat = currentPlat ?? this.platformBounds(p.fh);
-    const onSamePlat = t && (t.x >= plat.minX - 15 && t.x <= plat.maxX + 15 && Math.abs(t.y - p.y) < 30);
-
-    if (onSamePlat) {
-      // Target is on the same platform: walk directly toward it and attack when in AoE range
-      if (Math.abs(dx) <= bestCombat.range * 0.9) {
-        p.face = dir;
-        this.startAttack(bestCombat.id);
-        return;
-      }
-      ai.keys.add(dir > 0 ? "ArrowRight" : "ArrowLeft");
-      if (ai.stuck > 0.8 && !this.isWallBlocking(p.x, p.y, dir) && ai.jumpCooldown <= 0) {
-        ai.pressed.add(" ");
-        ai.jumpCooldown = 0.45;
-        ai.lastJumpX = p.x;
-        ai.lastJumpY = p.y;
-        ai.lastJumpTime = this.time;
-      }
-      return;
-    }
-
-    // Target is NOT on the same platform:
-    // 1. Drop down or take ladder down if target is below
-    if (dy > 25) {
-      // 1a. Check for accessible ladder leading down from current platform
-      const ladderDown = this.map.ladders
-        .filter((L) => L.y2 > p.y + 20 && Math.abs(L.y1 - p.y) < 35 && L.x >= plat.minX - 35 && L.x <= plat.maxX + 35)
-        .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
-      if (ladderDown && ai.ladderCooldown <= 0) {
-        const dist = ladderDown.x - p.x;
-        if (Math.abs(dist) > 12) {
-          ai.keys.add(dist > 0 ? "ArrowRight" : "ArrowLeft");
-        } else {
-          ai.keys.add("ArrowDown");
-        }
-        if (Math.abs(dist) <= 22) {
-          ai.keys.add("ArrowDown");
-        }
-        return;
-      }
-      // 1b. Drop down through floor if possible
-      const below = tree.below(p.x, p.y + 4, p.fh.id);
-      if (below && FootholdTree.yAt(below, p.x) - p.y < 600 && Math.abs(dx) < 260) {
-        ai.keys.add("ArrowDown");
-        ai.pressed.add(" ");
-        ai.jumpCooldown = 0.35;
-        return;
-      }
-    }
-
-    // 2. Target is above (dy < -25): prioritize ladder leading up, otherwise overhead platform jump
-    if (dy < -25) {
-      // 2a. Check for accessible ladder on this platform that leads upward toward the target
-      const accessibleLadder = this.map.ladders
-        .filter((L) => {
-          if (L.y1 >= p.y - 20) return false; // Must lead up
-          if (p.y < L.y1 - 10 || p.y > L.y2 + 25) return false; // Must be vertically reachable
-          return L.x >= plat.minX - 35 && L.x <= plat.maxX + 35;
-        })
-        .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
-
-      if (accessibleLadder && ai.ladderCooldown <= 0) {
-        const dist = accessibleLadder.x - p.x;
-        if (Math.abs(dist) > 12) {
-          ai.keys.add(dist > 0 ? "ArrowRight" : "ArrowLeft");
-        } else {
-          ai.keys.add("ArrowUp");
-        }
-        if (Math.abs(dist) <= 22) {
-          ai.keys.add("ArrowUp");
-        }
-        return;
-      }
-
-      // 2b. Check for overhead platforms within jump reach (DeltaY between -20 and -135)
-      const overhead = tree.floors
-        .filter((f) => {
-          if (f.id === p.fh?.id) return false;
-          const fy = (f.y1 + f.y2) / 2;
-          const deltaY = fy - p.y;
-          if (deltaY > -20 || deltaY < -135) return false;
-          const minOverlap = Math.max(plat.minX - 40, f.x1 - 40);
-          const maxOverlap = Math.min(plat.maxX + 40, f.x2 + 40);
-          return minOverlap <= maxOverlap;
-        })
-        .sort((a, b) => {
-          const ay = (a.y1 + a.y2) / 2, by = (b.y1 + b.y2) / 2;
-          return Math.abs(ay - goal.y) - Math.abs(by - goal.y);
-        })[0];
-
-      if (overhead) {
-        const landingX = Math.max(overhead.x1 + 15, Math.min(overhead.x2 - 15, p.x + (dx >= 0 ? 35 : -35)));
-        const distToLanding = landingX - p.x;
-        if (Math.abs(distToLanding) > 15) {
-          ai.keys.add(distToLanding > 0 ? "ArrowRight" : "ArrowLeft");
-        }
-        if (p.x >= overhead.x1 - 25 && p.x <= overhead.x2 + 25 && ai.jumpCooldown <= 0) {
-          ai.pressed.add(" ");
-          ai.jumpCooldown = 0.35;
-          ai.lastJumpX = p.x;
-          ai.lastJumpY = p.y;
-          ai.lastJumpTime = this.time;
-          return;
-        }
-      }
-    }
-
-    // 3. Edge-to-edge traversal: walk right to the platform edge before leaping across or down
-    if (dir > 0) {
-      if (plat.rightWall || this.isWallBlocking(plat.maxX, p.y, 1)) {
-        if (t) ai.ban.set(t, this.time + 5);
-        ai.retreatTime = 0.9;
-        ai.retreatDir = -1;
-        return;
-      }
-      ai.keys.add("ArrowRight");
-      // Jump at the very edge of the platform to leap across
-      if (p.x >= plat.maxX - 14 && ai.jumpCooldown <= 0) {
-        ai.pressed.add(" ");
-        ai.jumpCooldown = 0.35;
-        ai.lastJumpX = p.x;
-        ai.lastJumpY = p.y;
-        ai.lastJumpTime = this.time;
-        return;
-      }
-    } else {
-      if (plat.leftWall || this.isWallBlocking(plat.minX, p.y, -1)) {
-        if (t) ai.ban.set(t, this.time + 5);
-        ai.retreatTime = 0.9;
-        ai.retreatDir = 1;
-        return;
-      }
-      ai.keys.add("ArrowLeft");
-      // Jump at the very edge of the platform to leap across
-      if (p.x <= plat.minX + 14 && ai.jumpCooldown <= 0) {
-        ai.pressed.add(" ");
-        ai.jumpCooldown = 0.35;
-        ai.lastJumpX = p.x;
-        ai.lastJumpY = p.y;
-        ai.lastJumpTime = this.time;
-        return;
-      }
-    }
-  }
-
-  updatePlayer(dt: number) {
+    updatePlayer(dt: number) {
     const p = this.p, s = this.stats, tree = this.tree;
     p.invuln = Math.max(0, p.invuln - dt);
     p.alert = Math.max(0, p.alert - dt);
@@ -2098,8 +1399,8 @@ export class Game extends ComponentBase {
 
       // Reaching the top of a ladder/rope
       if (p.y <= L.y1) {
-        const land = tree.landingNear(L.x, L.y1 - 35, L.y1 + 35, 32) ?? tree.belowNear(L.x, L.y1 - 10, 32);
-        if (land && Math.abs(land.y - L.y1) < 45) {
+        const land = tree.landingNear(L.x, L.y1 - 45, L.y1 + 45, 48) ?? tree.belowNear(L.x, L.y1 - 10, 48);
+        if (land && Math.abs(land.y - L.y1) < 55) {
           p.ladder = null;
           p.fh = land.fh;
           p.x = land.x;
@@ -2110,7 +1411,7 @@ export class Game extends ComponentBase {
         }
       } else if (p.y >= L.y2) {
         // Reaching the bottom of a ladder/rope
-        const land = tree.landingNear(L.x, L.y2 - 25, L.y2 + 45, 32) ?? tree.belowNear(L.x, L.y2 - 10, 32);
+        const land = tree.landingNear(L.x, L.y2 - 30, L.y2 + 55, 48) ?? tree.belowNear(L.x, L.y2 - 10, 48);
         p.ladder = null;
         if (land) {
           p.fh = land.fh;
@@ -2244,6 +1545,9 @@ export class Game extends ComponentBase {
   }
 
   mobBox(m: Mob) {
+    if (!m || !m.data || !m.data.books) {
+      return { x0: (m?.x ?? 0) - 20, x1: (m?.x ?? 0) + 20, y0: (m?.y ?? 0) - 40, y1: m?.y ?? 0 };
+    }
     const st = m.data.books.stand?.[0] ?? m.data.books.move?.[0];
     const w = st ? st.w * 0.7 : 40, h = st ? st.h * 0.85 : 40;
     return { x0: m.x - w / 2, x1: m.x + w / 2, y0: m.y - h, y1: m.y };
@@ -2333,6 +1637,7 @@ export class Game extends ComponentBase {
   }
 
   damageMob(m: Mob, dmg: number, miss: boolean) {
+    if (!m || !m.data) return;
     if (this.oneHitKill) {
       dmg = 9999999;
       miss = false;
@@ -2421,6 +1726,8 @@ export class Game extends ComponentBase {
         p.invuln = 2; p.alert = 3;
         const away = p.x < m.x ? -1 : 1;
         p.ladder = null; p.fh = null; p.vx = away * 130; p.vy = -260; p.attack = 0;
+        this.ai.ladderIntent = null;
+        this.ai.ladderCooldown = 0.6;
         if (this.stats.hp <= 0) this.die();
         return;
       }
@@ -2633,6 +1940,7 @@ export class Game extends ComponentBase {
   }
 
   updateMob(m: Mob, dt: number) {
+    if (!m || !m.data || !m.data.books) return;
     const tree = this.tree;
     m.hpShow = Math.max(0, m.hpShow - dt);
     m.aggro = Math.max(0, m.aggro - dt);
@@ -2660,7 +1968,10 @@ export class Game extends ComponentBase {
     if (m.state === "dead") {
       m.respawn -= dt;
       if (m.boss) { this.mobs = this.mobs.filter((x) => x !== m); return; }
-      if (m.respawn <= 0) Object.assign(m, this.makeMob(m.spawn), { alpha: 0 });
+      if (m.respawn <= 0) {
+        const fresh = this.makeMob(m.spawn);
+        if (fresh) Object.assign(m, fresh, { alpha: 0 });
+      }
       return;
     }
     if (m.alpha < 1) m.alpha = Math.min(1, m.alpha + dt * 1.5);
@@ -2944,90 +2255,16 @@ export class Game extends ComponentBase {
   }
 
   // ------------------------------------------------------------ stages & bosses
-  stageMul(n = this.stage.n) { return { hp: Math.pow(1.16, n - 1), dmg: Math.pow(1.07, n - 1), exp: Math.pow(1.11, n - 1), meso: Math.pow(1.1, n - 1) }; }
+  stageMul(n = this.stage.n) { return StageSystem.stageMul(n); }
   get stageNeed() { return STAGE_KILLS; }
-  bossReady() { return this.stage.kills >= STAGE_KILLS && !this.boss; }
-  bossFor(n = this.stage.n) { return BOSSES[(n - 1) % BOSSES.length]; }
-
-  async challengeBoss() {
-    if (this.boss || this.bossLoading || !this.bossReady() || this.loadingMap) return;
-    this.bossLoading = true;
-    const id = this.bossFor();
-    try {
-      if (!this.mobData.has(id)) this.mobData.set(id, await json(`/wz/data/mob/${id}`));
-      const data = this.mobData.get(id)!;
-      await Promise.race([Promise.all(Object.values(data.books).flat().map((s) => Promise.resolve(this.assets.load(s.url)).catch(() => null))), new Promise((r) => setTimeout(r, 15000))]);
-      const p = this.p;
-      const ref = this.mobs.find((m) => !m.boss);
-      const refHp = ref ? ref.maxHp : 100 * this.stageMul().hp;
-      const x = Math.max(this.tree.minX + 60, Math.min(this.tree.maxX - 60, p.x + p.face * 260));
-      const fh = this.tree.landing(x, p.y - 200, p.y + 200) ?? p.fh;
-      const spawn = { id, x, y: fh ? FootholdTree.yAt(fh, x) : p.y, fh: fh?.id ?? 0, rx0: this.bounds.l + 30, rx1: this.bounds.r - 30 };
-      const m = this.makeMob(spawn)!;
-      m.boss = true;
-      m.maxHp = m.hp = Math.round(refHp * 28 * (1 + this.stage.n * 0.04));
-      m.atk = Math.round((ref?.atk ?? 15) * 2.2);
-      m.mul = { exp: (ref?.mul.exp ?? 1) * 1, meso: ref?.mul.meso ?? 1 };
-      m.aggro = 999; m.skillT = 3; m.alpha = 0;
-      this.mobs.push(m);
-      this.boss = m;
-      this.bossTimer = 120;
-      this.onChat("notice", `Stage ${this.stage.n} boss: ${data.name.trim()} has appeared! Defeat it within 2 minutes.`);
-      this.onBoss(m);
-    } finally { this.bossLoading = false; }
-  }
-  endBoss(won: boolean) {
-    const m = this.boss;
-    if (!m) return;
-    this.boss = null;
-    if (!won) {
-      this.mobs = this.mobs.filter((x) => x !== m);
-      this.onChat("notice", `${m.data.name.trim()} escaped. Gather your strength and challenge it again.`);
-    } else {
-      const s = this.stage;
-      const ref = this.mobs.find((x) => !x.boss);
-      const exp = Math.round((ref?.data.meta?.exp ?? 15) * (ref?.mul.exp ?? 1) * 18);
-      this.gainExp(exp);
-      for (let i = 0; i < 6; i++) this.spawnDrop({ amount: Math.round(rand(20, 40) * m.mul.meso * (1 + this.gt.meso / 100)) }, m.x + rand(-60, 60), m.y - 30, rand(-90, 90), -rand(380, 520));
-      const gearN = 1 + (Math.random() < 0.5 ? 1 : 0);
-      for (let i = 0; i < gearN; i++) this.spawnDrop({ gear: makeGear(randomGearFor(this.stats.level + 5), 1.6, 1) }, m.x + rand(-40, 40), m.y - 30, rand(-80, 80), -480);
-      const bm = MOB_MAT[m.data.id];
-      if (bm) for (let i = 0; i < 3; i++) this.spawnDrop({ mat: bm }, m.x + rand(-50, 50), m.y - 30, rand(-70, 70), -440);
-      for (let i = 0; i < 2; i++) this.spawnDrop({ mat: ORES[Math.min(ORES.length - 1, Math.floor(s.n / 3) % ORES.length)] }, m.x + rand(-50, 50), m.y - 30, rand(-70, 70), -440);
-      s.n++; s.kills = 0; s.best = Math.max(s.best, s.n);
-      this.areaBossDefeated = true;
-      this.onChat("level", `Stage cleared! Welcome to Stage ${s.n}. Monsters grow stronger — and so do their rewards.`);
-      this.onChat("notice", "★ Area Boss Defeated! Enter the right portal with Auto Combat ON to advance to the next area!");
-      for (const x of this.mobs) if (!x.boss) { const sc = this.stageMul(); x.maxHp = Math.round((x.data.meta?.maxHP ?? 50) * sc.hp); x.hp = Math.min(x.hp, x.maxHp); x.mul = { exp: sc.exp, meso: sc.meso }; x.atk = this.mobAtk(x.data); }
-    }
-    this.onBoss(null);
-    this.onChange();
-  }
+  bossReady() { return StageSystem.bossReady(this); }
+  bossFor(n = this.stage.n) { return StageSystem.bossFor(n); }
+  challengeBoss() { return StageSystem.challengeBoss(this); }
+  endBoss(won: boolean) { return StageSystem.endBoss(this, won); }
   mobAtk(d: MobData) { return Math.max(1, (d.meta?.physicalDamage ?? 10) * 0.4 * this.stageMul().dmg); }
-
-  /** Grants progress earned while the game was closed (auto battle at 60% efficiency, up to 12 h). */
-  offlineRewards(savedAt: number) {
-    const seconds = Math.min(12 * 3600, Math.max(0, (Date.now() - savedAt) / 1000));
-    if (seconds < 120) return;
-    const kills = Math.floor(seconds * this.idle.killRate * 0.6);
-    if (kills <= 0) return;
-    const exp = Math.round(kills * this.idle.expPerKill);
-    const meso = Math.round(kills * this.idle.mesoPerKill);
-    const mats: Record<number, number> = {};
-    const mm = this.map ? [...new Set(this.map.spawns.map((s) => MOB_MAT[s.id]).filter(Boolean))] : [4000001];
-    for (const id of mm) mats[id] = Math.floor((kills * 0.35) / mm.length);
-    mats[ORES[Math.floor(Math.random() * 3)]] = Math.floor(kills * 0.04);
-    const gear: Gear[] = [];
-    for (let i = 0; i < Math.min(8, Math.floor(kills / 120)); i++) gear.push(makeGear(randomGearFor(this.stats.level), 0.4));
-    this.onOffline({ seconds, kills, exp, meso, mats, gear });
-  }
+  offlineRewards(savedAt: number) { return StageSystem.offlineRewards(this, savedAt); }
   claimOffline(r: { kills: number; exp: number; meso: number; mats: Record<number, number>; gear: Gear[] }, mult = 1) {
-    this.stats.meso += Math.round(r.meso * mult);
-    for (const [id, n] of Object.entries(r.mats)) this.mats[+id] = (this.mats[+id] ?? 0) + Math.round(n * mult);
-    for (const g of r.gear) this.addGear(g);
-    this.stage.kills = Math.min(STAGE_KILLS, this.stage.kills + r.kills);
-    this.gainExp(Math.round(r.exp * mult));
-    this.onChange();
+    return StageSystem.claimOffline(this, r, mult);
   }
 
   // ------------------------------------------------------------ save data
@@ -3057,487 +2294,15 @@ export class Game extends ComponentBase {
     if (d.idle) Object.assign(this.idle, d.idle);
     if (d.ah) this.ah.restore(d.ah);
     this.recalc();
+    this.preloadItemIcons();
   }
 
   // ------------------------------------------------------------ rendering
   draw() {
-    const r = this.r;
-    r.resize();
-    r.begin();
-    if (!this.map) { r.end(); return; }
-    const cx = Math.round(this.cam.x), cy = Math.round(this.cam.y);
-    this.drawBacks(false, cx, cy);
-    const mt = this.assets.get(this.map.render);
-    if (mt) r.draw(mt, -this.map.renderOrigin.x - cx, -this.map.renderOrigin.y - cy);
-
-    // Portals.
-    const pf: Sprite[] = this.fxData?.portal;
-    if (pf?.length && this.portals.length) {
-      const ready = pf.filter((f) => f.w > 2 && f.h > 2);
-      let fr: Sprite | null = null;
-      let tex: Tex | null = null;
-      if (ready.length) {
-        const total = ready.reduce((n, f) => n + (f.delay ?? 100), 0) || 700;
-        let t = (this.time * 1000) % total;
-        fr = ready[ready.length - 1];
-        for (const f of ready) {
-          const d = f.delay ?? 100;
-          if (t < d) { fr = f; break; }
-          t -= d;
-        }
-        tex = this.assets.get(fr.url);
-        if (tex) {
-          this.lastPortalTex = tex;
-          this.lastPortalFr = fr;
-        }
-      }
-      if (!tex && this.lastPortalTex && this.lastPortalFr) {
-        tex = this.lastPortalTex;
-        fr = this.lastPortalFr;
-      }
-      if (tex && fr) {
-        for (const pt of this.portals) {
-          r.draw(tex, Math.round(pt.x - fr.ox - cx), Math.round(pt.y - fr.oy - cy), fr.w, fr.h);
-        }
-      }
-    }
-
-    for (const m of this.mobs) this.drawMob(m, cx, cy);
-    for (const d of this.drops) {
-      if (d.item || d.mat || d.gear) {
-        const t = this.assets.get(itemIconRaw(d.item ?? d.mat ?? d.gear!.id));
-        if (t && d.gear && d.gear.rarity > 0) {
-          const c = [[1, 1, 1], [0.4, 0.85, 1], [0.78, 0.49, 1], [1, 0.8, 0.2], [0.36, 1, 0.48]][d.gear.rarity];
-          const pulse = 0.35 + 0.25 * Math.sin(this.time * 6);
-          r.rect(Math.round(d.x - 12 - cx), Math.round(d.y - 4 - cy), 24, 4, [c[0], c[1], c[2], pulse]);
-        }
-        if (t) r.draw(t, Math.round(d.x - t.w / 2 - cx), Math.round(d.y - t.h - cy - (d.fh ? Math.abs(Math.sin(d.t * 3)) * 3 : 0)), t.w, t.h, { alpha: d.picked ? Math.max(0, 1 - d.picked / 0.45) : 1 });
-        continue;
-      }
-      const fr: Sprite = this.fxData.meso[Math.floor(d.t * 8) % this.fxData.meso.length];
-      const t = fr && this.assets.get(fr.url);
-      if (t) r.draw(t, d.x - fr.ox - cx, d.y - fr.oy - cy - (d.fh ? Math.abs(Math.sin(d.t * 3)) * 3 : 0), fr.w, fr.h, { alpha: d.picked ? Math.max(0, 1 - d.picked / 0.45) : 1 });
-    }
-    for (const rp of this.remotePlayers.values()) {
-      this.drawRemotePlayer(rp, cx, cy);
-    }
-    this.drawPlayer(cx, cy);
-    for (const f of this.fx) this.drawFx(f, cx, cy);
-    // Projectiles render with the skill's real ball frame when available, otherwise
-    // the first effect frame or shared snail-shell sprite.
-    for (const pr of this.projectiles) {
-      if (pr.t < 0) continue;
-      let fr: Sprite | null = null;
-      if (pr.skillId) {
-        const art = this.skillArt[pr.skillId];
-        if (art?.ball?.length) {
-          fr = art.ball[Math.floor(pr.t * 12) % art.ball.length];
-        } else if (this.throwingStarFrames.length > 0 && (pr.skillId.startsWith("4") || this.stats.classId === "thief")) {
-          fr = this.throwingStarFrames[Math.floor(this.time * 24) % this.throwingStarFrames.length];
-        } else if (art?.effect?.length) {
-          fr = art.effect[0];
-        }
-      }
-      if (!fr && this.throwingStarFrames.length > 0 && (this.stats.classId === "thief" || this.p.skill?.startsWith("4"))) {
-        fr = this.throwingStarFrames[Math.floor(this.time * 24) % this.throwingStarFrames.length];
-      }
-      if (!fr) fr = this.snailShell;
-      if (!fr) continue;
-      const st = this.assets.get(fr.url);
-      if (st) {
-        const ox = fr.ox ?? Math.round(fr.w / 2);
-        const oy = fr.oy ?? Math.round(fr.h / 2);
-        const art = pr.skillId ? this.skillArt[pr.skillId] : null;
-        const isStar = this.throwingStarFrames.includes(fr);
-        const movingRight = pr.target ? pr.target.x >= pr.x : this.p.face === 1;
-        const flip = (art?.ball && art.ball.length > 1) ? (Math.floor(pr.t * 12) % 2 === 0) : (isStar ? (Math.floor(this.time * 20) % 2 === 0) : movingRight);
-        r.draw(st, Math.round(pr.x - ox - cx), Math.round(pr.y - oy - cy), fr.w, fr.h, { flip, alpha: 1.0 });
-      } else {
-        this.assets.load(fr.url);
-      }
-    }
-    for (const m of this.mobs) this.drawMobHp(m, cx, cy);
-    for (const d of this.dmg) this.drawDamage(d, cx, cy);
-    this.drawBacks(true, cx, cy);
-    if (this.fade > 0) r.rect(0, 0, r.width, r.height, [0, 0, 0, this.fade]);
-    if (this.loadingMap) r.rect(0, 0, r.width, r.height, [0, 0, 0, 1]);
-    r.end();
+    WorldRenderer.draw(this);
   }
 
-  drawBacks(front: boolean, cx: number, cy: number) {
-    const r = this.r, W = r.width, H = r.height;
-    const WO = W / 2, HO = H / 2;
-    const camCenterX = cx + WO;
-    const camCenterY = cy + HO;
-    for (const b of this.map.backs) {
-      if (b.front !== front) continue;
-      const s = b.sprite, t = this.assets.get(s.url);
-      if (!t) continue;
-      const cxx = b.cx || s.w, cyy = b.cy || s.h;
-      const hmove = b.type === 4 || b.type === 6, vmove = b.type === 5 || b.type === 7;
-      const htile = [1, 3, 4, 6, 7].includes(b.type), vtile = [2, 3, 5, 6, 7].includes(b.type);
-      const ox = b.flip ? s.w - s.ox : s.ox;
-      const baseX = (hmove ? b.x + this.time * b.rx * 5 - cx : b.x + WO + (b.rx * cx) / 100) - ox;
-      const baseY = (vmove ? b.y + this.time * b.ry * 5 - cy : b.y + Math.min(HO, 300) + (b.ry * (camCenterY - 300)) / 100) - s.oy;
-
-      const minI = htile ? Math.floor(-baseX / cxx) : 0;
-      const maxI = htile ? Math.ceil((W - baseX) / cxx) : 0;
-      const allowVTile = vtile || (b.type === 1 && s.h >= 600);
-      const minJ = allowVTile ? Math.floor(-baseY / cyy) : 0;
-      const maxJ = allowVTile ? Math.ceil((H - baseY) / cyy) : 0;
-
-      for (let i = minI; i <= maxI; i++) {
-        for (let j = minJ; j <= maxJ; j++) {
-          r.draw(t, Math.round(baseX + i * cxx), Math.round(baseY + j * cyy), s.w, s.h, { flip: b.flip, alpha: b.a / 255 });
-        }
-      }
-    }
-  }
-
-  drawNameTag(name: string, x: number, y: number, cx: number, cy: number) {
-    const tex = renderTextTexture(this.r, name, "name");
-    if (tex) {
-      this.r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y + 2 - cy), tex.w, tex.h);
-    }
-  }
-
-  drawSpeechBalloon(text: string, x: number, y: number, cx: number, cy: number) {
-    const tex = renderTextTexture(this.r, text, "balloon");
-    if (tex) {
-      this.r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y - 75 - tex.h - cy), tex.w, tex.h);
-    }
-  }
-
-  drawItemEffect(eff: ItemEffData, x: number, y: number, face: number, anim: string, cx: number, cy: number, layer: "back" | "front") {
-    let actionFrames: ItemEffFrame[] | undefined;
-    if (anim === "ladder" || anim === "rope") {
-      if (layer === "back") {
-        actionFrames = eff.actions[anim] ?? eff.actions.backDefault ?? eff.actions.default;
-      } else {
-        actionFrames = eff.actions[anim + "2"];
-      }
-    } else {
-      const candidate = eff.actions[anim] ?? eff.actions.default;
-      if (candidate?.length) {
-        const isBack = (candidate[0]?.z ?? 0) < 0;
-        if ((layer === "back" && isBack) || (layer === "front" && !isBack)) {
-          actionFrames = candidate;
-        }
-      }
-    }
-    if (!actionFrames?.length) return;
-    const totalDelay = actionFrames.reduce((acc, f) => acc + (f.delay ?? 100), 0) || 800;
-    let t = (this.time * 1000) % totalDelay;
-    let fr = actionFrames[0];
-    for (const f of actionFrames) {
-      const d = f.delay ?? 100;
-      if (t < d) { fr = f; break; }
-      t -= d;
-    }
-    const tex = this.assets.get(fr.url);
-    if (!tex) {
-      this.assets.load(fr.url);
-      return;
-    }
-    const isFixed = Boolean(fr.fixed ?? eff.fixed);
-    const flip = isFixed ? false : face === 1;
-    const drawX = flip ? Math.round(x - (fr.w - fr.ox) - cx) : Math.round(x - fr.ox - cx);
-    const anchorY = fr.pos === 1 ? y - 48 : fr.pos === 2 ? y - 25 : fr.pos === 3 ? y - 65 : y;
-    const drawY = Math.round(anchorY - fr.oy - cy);
-    this.r.draw(tex, drawX, drawY, fr.w, fr.h, { flip });
-  }
-
-  drawRemotePlayer(rp: RemotePlayer, cx: number, cy: number) {
-    const isFloating = this.hasHoverEffect(rp.look) && rp.anim !== "jump" && rp.anim !== "ladder" && rp.anim !== "rope";
-    const hoverY = isFloating ? Math.round(Math.sin(this.time * 3.2) * 5 - 10) : 0;
-    if (hoverY !== 0) {
-      const shadowW = Math.max(12, 28 + Math.round(hoverY * 0.4));
-      const shadowAlpha = Math.max(0.15, 0.35 + (hoverY / 30));
-      this.r.rect(Math.round(rp.x - shadowW / 2 - cx), Math.round(rp.y - 2 - cy), shadowW, 4, [0, 0, 0, shadowAlpha * 0.6]);
-      this.r.rect(Math.round(rp.x - (shadowW - 8) / 2 - cx), Math.round(rp.y - 1 - cy), Math.max(4, shadowW - 8), 2, [0, 0, 0, shadowAlpha]);
-    }
-
-    const drawPosY = rp.y + hoverY;
-
-    const remoteEffs: ItemEffData[] = [];
-    for (const id of rp.look) {
-      if (!this.itemEffCache.has(id)) {
-        this.itemEffCache.set(id, null);
-        fetch(`/wz/data/item-eff/${id}`).then((r) => r.ok ? r.json() : null).then((data) => {
-          if (data) {
-            this.itemEffCache.set(id, data);
-            for (const act of Object.values(data.actions as Record<string, ItemEffFrame[]>)) {
-              for (const fr of act) this.assets.load(fr.url);
-            }
-          }
-        }).catch(() => {});
-      }
-      const cached = this.itemEffCache.get(id);
-      if (cached && !remoteEffs.some((e) => e.id === cached.id)) remoteEffs.push(cached);
-    }
-    for (const eff of remoteEffs) {
-      this.drawItemEffect(eff, rp.x, drawPosY, rp.face, rp.anim, cx, cy, "back");
-    }
-    let t = this.assets.get(charUrlFor(rp.look, rp.anim, rp.frame))
-      ?? this.assets.get(charUrlFor(rp.look, "stand1", 0));
-    if (t) {
-      rp.lastTex = t;
-    } else if (rp.lastTex) {
-      t = rp.lastTex;
-    }
-    if (t) {
-      const ox = Math.round(t.w / 2);
-      const oy = t.w === 96 && t.h === 96 ? 88 : t.h === 384 ? 256 : Math.round(t.h * (256 / 384));
-      this.r.draw(t, Math.round(rp.x - ox - cx), Math.round(drawPosY - oy - cy), t.w, t.h, { flip: rp.face === 1 });
-    }
-    for (const eff of remoteEffs) {
-      this.drawItemEffect(eff, rp.x, drawPosY, rp.face, rp.anim, cx, cy, "front");
-    }
-    this.drawNameTag(rp.name, rp.x, drawPosY, cx, cy);
-    if (rp.balloon && rp.balloon.t > 0 && rp.balloon.text) {
-      this.drawSpeechBalloon(rp.balloon.text, rp.x, drawPosY, cx, cy);
-    }
-  }
-
-  drawPlayer(cx: number, cy: number) {
-    const p = this.p;
-    const isFloating = this.hasHoverEffect() && !!p.fh && !p.ladder;
-    const hoverY = isFloating ? Math.round(Math.sin(this.time * 3.2) * 5 - 10) : 0;
-    if (hoverY !== 0) {
-      const shadowW = Math.max(12, 28 + Math.round(hoverY * 0.4));
-      const shadowAlpha = Math.max(0.15, 0.35 + (hoverY / 30));
-      this.r.rect(Math.round(p.x - shadowW / 2 - cx), Math.round(p.y - 2 - cy), shadowW, 4, [0, 0, 0, shadowAlpha * 0.6]);
-      this.r.rect(Math.round(p.x - (shadowW - 8) / 2 - cx), Math.round(p.y - 1 - cy), Math.max(4, shadowW - 8), 2, [0, 0, 0, shadowAlpha]);
-    }
-
-    const drawPosY = p.y + hoverY;
-
-    // 1. Back item effects (drawn before character sprite)
-    for (const eff of this.activeItemEffs) {
-      this.drawItemEffect(eff, p.x, drawPosY, p.face, p.anim, cx, cy, "back");
-    }
-
-    // 2. Character sprite
-    const currentUrl = charUrlFor(this.look, p.anim, p.frame, p.expr, p.exprFrame);
-    let t = this.assets.get(currentUrl)
-      ?? this.assets.get(charUrlFor(this.look, p.anim, p.frame))
-      ?? this.assets.get(charUrlFor(this.look, "stand1", 0))
-      ?? (this.prevLook.length ? this.assets.get(charUrlFor(this.prevLook, p.anim, p.frame)) : null);
-    if (!this.assets.get(currentUrl)) {
-      this.assets.load(currentUrl);
-    }
-    if (t) {
-      this.lastPlayerTex = t;
-    } else if (this.lastPlayerTex) {
-      t = this.lastPlayerTex;
-    }
-    if (t) {
-      const invulnBlink = p.invuln > 0 && Math.floor(this.time * 16) % 2 === 0;
-      const isDarkSight = !!this.buffs["4001003"];
-      const baseAlpha = invulnBlink ? 0.35 : (isDarkSight || this.gmHide ? 0.45 : 1);
-
-      // Fixed anchor for character sprites: 96x96 has origin centered horizontally at 48, feet at 88; 384x384 has center at 192, feet at 256
-      const ox = Math.round(t.w / 2);
-      const oy = t.w === 96 && t.h === 96 ? 88 : t.h === 384 ? 256 : Math.round(t.h * (256 / 384));
-
-      // Shadow Partner clone: authentic .wz sprite from 411.img special, no delay, original opacity
-      if (this.buffs["4111002"]) {
-        const shadowAnim = p.anim;
-        const shadowFrame = p.frame;
-        const shadowFace = p.face;
-        const shadowOffset = shadowFace === 1 ? -18 : 18;
-        const shadowDrawX = p.x + shadowOffset;
-        const shadowDrawY = drawPosY;
-
-        const actionFrames = this.shadowPartnerArt[shadowAnim] ?? this.shadowPartnerArt.stand1;
-        const fr = actionFrames?.[shadowFrame % (actionFrames?.length || 1)];
-        let drawn = false;
-
-        if (fr) {
-          const st = this.assets.get(fr.url);
-          if (st) {
-            const shOx = shadowFace === 1 ? (st.w - fr.ox) : fr.ox;
-            const shOy = fr.oy;
-            this.r.draw(st, Math.round(shadowDrawX - shOx - cx), Math.round(shadowDrawY - shOy - cy), st.w, st.h, {
-              flip: shadowFace === 1,
-              alpha: baseAlpha,
-            });
-            drawn = true;
-          } else {
-            this.assets.load(fr.url);
-          }
-        }
-        if (!drawn) {
-          let shadowTex = this.assets.get(charUrlFor(this.look, shadowAnim, shadowFrame, p.expr, p.exprFrame))
-            ?? this.assets.get(charUrlFor(this.look, shadowAnim, shadowFrame))
-            ?? t;
-          this.r.draw(shadowTex, Math.round(shadowDrawX - ox - cx), Math.round(shadowDrawY - oy - cy), shadowTex.w, shadowTex.h, {
-            flip: shadowFace === 1,
-            alpha: baseAlpha,
-          });
-        }
-      }
-
-      this.r.draw(t, Math.round(p.x - ox - cx), Math.round(drawPosY - oy - cy), t.w, t.h, {
-        flip: p.face === 1,
-        alpha: baseAlpha,
-      });
-    }
-
-    // 3. Front item effects (drawn after character sprite)
-    for (const eff of this.activeItemEffs) {
-      this.drawItemEffect(eff, p.x, drawPosY, p.face, p.anim, cx, cy, "front");
-    }
-
-    this.drawNameTag(this.stats.name, p.x, drawPosY, cx, cy);
-
-    if (this.balloon && this.balloon.t > 0 && this.balloon.text) {
-      this.drawSpeechBalloon(this.balloon.text, p.x, drawPosY, cx, cy);
-    }
-  }
-
-  drawMob(m: Mob, cx: number, cy: number) {
-    if (m.state === "dead") return;
-    const book = m.attacking ?? (m.state === "move" ? (m.data.books.move ? "move" : "stand") : m.state);
-    const bookFrames = m.data.books[book] ?? m.data.books.stand;
-    if (!bookFrames?.length) return;
-    const safeFrame = Math.max(0, Math.min(bookFrames.length - 1, m.frame));
-    const fr = bookFrames[safeFrame] ?? bookFrames[0];
-    if (!fr) return;
-    let t = this.assets.get(fr.url);
-    let useFr = fr;
-    // Fallback if current animation frame is loading: prevent flickering/blinking
-    if (!t) {
-      const altFr = bookFrames.find((f) => this.assets.get(f.url))
-        ?? m.data.books.stand?.find((f) => this.assets.get(f.url));
-      if (altFr) {
-        t = this.assets.get(altFr.url);
-        useFr = altFr;
-      } else if (m.lastTex && m.lastFr) {
-        t = m.lastTex;
-        useFr = m.lastFr;
-      }
-    }
-    if (!t) return;
-    m.lastTex = t;
-    m.lastFr = useFr;
-    const flip = m.dir === 1;
-    const left = flip ? m.x - (useFr.w - useFr.ox) : m.x - useFr.ox;
-    this.r.draw(t, Math.round(left - cx), Math.round(m.y - useFr.oy - cy), useFr.w, useFr.h, { flip, alpha: m.alpha });
-  }
-
-  /** Render authentic MapleStory ladders and ropes matching map vectors */
-  drawLadders(cx: number, cy: number) {
-    if (!this.map?.ladders?.length) return;
-    const r = this.r;
-    for (const L of this.map.ladders) {
-      const x = Math.round(L.x - cx);
-      const y1 = Math.round(L.y1 - cy);
-      const y2 = Math.round(L.y2 - cy);
-      const h = y2 - y1;
-      if (h <= 0) continue;
-      // Skip if off screen
-      if (x < -40 || x > r.width + 40 || y2 < -20 || y1 > r.height + 20) continue;
-
-      if (L.isLadder) {
-        // --- Authentic MapleStory Wooden Ladder ---
-        const halfW = 10;
-        const lx = x - halfW;
-        const rx = x + halfW - 3;
-
-        // Vertical Rails (3px wide each)
-        r.rect(lx, y1, 3, h, [0.18, 0.12, 0.08, 1]); // outer shadow
-        r.rect(lx + 1, y1, 2, h, [0.55, 0.38, 0.22, 1]); // wood core
-        r.rect(lx + 1, y1, 1, h, [0.76, 0.56, 0.35, 1]); // highlight
-
-        r.rect(rx, y1, 3, h, [0.18, 0.12, 0.08, 1]); // outer shadow
-        r.rect(rx + 1, y1, 2, h, [0.55, 0.38, 0.22, 1]); // wood core
-        r.rect(rx + 1, y1, 1, h, [0.76, 0.56, 0.35, 1]); // highlight
-
-        // Top Metal Brackets / Hooks
-        r.rect(lx - 2, y1 - 3, 5, 4, [0.3, 0.32, 0.38, 1]);
-        r.rect(rx, y1 - 3, 5, 4, [0.3, 0.32, 0.38, 1]);
-
-        // Horizontal Rungs every 16px
-        const rungW = rx - (lx + 3);
-        const rungStep = 16;
-        const startY = y1 + 8;
-        for (let ry = startY; ry < y2 - 4; ry += rungStep) {
-          r.rect(lx + 3, ry + 1, rungW, 2, [0.22, 0.15, 0.1, 1]);
-          r.rect(lx + 3, ry, rungW, 1, [0.82, 0.62, 0.4, 1]);
-        }
-      } else {
-        // --- Authentic MapleStory Twisted Hemp Rope ---
-        const rox = x - 3;
-
-        // Top Mounting Ring
-        r.rect(x - 5, y1 - 6, 10, 4, [0.25, 0.25, 0.28, 1]);
-        r.rect(x - 3, y1 - 5, 6, 2, [0.45, 0.48, 0.52, 1]);
-
-        // Rope Body
-        r.rect(rox, y1, 6, h, [0.32, 0.22, 0.12, 1]); // dark hemp outline
-        r.rect(rox + 1, y1, 4, h, [0.72, 0.54, 0.33, 1]); // golden-brown cord
-
-        // Diagonal braids every 6px
-        for (let ry = y1; ry < y2; ry += 6) {
-          const segH = Math.min(3, y2 - ry);
-          r.rect(rox + 1, ry, 3, segH, [0.88, 0.72, 0.48, 1]);
-          if (ry + 3 < y2) {
-            r.rect(rox + 2, ry + 3, 3, Math.min(3, y2 - (ry + 3)), [0.48, 0.34, 0.19, 1]);
-          }
-        }
-
-        // Bottom knot / tassel
-        r.rect(x - 4, y2 - 2, 8, 6, [0.55, 0.38, 0.22, 1]);
-        r.rect(x - 2, y2 + 4, 4, 4, [0.75, 0.58, 0.36, 1]);
-      }
-    }
-  }
-
-  drawMobHp(m: Mob, cx: number, cy: number) {
-    if (m.hpShow <= 0 || m.state === "dead" || m.state === "die1") return;
-    const b = this.mobBox(m);
-    const w = 50, x = Math.round(m.x - w / 2 - cx), y = Math.round(b.y0 - 14 - cy);
-    this.r.rect(x - 1, y - 1, w + 2, 7, [0.1, 0.1, 0.1, 0.85]);
-    this.r.rect(x, y, w, 5, [0.35, 0.05, 0.05, 1]);
-    this.r.rect(x, y, Math.max(0, (m.hp / m.maxHp) * w), 5, [0.95, 0.2, 0.25, 1]);
-  }
-
-  drawFx(f: Fx, cx: number, cy: number) {
-    let t = f.t, i = 0;
-    while (i < f.frames.length && t > (f.frames[i].delay ?? 100)) { t -= f.frames[i].delay ?? 100; i++; }
-    const fr = f.frames[i];
-    if (!fr) return;
-    const tex = this.assets.get(fr.url);
-    if (!tex) {
-      this.assets.load(fr.url);
-      return;
-    }
-    const x = f.follow ? this.p.x : f.x, y = f.follow ? this.p.y : f.y;
-    const left = f.flip ? x - (fr.w - fr.ox) : x - fr.ox;
-    this.r.draw(tex, Math.round(left - cx), Math.round(y - fr.oy - cy), fr.w, fr.h, { flip: f.flip });
-  }
-
-  drawDamage(d: DmgText, cx: number, cy: number) {
-    const fx = this.fxData;
-    const rise = Math.min(1, d.t / 1.0) * 40;
-    const alpha = d.t > 0.9 ? Math.max(0, 1 - (d.t - 0.9) / 0.6) : 1;
-    if (d.miss) {
-      const s: Sprite = fx.miss, t = s && this.assets.get(s.url);
-      if (t) this.r.draw(t, Math.round(d.x - s.w / 2 - cx), Math.round(d.y - rise - s.h - cy), s.w, s.h, { alpha });
-      return;
-    }
-    const str = String(d.value);
-    const glyphs: Sprite[] = [...str].map((c, i) => (i === 0 ? (d.hurt ? fx.hurtFirst : fx.dmgFirst)[c] : (d.hurt ? fx.hurt : fx.dmg)[c]));
-    const overlap = 6;
-    const total = glyphs.reduce((a, g) => a + (g?.w ?? 20) - overlap, overlap);
-    let x = d.x - total / 2;
-    const base = d.y - rise;
-    glyphs.forEach((g, i) => {
-      if (!g) return;
-      const t = this.assets.get(g.url);
-      if (t) this.r.draw(t, Math.round(x - cx), Math.round(base - g.h - (i === 0 ? 4 : 0) - cy), g.w, g.h, { alpha });
-      x += g.w - overlap;
-    });
-  }
+  drawBacks(front: boolean, cx: number, cy: number) { WorldRenderer.drawBacks(this, front, cx, cy); }
+  drawMob(m: Mob, cx: number, cy: number) { WorldRenderer.drawMob(this, m, cx, cy); }
+  drawPlayer(cx: number, cy: number) { WorldRenderer.drawPlayer(this, cx, cy); }
 }

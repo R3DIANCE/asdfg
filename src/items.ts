@@ -213,11 +213,8 @@ export const POT_LABEL: Record<Potential["stat"], string> = {
   att: "ATT", str: "STR", dex: "DEX", int: "INT", luk: "LUK", hp: "Max HP", boss: "Boss Damage", meso: "Meso Obtained", drop: "Item Drop Rate", exp: "EXP Obtained",
 };
 
-/** Equips that confer a floating / hovering levitation effect */
+/** Equips that confer a floating / hovering levitation effect (wings & seraph capes) */
 export const HOVER_ITEM_IDS = new Set<number>([
-  1004646, // Royal Azure Feather Turban
-  1004645, // Time Master Cloud
-  1002419, // Angelic Halo
   1102041, // Black Seraph's Cape
   1102042, // White Seraph's Cape
   1102232, // Seraph Cape

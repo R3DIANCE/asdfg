@@ -80,8 +80,8 @@ export function DebugPanel() {
         justifyContent: "center",
         alignItems: "flex-start",
         gap: "1px",
-        height: "40px",
-        minWidth: "90px",
+        height: "32px",
+        minWidth: "85px",
         boxSizing: "border-box",
         padding: "0 4px",
         background: "transparent",
@@ -91,7 +91,7 @@ export function DebugPanel() {
         WebkitBackdropFilter: "none",
         fontFamily: "'SF Mono', Menlo, Consolas, monospace",
         textShadow: "0 1px 3px rgba(0, 0, 0, 0.95), 0 0 4px rgba(0, 0, 0, 0.8)",
-        pointerEvents: "none",
+        pointerEvents: "auto",
         userSelect: "none",
         whiteSpace: "nowrap",
       }}
@@ -100,8 +100,8 @@ export function DebugPanel() {
         <span style={{ color: fpsColor }}>{fps} FPS</span>
         <span style={{ color: pingColor }}>{pingStr}</span>
       </div>
-      <div style={{ fontSize: "9.5px", fontWeight: 600, color: "#94a3b8", lineHeight: 1.2 }}>
-        {heap != null ? <span>{heap} MB JS</span> : <span>JS HEAP</span>}
+      <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "9.5px", fontWeight: 600, color: "#94a3b8", lineHeight: 1.2 }}>
+        {heap != null ? <span>{heap} MB</span> : <span>JS</span>}
       </div>
     </div>
   );

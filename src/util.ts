@@ -22,8 +22,21 @@ export const dur = (s: number) => {
 /** Star string for Star Force rendering. */
 export const stars = (n: number) => (n ? `<span class="stars">${"★".repeat(Math.min(n, 15))}</span>` : "");
 
-/** Quick HTML icon tag with background-image. */
-export const icon = (url: string, cls = "ic") => `<span class="${cls}" style="background-image:url('${url}')"></span>`;
+const preloadedIcons = new Set<string>();
+
+/** Preloads an icon URL into browser cache so it renders seamlessly without pop-in. */
+export function preloadIcon(url: string) {
+  if (!url || typeof Image === "undefined" || preloadedIcons.has(url)) return;
+  preloadedIcons.add(url);
+  const img = new Image();
+  img.src = url;
+}
+
+/** Quick HTML icon tag with background-image and automatic seamless preloading. */
+export const icon = (url: string, cls = "ic") => {
+  preloadIcon(url);
+  return `<span class="${cls}" style="background-image:url('${url}')"></span>`;
+};
 
 // ============================================================
 // Background image loading

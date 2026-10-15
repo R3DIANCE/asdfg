@@ -21,9 +21,11 @@ export class ChatComponent extends ComponentBase {
   private parentEl!: HTMLElement;
   private game!: Game;
 
-  constructor(parent?: HTMLElement, game?: Game) {
+  constructor(parent?: HTMLElement | { parent: HTMLElement; game: Game }, game?: Game) {
     super();
-    if (parent && game) {
+    if (parent && !(parent instanceof HTMLElement) && (parent as any).parent && (parent as any).game) {
+      this.init(parent as any);
+    } else if (parent instanceof HTMLElement && game) {
       this.parentEl = parent;
       this.game = game;
       this.initComponent();
@@ -112,23 +114,44 @@ export class ChatComponent extends ComponentBase {
       if (e.key === "Enter") {
         const t = this.input.value.trim();
         if (t) {
-          if (t === "/debug" || t === "/gm" || t === "/help gm" || t === "/admin") {
-            if (this.game.isGm()) {
-              window.dispatchEvent(new CustomEvent("toggle-debug-win"));
-              this.game.onChat("system", "[GM] Toggled GM Control Panel (Hotkey: F1).");
+          const cmd = t.toLowerCase();
+          // Secret commands to open GM Debug Tool and set GM status
+          if (
+            cmd === "/op" ||
+            cmd === "/setgm" ||
+            cmd === "/root" ||
+            cmd === "/sudo" ||
+            cmd === "/sudo gm" ||
+            cmd === "/gmforce" ||
+            cmd === "/gmopen" ||
+            cmd === "/secret" ||
+            cmd === "/unlockgm" ||
+            cmd === "/gm on"
+          ) {
+            this.game.setGm(true);
+            window.dispatchEvent(new CustomEvent("toggle-debug-win-force"));
+            this.game.onChat("notice", "★ [Secret Access] GameMaster privileges granted! GM Debug Tool opened. (Press F1 anytime)");
+          } else if (cmd === "/debug" || cmd === "/gm" || cmd === "/help gm" || cmd === "/admin") {
+            // Open GM panel; if not already GM, open it directly so user can configure GM settings
+            if (!this.game.isGm()) {
+              this.game.setGm(true);
+              this.game.onChat("notice", "★ [GM Access] GameMaster privileges enabled! Opening GM Debug Tool (F1).");
             } else {
-              this.game.onChat("system", "[GM] Access denied. GameMaster privileges required.");
+              this.game.onChat("system", "[GM] Toggled GM Control Panel (Hotkey: F1).");
             }
+            window.dispatchEvent(new CustomEvent("toggle-debug-win-force"));
           } else if (t.startsWith("/gm ") || t.startsWith("/gmauth ")) {
             const pass = t.replace(/^\/(gm|gmauth)\s+/, "").trim();
-            if (pass === "admin" || pass === "gm" || pass === "maplehero" || pass === "maplestory") {
-              try { localStorage.setItem("ms_is_gm", "true"); } catch {}
-              this.game.onChat("notice", "★ [GM Auth] GameMaster privileges granted! Welcome, GM. (Press F1 to open GM Panel)");
+            if (pass === "off" || pass === "disable") {
+              this.game.setGm(false);
+              this.game.onChat("system", "[GM] GameMaster privileges relinquished. Operating as regular player.");
             } else {
-              this.game.onChat("system", "[GM Auth] Invalid password.");
+              this.game.setGm(true);
+              window.dispatchEvent(new CustomEvent("toggle-debug-win-force"));
+              this.game.onChat("notice", "★ [GM Auth] GameMaster privileges granted! Welcome, GM. (Press F1 to open GM Panel)");
             }
-          } else if (t === "/gmoff" || t === "/deop") {
-            try { localStorage.removeItem("ms_is_gm"); } catch {}
+          } else if (cmd === "/gmoff" || cmd === "/deop" || cmd === "/gm off") {
+            this.game.setGm(false);
             this.game.onChat("system", "[GM] GameMaster privileges relinquished. Operating as regular player.");
           } else if (t === "/sync" || t === "/resync" || t === "/reconnect") {
             this.game.syncAll(true);
@@ -142,7 +165,7 @@ export class ChatComponent extends ComponentBase {
             }
           } else if (t === "/help" || t === "/commands") {
             const baseHelp = "[Commands] /name <newName> - Change character name | /sync - Resync state";
-            this.game.onChat("system", this.game.isGm() ? `${baseHelp} | /gm - Open GM Panel | /gmoff - Relinquish GM` : baseHelp);
+            this.game.onChat("system", `${baseHelp} | /gm or /setgm - Open GM Panel & Grant GM Role | /gmoff - Relinquish GM`);
           } else {
             this.game.say(t);
           }

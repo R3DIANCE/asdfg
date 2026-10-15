@@ -1049,28 +1049,6 @@ function findEffTarget(s: SpriteStore, id: number): { node: WzSubProperty; img: 
 }
 
 function itemEffData(s: SpriteStore, id: number) {
-  if (id === 1004646) {
-    return {
-      id,
-      z: -1,
-      pos: 0,
-      fixed: true,
-      actions: {
-        default: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({
-          url: `/wz/item-eff/1004646/default/${i}`,
-          w: 64,
-          h: 64,
-          ox: 32,
-          oy: 48,
-          delay: 110,
-          z: -1,
-          pos: 0,
-          fixed: true,
-        })),
-      },
-    };
-  }
-
   const target = findEffTarget(s, id);
   if (!target) return null;
 
@@ -1169,9 +1147,6 @@ function itemEffData(s: SpriteStore, id: number) {
 }
 
 function itemEffPng(s: SpriteStore, id: number, act: string, fr: string): Buffer | null {
-  if (id === 1004646) {
-    return generateHoverAura(Number(fr) || 0);
-  }
   const target = findEffTarget(s, id);
   if (!target) return null;
   let raw: any;
@@ -1873,7 +1848,7 @@ const server = Bun.serve<{ id: string }>({
       const s = getStore();
       if (!s) return noClient();
       const d = itemEffData(s, Number(req.params.id));
-      return d ? jsonNoStore(d) : Response.json({ error: "no effect" }, { status: 404 });
+      return jsonNoStore(d ?? null);
     }),
     "/wz/item-eff/:id/:act/:fr": guard((req) => {
       const s = getStore();

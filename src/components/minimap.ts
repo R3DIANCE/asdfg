@@ -22,9 +22,11 @@ export class MinimapComponent extends ComponentBase {
   private parentEl!: HTMLElement;
   private onModeChange?: (mode: MinimapMode) => void;
 
-  constructor(parent?: HTMLElement, onModeChange?: (mode: MinimapMode) => void) {
+  constructor(parent?: HTMLElement | { parent: HTMLElement; onModeChange?: (mode: MinimapMode) => void }, onModeChange?: (mode: MinimapMode) => void) {
     super();
-    if (parent) {
+    if (parent && !(parent instanceof HTMLElement) && (parent as any).parent) {
+      this.init(parent as any);
+    } else if (parent instanceof HTMLElement) {
       this.parentEl = parent;
       this.onModeChange = onModeChange;
       this.initComponent();

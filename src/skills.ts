@@ -6,7 +6,7 @@ export type SkillKind = "attack" | "ranged" | "buff" | "passive" | "move";
 export interface SkillDef {
   id: string;
   kind: SkillKind;
-  tab: 0 | 1 | 2 | 3; // Beginner, 1st, 2nd, 3rd job
+  tab: 0 | 1 | 2 | 3 | 4; // Beginner, 1st, 2nd, 3rd, 4th job
   reqLevel: number;
   maxLevel: number;
   mp: (lv: number) => number;
@@ -41,8 +41,8 @@ export interface ClassDef {
   primary: "str" | "dex" | "int" | "luk";
   /** Which stat improves accuracy. */
   secondary: "str" | "dex" | "int" | "luk";
-  tabs: string[]; // Beginner, 1st job, 2nd job, 3rd job
-  tabLevel: [number, number, number, number];
+  tabs: string[]; // Beginner, 1st job, 2nd job, 3rd job, 4th job
+  tabLevel: number[];
   /** Skill IDs for each tab. */
   skillsByTab: string[][];
   /** Starting equipment (weapon, top, bottom, shoes) ids. */
@@ -57,7 +57,7 @@ export interface ClassDef {
 export const CLASSES: ClassDef[] = [
   {
     id: "beginner", name: "Beginner", primary: "str", secondary: "dex",
-    tabs: ["Beginner"], tabLevel: [1, 10, 30, 60],
+    tabs: ["Beginner"], tabLevel: [1, 10, 30, 60, 100],
     skillsByTab: [
       ["0001000", "0001001", "0001002", "0001005", "0001007", "0001009", "0001011"],
     ],
@@ -75,12 +75,13 @@ export const CLASSES: ClassDef[] = [
   },
   {
     id: "warrior", name: "Warrior", primary: "str", secondary: "dex",
-    tabs: ["Beginner", "Warrior", "Fighter", "Crusader"], tabLevel: [1, 10, 30, 60],
+    tabs: ["Beginner", "Warrior", "Fighter", "Crusader", "Hero"], tabLevel: [1, 10, 30, 60, 100],
     skillsByTab: [
       ["0001000", "0001001", "0001002", "0001005", "0001007", "0001009", "0001011"],
       ["1001005", "1001008", "1001010", "1000003", "1000009", "1000007"],
       ["1101011", "1101012", "1101013", "1101004", "1101006", "1100000", "1100002", "1100009"],
       ["1111010", "1111012", "1111003", "1111008", "1111015", "1110013", "1110000", "1110009", "1110011"],
+      ["1121008", "1121010", "1121000", "1121011"],
     ],
     startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
@@ -94,12 +95,13 @@ export const CLASSES: ClassDef[] = [
   },
   {
     id: "magician", name: "Magician", primary: "int", secondary: "int",
-    tabs: ["Beginner", "Magician", "Wizard (F/P)", "Mage"], tabLevel: [1, 10, 30, 60],
+    tabs: ["Beginner", "Magician", "Wizard (F/P)", "Mage", "Arch Mage (F/P)"], tabLevel: [1, 10, 30, 60, 100],
     skillsByTab: [
       ["0001000", "0001001", "0001002", "0001005", "0001007", "0001009", "0001011"],
       ["2001008", "2001002", "2001009", "2000010", "2000006", "2000007"],
       ["2101004", "2101005", "2101001", "2101008", "2101010", "2100006", "2100007", "2100000", "2100009"],
       ["2111002", "2111003", "2111010", "2111011", "2111008", "2111007", "2110012", "2110001", "2110009", "2110000"],
+      ["2121006", "2121007", "2121003", "2121000"],
     ],
     startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
@@ -113,12 +115,13 @@ export const CLASSES: ClassDef[] = [
   },
   {
     id: "bowman", name: "Bowman", primary: "dex", secondary: "str",
-    tabs: ["Beginner", "Archer", "Hunter", "Ranger"], tabLevel: [1, 10, 30, 60],
+    tabs: ["Beginner", "Archer", "Hunter", "Ranger", "Bowmaster"], tabLevel: [1, 10, 30, 60, 100],
     skillsByTab: [
       ["0001000", "0001001", "0001002", "0001005", "0001007", "0001009", "0001011"],
       ["3001004", "3001007", "3000001", "3000002", "3000006", "3000008"],
       ["3101005", "3101008", "3101004", "3101009", "3100002", "3100000", "3100001", "3100006"],
       ["3111013", "3111003", "3111009", "3111005", "3111010", "3111011", "3110001", "3110012", "3110007", "3110014"],
+      ["3121015", "3121002", "3121000", "3121009"],
     ],
     startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
@@ -132,12 +135,13 @@ export const CLASSES: ClassDef[] = [
   },
   {
     id: "thief", name: "Thief", primary: "luk", secondary: "dex",
-    tabs: ["Beginner", "Rogue", "Assassin", "Hermit"], tabLevel: [1, 10, 30, 60],
+    tabs: ["Beginner", "Rogue", "Assassin", "Hermit", "Night Lord"], tabLevel: [1, 10, 30, 60, 100],
     skillsByTab: [
       ["0001000", "0001001", "0001002", "0001005", "0001007", "0001009", "0001011"],
       ["4001334", "4001344", "4001005", "4001003", "4001014", "4001011", "4000000", "4000010", "4000012", "4001013"],
       ["4101008", "4101011", "4101010", "4101003", "4100000", "4100001", "4100007"],
       ["4111010", "4111015", "4111007", "4111003", "4111002", "4111009", "4110008", "4110011", "4110012", "4110014"],
+      ["4121013", "4121015", "4121000", "4121009"],
     ],
     startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
@@ -151,12 +155,13 @@ export const CLASSES: ClassDef[] = [
   },
   {
     id: "pirate", name: "Pirate", primary: "str", secondary: "dex",
-    tabs: ["Beginner", "Pirate", "Brawler", "Marauder"], tabLevel: [1, 10, 30, 60],
+    tabs: ["Beginner", "Pirate", "Brawler", "Marauder", "Buccaneer"], tabLevel: [1, 10, 30, 60, 100],
     skillsByTab: [
       ["0001000", "0001001", "0001002", "0001005", "0001007", "0001009", "0001011"],
       ["5001002", "5001003", "5001010", "5001005", "5000007", "5000000", "5000006"],
       ["5101012", "5101004", "5101006", "5101014", "5100015", "5100016", "5100001", "5100009", "5100010", "5100013", "5100011"],
       ["5111009", "5111002", "5111012", "5111007", "5111013", "5110014", "5110010", "5110011", "5110000"],
+      ["5121007", "5121001", "5121009", "5121000"],
     ],
     startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
@@ -174,8 +179,8 @@ export const CLASS_MAP = Object.fromEntries(CLASSES.map((c) => [c.id, c])) as Re
 export const classFor = (id: string | null | undefined): ClassDef => CLASS_MAP[(id ?? "beginner") as ClassId] ?? CLASSES[0];
 
 /** Legacy aliases used before the class system was introduced. */
-export const JOB_TABS = ["Beginner", "Warrior", "Fighter", "Crusader"] as const;
-export const TAB_LEVEL = [1, 10, 30, 60];
+export const JOB_TABS = ["Beginner", "Warrior", "Fighter", "Crusader", "Hero"] as const;
+export const TAB_LEVEL = [1, 10, 30, 60, 100];
 
 // ----------------------------------------------------------------- skill defs
 
@@ -477,6 +482,56 @@ export const SKILL_DEFS: SkillDef[] = [
     summary: (l) => `Precision Strikes: increases critical rate +${l * 3}% and critical damage.` },
   { id: "5110000", kind: "passive", tab: 3, reqLevel: 20, maxLevel: 10, mp: () => 0,
     summary: (l) => `Stun Mastery: delivers +${l * 4}% bonus damage against stunned targets.` },
+
+  // ---- Warrior 4th Job (Hero)
+  { id: "1121008", kind: "attack", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 25 + l, dmg: (l) => 240 + l * 8, hits: 4, targets: 8, range: 280,
+    summary: (l) => `Raging Blow: deal consecutive blows to multiple enemies in front of you. Damage ${240 + l * 8}% x 4.` },
+  { id: "1121010", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 30 + l, duration: (l) => 120 + l * 10, buff: { att: 10 },
+    summary: (l) => `Enrage: focus power to boost Weapon ATT +${l * 10} for ${120 + l * 10} sec.` },
+  { id: "1121000", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 40 + l, duration: (l) => 180 + l * 10, buff: { str: 4, dex: 4, int: 4, luk: 4 },
+    summary: (l) => `Maple Warrior: temporarily increases all base stats by +${l * 4} for ${180 + l * 10} sec.` },
+  { id: "1121011", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 5, mp: () => 30, duration: () => 30,
+    summary: (l) => `Hero's Will: hones your resolve to ignore abnormal status effects.` },
+
+  // ---- Magician 4th Job (Arch Mage F/P)
+  { id: "2121006", kind: "ranged", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 30 + l, dmg: (l) => 260 + l * 9, hits: 4, targets: 8, range: 360,
+    summary: (l) => `Paralyze: surrounds multiple enemies with fire/paralysis inflicting heavy damage ${260 + l * 9}% x 4.` },
+  { id: "2121007", kind: "attack", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 50 + l * 2, dmg: (l) => 450 + l * 15, hits: 6, targets: 15, range: 500,
+    summary: (l) => `Meteor Shower: summons devastating meteorites to annihilate up to 15 enemies. Damage ${450 + l * 15}% x 6.` },
+  { id: "2121003", kind: "attack", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 35 + l, dmg: (l) => 350 + l * 12, hits: 5, targets: 8, range: 320,
+    summary: (l) => `Mist Eruption: explodes poison clouds dealing fatal damage. Damage ${350 + l * 12}% x 5.` },
+  { id: "2121000", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 40 + l, duration: (l) => 180 + l * 10, buff: { str: 4, dex: 4, int: 4, luk: 4 },
+    summary: (l) => `Maple Warrior: temporarily increases all base stats by +${l * 4} for ${180 + l * 10} sec.` },
+
+  // ---- Bowman 4th Job (Bowmaster)
+  { id: "3121015", kind: "ranged", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 28 + l, dmg: (l) => 220 + l * 7, hits: 5, targets: 8, range: 480,
+    summary: (l) => `Arrow Stream: shoots a wild flurry of arrows straight ahead. Damage ${220 + l * 7}% x 5.` },
+  { id: "3121002", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 35 + l, duration: (l) => 180 + l * 10, buff: { att: 8 },
+    summary: (l) => `Sharp Eyes: grants party members keen insight into enemy weak spots. Critical ATT +${l * 8}.` },
+  { id: "3121000", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 40 + l, duration: (l) => 180 + l * 10, buff: { str: 4, dex: 4, int: 4, luk: 4 },
+    summary: (l) => `Maple Warrior: temporarily increases all base stats by +${l * 4} for ${180 + l * 10} sec.` },
+  { id: "3121009", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 5, mp: () => 30, duration: () => 30,
+    summary: (l) => `Hero's Will: hones your resolve to ignore abnormal status effects.` },
+
+  // ---- Thief 4th Job (Night Lord)
+  { id: "4121013", kind: "ranged", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 26 + l, dmg: (l) => 210 + l * 8, hits: 4, targets: 1, range: 420,
+    summary: (l) => `Quad Star: masterfully unleash four throwing stars in rapid succession. Damage ${210 + l * 8}% x 4.` },
+  { id: "4121015", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 35 + l, duration: (l) => 60 + l * 5, buff: { att: 6 },
+    summary: (l) => `Frailty Curse: summons an barrier decreasing monster defenses and increasing boss damage +${l * 6}.` },
+  { id: "4121000", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 40 + l, duration: (l) => 180 + l * 10, buff: { str: 4, dex: 4, int: 4, luk: 4 },
+    summary: (l) => `Maple Warrior: temporarily increases all base stats by +${l * 4} for ${180 + l * 10} sec.` },
+  { id: "4121009", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 5, mp: () => 30, duration: () => 30,
+    summary: (l) => `Hero's Will: hones your resolve to ignore abnormal status effects.` },
+
+  // ---- Pirate 4th Job (Buccaneer)
+  { id: "5121007", kind: "attack", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 30 + l, dmg: (l) => 220 + l * 8, hits: 8, targets: 1, range: 200,
+    summary: (l) => `Octopunch: pummels enemies with eight supernatural punches. Damage ${220 + l * 8}% x 8.` },
+  { id: "5121001", kind: "attack", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 40 + l * 2, dmg: (l) => 380 + l * 12, hits: 4, targets: 10, range: 400,
+    summary: (l) => `Dragon Strike: awakens an ancient dragon from beneath to obliterate enemies. Damage ${380 + l * 12}% x 4.` },
+  { id: "5121009", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 20, mp: (l) => 40 + l, duration: (l) => 120 + l * 10, buff: { speed: 15, att: 5 },
+    summary: (l) => `Speed Infusion: doubles weapon attack speed and grants +${l * 5} ATT for ${120 + l * 10} sec.` },
+  { id: "5121000", kind: "buff", tab: 4, reqLevel: 60, maxLevel: 30, mp: (l) => 40 + l, duration: (l) => 180 + l * 10, buff: { str: 4, dex: 4, int: 4, luk: 4 },
+    summary: (l) => `Maple Warrior: temporarily increases all base stats by +${l * 4} for ${180 + l * 10} sec.` },
 ];
 
 export const SKILL = Object.fromEntries(SKILL_DEFS.map((s) => [s.id, s])) as Record<string, SkillDef>;

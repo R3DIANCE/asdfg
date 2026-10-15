@@ -18,7 +18,7 @@ export class QuickBarComponent extends ComponentBase {
   private getActionIcon!: (a: Action, disabled?: boolean) => string;
 
   constructor(
-    parent?: HTMLElement,
+    parent?: HTMLElement | any,
     game?: Game,
     makeDraggable?: (el: HTMLElement, getAction: () => Action | null, fromKey?: string, onClick?: () => void) => void,
     bindTip?: (el: HTMLElement, getHtml: () => string | null) => void,
@@ -26,7 +26,9 @@ export class QuickBarComponent extends ComponentBase {
     getActionIcon?: (a: Action, disabled?: boolean) => string
   ) {
     super();
-    if (parent && game && makeDraggable && bindTip && getActionTip && getActionIcon) {
+    if (parent && !(parent instanceof HTMLElement) && parent.parent) {
+      this.init(parent);
+    } else if (parent && game && makeDraggable && bindTip && getActionTip && getActionIcon) {
       this.parentEl = parent;
       this.game = game;
       this.makeDraggable = makeDraggable;

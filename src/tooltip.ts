@@ -147,7 +147,23 @@ export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into i
   `;
 }
 
-/** Tooltip for Use / Consumable items */
+/** Formats human-readable usage/recovery effect for consumable & ammo items */
+export function itemUsageText(id: number): string {
+  const it = ITEMS[id];
+  if (!it) return "Restores vitality";
+  if (it.type === "star") return `+${it.att ?? 15} Weapon Attack`;
+  if (it.type === "arrow") return `+${it.att ?? 1} Weapon Attack`;
+  if (it.type === "bullet") return `+${it.att ?? 10} Weapon Attack`;
+  if (it.hpPct && it.mpPct) return `Recovers ${it.hpPct}% HP & ${it.mpPct}% MP`;
+  if (it.hpPct) return `Recovers ${it.hpPct}% Max HP`;
+  if (it.mpPct) return `Recovers ${it.mpPct}% Max MP`;
+  if (it.hp && it.mp) return `Recovers ${fmt(it.hp)} HP & ${fmt(it.mp)} MP`;
+  if (it.hp) return `Recovers ${fmt(it.hp)} HP`;
+  if (it.mp) return `Recovers ${fmt(it.mp)} MP`;
+  if (it.id === 2050004) return "Cures all abnormal status conditions";
+  return "Restores vitality";
+}
+
 /** Tooltip for Use / Consumable items & Throwables */
 export function renderUseTooltip(id: number, owned = 0, note = ""): string {
   const it = ITEMS[id];
@@ -157,9 +173,10 @@ export function renderUseTooltip(id: number, owned = 0, note = ""): string {
     ? (it.type === "star" ? "Throwing Star" : it.type === "arrow" ? "Bow / Crossbow Ammo" : "Gun Bullet")
     : "Consumable Potion";
   const tag2 = isThrowable ? "Infinite Ammo" : "Recovery";
-  const effect = isThrowable
-    ? `+${it.att ?? 15} Weapon Attack`
-    : ([it?.hp ? `Recovers ${it.hp} HP` : "", it?.mp ? `Recovers ${it.mp} MP` : ""].filter(Boolean).join(" · ") || "Restores vitality");
+  const effect = itemUsageText(id);
+  const usageDesc = isThrowable
+    ? "Ammunition consumed during ranged skill attacks"
+    : `Restores vitality when consumed (heals ${effect.toLowerCase()})`;
 
   return `
     <div class="ms-tooltip-card">
@@ -180,12 +197,14 @@ export function renderUseTooltip(id: number, owned = 0, note = ""): string {
       </div>
       <div class="tt-divider"></div>
       <div class="tt-stats">
-        <div class="tt-stat-line"><span>Effect</span> <b>${effect}</b></div>
+        <div class="tt-stat-line"><span>Effect</span> <b class="tt-good">${effect}</b></div>
+        <div class="tt-stat-line"><span>Usage</span> <b>${isThrowable ? "Infinite Combat Ammo" : "Direct Consumption"}</b></div>
         <div class="tt-stat-line"><span>Owned Quantity</span> <b class="tt-good">${isThrowable ? "∞ (Infinite)" : owned}</b></div>
       </div>
       <div class="tt-divider"></div>
       <div class="tt-footer-meta">
-        <div class="tt-note">${note || (isThrowable ? "Unlimited supply · Never depletes when thrown" : "Click to use · drag to quick slots")}</div>
+        <div class="tt-note highlight">${usageDesc}</div>
+        ${note ? `<div class="tt-note">${note}</div>` : ""}
       </div>
     </div>
   `;

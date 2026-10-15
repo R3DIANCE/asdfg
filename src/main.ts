@@ -295,13 +295,22 @@ async function start(char?: SpacetimeCharacter) {
   }
 
   setLoading("Creating User Interface & HUD…", 88, "Assembling health bars, chat, minimap & action slots");
-  hudEntity = new Object3D();
-  hudEntity.name = "UISystem";
-  hud = hudEntity.addComponent(Hud, { ui, game, win }) ?? new Hud(ui, game, win);
-  if (!hud.wins) hud.setup(ui, game, win);
-  if (r.scene) {
-    r.scene.addChild(hudEntity);
+  const isWebGPU = r.backend === "webgpu" && !!r.scene;
+  try {
+    if (isWebGPU) {
+      hudEntity = new Object3D();
+      hudEntity.name = "UISystem";
+      hud = hudEntity.addComponent(Hud, { ui, game, win }) ?? new Hud(ui, game, win);
+      if (r.scene) {
+        r.scene.addChild(hudEntity);
+      }
+    } else {
+      hud = new Hud(ui, game, win);
+    }
+  } catch {
+    hud = new Hud(ui, game, win);
   }
+  if (!hud.wins) hud.setup(ui, game, win);
   hud.setMap(game.map);
 
   // Mount the real-time performance panel (FPS, Ping, JS Heap) right next to HP/MP bar on the right side.
@@ -401,9 +410,12 @@ window.render_game_to_text = () => {
     running, map: game.map?.name, mapId: game.map?.id,
     player: { x: Math.round(game.p.x), y: Math.round(game.p.y), onGround: !!game.p.fh, ladder: !!game.p.ladder, anim: game.p.anim, face: game.p.face },
     stats: game.stats,
-    mobs: game.mobs.filter((m) => m.state !== "dead").slice(0, 8).map((m) => ({ name: m.data.name, x: Math.round(m.x), y: Math.round(m.y), hp: m.hp, state: m.state })),
+    mobs: game.mobs.filter((m) => m.state !== "dead").slice(0, 8).map((m) => ({ name: m.data?.name ?? "Mob", x: Math.round(m.x), y: Math.round(m.y), hp: m.hp, state: m.state })),
     drops: game.drops.length, portals: game.portals.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y), to: p.to })),
   });
 };
 
 boot();
+if ((import.meta as any).hot) {
+  (import.meta as any).hot.accept();
+}

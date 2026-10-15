@@ -25,11 +25,16 @@ export class StatusCapsule extends ComponentBase {
 
   private parentEl!: HTMLElement;
 
-  constructor(parent?: HTMLElement) {
+  constructor(parent?: HTMLElement | { parent: HTMLElement }) {
     super();
     if (parent) {
-      this.parentEl = parent;
-      this.initComponent();
+      if (parent instanceof HTMLElement) {
+        this.parentEl = parent;
+        this.initComponent();
+      } else if ((parent as any).parent) {
+        this.parentEl = (parent as any).parent;
+        this.initComponent();
+      }
     }
   }
 
@@ -57,62 +62,62 @@ export class StatusCapsule extends ComponentBase {
   private initComponent() {
     this.root = el("div", "ms-hud-center relative flex flex-col justify-center items-center gap-[3px] pointer-events-auto select-none", this.parentEl);
 
-    // HP Bar Row — exact style of QuickBar keyboard slots & key badges
+    // HP Bar Row — sleek solid advanced HUD design without gradients
     const hpRow = el(
       "div",
-      "ms-bar-row flex items-center w-[290px] h-[20px] bg-[#3a4454]/75 border border-[#9ca8b8]/35 hover:border-[#9ca8b8]/70 rounded-[3px] p-[2px] gap-[4px] backdrop-blur-[2px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)] transition-all",
+      "ms-bar-row flex items-center w-[290px] h-[20px] bg-[#161c24] border border-[#283344] rounded-[4px] p-[2px] gap-[4px] shadow-[0_2px_4px_rgba(0,0,0,0.5)] transition-all",
       this.root
     );
     // Left Key Badge matching quick slot badges
     const hpBadge = el(
       "span",
-      "slot-badge badge-red flex-shrink-0 w-[24px] h-[16px] font-black text-[7.5px] leading-[16px] rounded-[2px] text-center uppercase tracking-[-0.2px] shadow-[0_1px_2px_rgba(0,0,0,0.5)] select-none",
+      "slot-badge flex-shrink-0 w-[24px] h-[16px] font-black text-[8px] leading-[16px] rounded-[2px] text-center uppercase tracking-[0.2px] bg-[#d90429] text-white shadow-[0_1px_2px_rgba(0,0,0,0.4)] select-none",
       hpRow
     );
     hpBadge.textContent = "HP";
 
     const hpTrack = el(
       "div",
-      "ms-bar-track relative flex-1 h-[16px] bg-[#1a222d] border border-[#10151c] rounded-[2px] overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]",
+      "ms-bar-track relative flex-1 h-[16px] bg-[#0c1017] border border-[#1b222d] rounded-[2px] overflow-hidden shadow-[inset_0_1px_3px_rgba(0,0,0,0.7)]",
       hpRow
     );
     this.hpFill = el(
       "div",
-      "ms-bar-fill hp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-gradient-to-r from-[#ff4d6d] via-[#e63956] to-[#c9184a] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]",
+      "ms-bar-fill hp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-[#e63946] border-r-2 border-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]",
       hpTrack
     );
     this.hpText = el(
       "div",
-      "ms-bar-text absolute inset-0 flex items-center justify-center font-bold text-[10.5px] leading-[16px] text-white tracking-[0.2px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none",
+      "ms-bar-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[10.5px] leading-[16px] text-white tracking-[0.3px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none tabular-nums",
       hpTrack
     );
 
-    // MP Bar Row — exact style of QuickBar keyboard slots & key badges
+    // MP Bar Row — sleek solid advanced HUD design without gradients
     const mpRow = el(
       "div",
-      "ms-bar-row flex items-center w-[290px] h-[20px] bg-[#3a4454]/75 border border-[#9ca8b8]/35 hover:border-[#9ca8b8]/70 rounded-[3px] p-[2px] gap-[4px] backdrop-blur-[2px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)] transition-all",
+      "ms-bar-row flex items-center w-[290px] h-[20px] bg-[#161c24] border border-[#283344] rounded-[4px] p-[2px] gap-[4px] shadow-[0_2px_4px_rgba(0,0,0,0.5)] transition-all",
       this.root
     );
     const mpBadge = el(
       "span",
-      "slot-badge badge-blue flex-shrink-0 w-[24px] h-[16px] font-black text-[7.5px] leading-[16px] rounded-[2px] text-center uppercase tracking-[-0.2px] shadow-[0_1px_2px_rgba(0,0,0,0.5)] select-none",
+      "slot-badge flex-shrink-0 w-[24px] h-[16px] font-black text-[8px] leading-[16px] rounded-[2px] text-center uppercase tracking-[0.2px] bg-[#0284c7] text-white shadow-[0_1px_2px_rgba(0,0,0,0.4)] select-none",
       mpRow
     );
     mpBadge.textContent = "MP";
 
     const mpTrack = el(
       "div",
-      "ms-bar-track relative flex-1 h-[16px] bg-[#1a222d] border border-[#10151c] rounded-[2px] overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]",
+      "ms-bar-track relative flex-1 h-[16px] bg-[#0c1017] border border-[#1b222d] rounded-[2px] overflow-hidden shadow-[inset_0_1px_3px_rgba(0,0,0,0.7)]",
       mpRow
     );
     this.mpFill = el(
       "div",
-      "ms-bar-fill mp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-gradient-to-r from-[#38bdf8] via-[#0ea5e9] to-[#0284c7] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]",
+      "ms-bar-fill mp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-[#0284c7] border-r-2 border-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]",
       mpTrack
     );
     this.mpText = el(
       "div",
-      "ms-bar-text absolute inset-0 flex items-center justify-center font-bold text-[10.5px] leading-[16px] text-white tracking-[0.2px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none",
+      "ms-bar-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[10.5px] leading-[16px] text-white tracking-[0.3px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none tabular-nums",
       mpTrack
     );
 
@@ -121,31 +126,31 @@ export class StatusCapsule extends ComponentBase {
     if (!fullExp) {
       fullExp = el(
         "div",
-        "ms-screen-exp-bar fixed left-0 right-0 bottom-0 w-screen h-[14px] bg-[#1a222d]/95 border-t border-[#9ca8b8]/35 shadow-[0_-1px_3px_rgba(0,0,0,0.6)] z-[100] flex items-center px-1.5 backdrop-blur-[2px] box-border pointer-events-none overflow-hidden",
+        "ms-screen-exp-bar fixed left-0 right-0 bottom-0 w-screen h-[14px] bg-[#0c1017]/95 border-t border-[#283344] shadow-[0_-1px_3px_rgba(0,0,0,0.6)] z-[100] flex items-center px-1.5 backdrop-blur-[2px] box-border pointer-events-none overflow-hidden",
         document.body
       );
     }
     const expBadge = el(
       "span",
-      "slot-badge badge-green relative flex-shrink-0 h-[10px] px-1.5 font-black text-[6.5px] leading-[10px] rounded-[2px] text-center uppercase tracking-[-0.2px] shadow-[0_1px_2px_rgba(0,0,0,0.5)] mr-1.5 z-[3] select-none",
+      "slot-badge relative flex-shrink-0 h-[10px] px-1.5 font-black text-[6.5px] leading-[10px] rounded-[2px] text-center uppercase tracking-[0.2px] bg-[#65a30d] text-white shadow-[0_1px_2px_rgba(0,0,0,0.5)] mr-1.5 z-[3] select-none",
       fullExp
     );
     expBadge.textContent = "EXP";
 
     // Segment marks every 10%
     for (let i = 1; i < 10; i++) {
-      const tick = el("div", "ms-exp-tick absolute top-0 bottom-0 w-[1px] bg-black/30 z-[2] pointer-events-none", fullExp);
+      const tick = el("div", "ms-exp-tick absolute top-0 bottom-0 w-[1px] bg-black/40 z-[2] pointer-events-none", fullExp);
       tick.style.left = `${i * 10}%`;
     }
 
     this.expBottomFill = el(
       "div",
-      "ms-screen-exp-fill absolute left-0 top-0 bottom-0 bg-gradient-to-r from-[#bef264] via-[#eab308] to-[#84cc16] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] transition-[width] duration-250 pointer-events-none",
+      "ms-screen-exp-fill absolute left-0 top-0 bottom-0 bg-[#84cc16] border-r-2 border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)] transition-[width] duration-250 pointer-events-none",
       fullExp
     );
     this.expText = el(
       "div",
-      "ms-screen-exp-text absolute inset-0 flex items-center justify-center font-bold text-[8.5px] leading-[14px] text-white tracking-[0.2px] drop-shadow-[0_1px_2px_#000] z-[3] pointer-events-none select-none",
+      "ms-screen-exp-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[8.5px] leading-[14px] text-white tracking-[0.2px] drop-shadow-[0_1px_2px_#000] z-[3] pointer-events-none select-none tabular-nums",
       fullExp
     );
   }
@@ -182,11 +187,16 @@ export class PlayerStatusTag extends ComponentBase {
 
   private parentEl!: HTMLElement;
 
-  constructor(parent?: HTMLElement) {
+  constructor(parent?: HTMLElement | { parent: HTMLElement }) {
     super();
     if (parent) {
-      this.parentEl = parent;
-      this.initComponent();
+      if (parent instanceof HTMLElement) {
+        this.parentEl = parent;
+        this.initComponent();
+      } else if ((parent as any).parent) {
+        this.parentEl = (parent as any).parent;
+        this.initComponent();
+      }
     }
   }
 
@@ -244,11 +254,15 @@ export class MenuButtons extends ComponentBase {
   private parentEl!: HTMLElement;
   private items!: Record<string, MenuItem>;
 
-  constructor(parent?: HTMLElement, items?: Record<string, MenuItem>) {
+  constructor(parent?: HTMLElement | { parent: HTMLElement; items: Record<string, MenuItem> }, items?: Record<string, MenuItem>) {
     super();
-    if (parent && items) {
+    if (parent instanceof HTMLElement && items) {
       this.parentEl = parent;
       this.items = items;
+      this.initComponent();
+    } else if (parent && (parent as any).parent && (parent as any).items) {
+      this.parentEl = (parent as any).parent;
+      this.items = (parent as any).items;
       this.initComponent();
     }
   }
