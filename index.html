@@ -12,11 +12,11 @@
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
-  <canvas id="game" aria-label="Game"></canvas>
-  <section id="title" class="overlay">
+  <canvas id="game" tabindex="0" aria-label="Game"></canvas>
+  <section id="title" class="overlay hidden">
     <div class="login flex flex-col items-center justify-center text-center px-6 py-12">
       <div class="flex items-center gap-4 mb-4">
-        <img src="https://maplestory.io/api/GMS/240/mob/1210102/render/stand/0" alt="" class="w-16 h-16 image-rendering-pixelated rounded" />
+        <img id="title-mob" alt="" class="w-16 h-16 image-rendering-pixelated rounded" />
         <div class="text-left">
           <h1 class="text-3xl font-bold text-lime-400 tracking-wide">Maple Wayfarer</h1>
           <p class="text-xs text-muted-2 mt-1 leading-relaxed">A fan-made MapleStory-style platformer · WebGPU</p>
@@ -47,10 +47,23 @@
         <li><b class="w-72 text-white whitespace-nowrap">Boss</b><span>Every 25 kills</span></li>
       </ul>
       <button id="start-btn" type="button" class="w-full py-3 font-bold text-sm leading-relaxed cursor-pointer rounded border border-cyan-700 bg-gradient-to-b from-cyan-400 to-cyan-600 shadow-inner transition-filter hover:brightness-110 disabled:opacity-55 disabled:filter-saturate-60" disabled>Starting WebGPU…</button>
-      <p class="fine mt-3 text-center text-muted-2">Not affiliated with NEXON. Game art is loaded live from maplestory.io and belongs to NEXON.</p>
+      <p class="fine mt-3 text-center text-muted-2">Not affiliated with NEXON. Game art is streamed from a locally installed MapleStory client and belongs to NEXON.</p>
     </div>
   </section>
-  <div id="loading" class="loading hidden"></div>
+  <div id="loading" class="loading-overlay">
+    <div class="loading-card">
+      <div class="loading-header">
+        <span class="loading-leaf">🍁</span>
+        <span class="loading-title">MAPLE WAYFARER</span>
+      </div>
+      <div class="loading-status" id="loading-status">Connecting to Maple World…</div>
+      <div class="loading-bar-wrap">
+        <div class="loading-bar-fill" id="loading-bar-fill" style="width: 5%;"></div>
+        <span class="loading-pct" id="loading-pct">5%</span>
+      </div>
+      <div class="loading-sub" id="loading-sub">Initializing WebGPU engine & assets</div>
+    </div>
+  </div>
   <section id="gpu-error" class="overlay hidden">
     <div class="login"><h1>WebGPU is required</h1><p>Use a recent Chrome, Edge, or Safari 26+, or open this page in its own tab.</p><p class="err-detail"></p></div>
   </section>

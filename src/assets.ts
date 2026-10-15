@@ -4,7 +4,7 @@ export interface Sprite { url: string; w: number; h: number; ox: number; oy: num
 
 let active = 0;
 
-/** Loads and caches remote images as GPU textures (hotlinked from maplestory.io). */
+/** Loads images as GPU textures (streamed from the local client via /wz). */
 export class Assets {
   private cache = new Map<string, Tex | null>();
   private pending = new Map<string, Promise<Tex | null>>();

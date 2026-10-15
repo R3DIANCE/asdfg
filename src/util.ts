@@ -26,42 +26,17 @@ export const stars = (n: number) => (n ? `<span class="stars">${"★".repeat(Mat
 export const icon = (url: string, cls = "ic") => `<span class="${cls}" style="background-image:url('${url}')"></span>`;
 
 // ============================================================
-// Asset caching and background image management
+// Background image loading
 // ============================================================
-const CACHE_KEY = "maple-wayfarer-asset-cache";
-const memory = new Set<string>();
-const API = ("__PORT_3000__" as string).startsWith("__") ? "" : "__PORT_3000__";
-
-/** Saves one URL to the server-side /assets/ folder (fire-and-forget). */
-export function cacheAsset(url: string) {
-  if (!url || memory.has(url)) return;
-  memory.add(url);
-  const clean = url.split("?")[0];
-  fetch(`${API}/api/cache-asset`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: clean }) })
-    .catch(() => {});
-  try {
-    const seen = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "[]") as string[];
-    if (!seen.includes(clean)) { seen.push(clean); localStorage.setItem(CACHE_KEY, JSON.stringify(seen.slice(-5000))); }
-  } catch {}
-}
-
-/** Rewarms the server cache for URLs the client has seen before. */
-export function warmCache() {
-  try {
-    const seen = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "[]") as string[];
-    if (seen.length) fetch(`${API}/api/warm-assets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ urls: seen }) }).catch(() => {});
-  } catch {}
-}
-
 const okSrc = new Map<string, string>();
 
-/** Sets a background image with caching and automatic retry with cache-buster. */
+/** Sets a background image, retrying with a cache-buster until it loads. */
 export function bg(e: HTMLElement, url: string, attempt = 0) {
   const known = okSrc.get(url);
-  if (known) { e.style.backgroundImage = `url("${known}")`; cacheAsset(url); return; }
+  if (known) { e.style.backgroundImage = `url("${known}")`; return; }
   const src = attempt ? `${url}${url.includes("?") ? "&" : "?"}retry=${attempt}` : url;
   const img = new Image();
-  img.onload = () => { okSrc.set(url, src); e.style.backgroundImage = `url("${src}")`; cacheAsset(url); };
+  img.onload = () => { okSrc.set(url, src); e.style.backgroundImage = `url("${src}")`; };
   img.onerror = () => { if (attempt < 4) setTimeout(() => bg(e, url, attempt + 1), 700 * (attempt + 1)); };
   img.src = src;
 }

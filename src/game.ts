@@ -1,3 +1,4 @@
+import { ComponentBase } from "@orillusion/core";
 import { Assets, json, type Sprite } from "./assets.ts";
 import type { Renderer, Tex } from "./gpu.ts";
 import { FootholdTree, airMove, groundMove, type Foothold, type Ladder } from "./physics.ts";
@@ -20,21 +21,239 @@ export interface MapData {
 }
 interface MobData { id: number; name: string; meta: any; books: Record<string, Sprite[]> }
 
-// World links (the API's portal data is incomplete, so maps are chained edge to edge).
+export interface ItemEffFrame {
+  url: string;
+  w: number;
+  h: number;
+  ox: number;
+  oy: number;
+  delay?: number;
+  z?: number;
+  pos?: number;
+  fixed?: boolean;
+}
+export interface ItemEffData {
+  id: number;
+  z: number;
+  pos?: number;
+  fixed?: boolean;
+  actions: Record<string, ItemEffFrame[]>;
+}
+
+// World links and constants
+export const FREE_MARKET_MAP = 910000000;
+export const HUNTING_AREAS = [100010000, 100020000, 101010000, 100000000];
+
 export const MAP_LINKS: Record<number, { left: number; right: number }> = {
-  100010000: { left: 101010000, right: 100020000 },
-  100020000: { left: 100010000, right: 101010000 },
-  101010000: { left: 100020000, right: 100010000 },
+  100010000: { left: FREE_MARKET_MAP, right: 100020000 },
+  100020000: { left: FREE_MARKET_MAP, right: 101010000 },
+  101010000: { left: FREE_MARKET_MAP, right: 100000000 },
+  100000000: { left: FREE_MARKET_MAP, right: 100010000 },
+  910000000: { left: 100010000, right: 100010000 },
 };
 
+export interface RemotePlayer {
+  id: string;
+  name: string;
+  mapId: number;
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  face: number;
+  anim: string;
+  frame: number;
+  look: number[];
+  balloon?: { text: string; t: number };
+  lastTex?: Tex | null;
+}
+
+const textTexCache = new Map<string, Tex>();
+const textTexPending = new Set<string>();
+
+const balloonSlices: Record<string, HTMLImageElement> = {};
+let balloonSlicesLoaded = false;
+let balloonSlicesLoading = false;
+
+function loadBalloonSlices() {
+  if (balloonSlicesLoaded || balloonSlicesLoading || typeof Image === "undefined") return;
+  balloonSlicesLoading = true;
+  const parts = ["nw", "n", "ne", "w", "c", "e", "sw", "s", "se", "arrow"];
+  let loaded = 0;
+  for (const p of parts) {
+    const img = new Image();
+    img.src = `/wz/ui/ChatBalloon/0/${p}`;
+    img.onload = () => {
+      loaded++;
+      if (loaded === parts.length) {
+        balloonSlicesLoaded = true;
+        balloonSlicesLoading = false;
+        // Invalidate fallback textures
+        for (const [k] of textTexCache) {
+          if (k.startsWith("balloon:")) textTexCache.delete(k);
+        }
+      }
+    };
+    img.onerror = () => {
+      balloonSlicesLoading = false;
+    };
+    balloonSlices[p] = img;
+  }
+}
+loadBalloonSlices();
+
+function renderTextTexture(r: Renderer, text: string, type: "name" | "balloon"): Tex | null {
+  const key = `${type}:${text}`;
+  const hit = textTexCache.get(key);
+  if (hit) return hit;
+  if (textTexPending.has(key)) return null;
+  textTexPending.add(key);
+
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    if (type === "name") {
+      ctx.font = "bold 11px Tahoma, Arial, sans-serif";
+      const tm = ctx.measureText(text);
+      const tw = Math.ceil(tm.width);
+      const padX = 6;
+      const w = Math.max(24, tw + padX * 2);
+      const h = 16;
+      canvas.width = w;
+      canvas.height = h;
+
+      ctx.font = "bold 11px Tahoma, Arial, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+      ctx.beginPath();
+      if ((ctx as any).roundRect) (ctx as any).roundRect(0, 0, w, h, 3);
+      else ctx.rect(0, 0, w, h);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(60, 60, 60, 0.8)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(text, w / 2, h / 2 + 0.5);
+    } else {
+      ctx.font = "bold 12px Arial, Tahoma, sans-serif";
+      const tm = ctx.measureText(text);
+      const tw = Math.ceil(tm.width);
+
+      const padX = 6;
+      const contentW = Math.max(14, tw + padX * 2);
+      const contentH = 14;
+
+      const cornerW = 6;
+      const cornerH = 6;
+      const arrowW = 13;
+      const arrowH = 13;
+
+      const bubbleW = cornerW + contentW + cornerW;
+      const bubbleH = cornerH + contentH + cornerH;
+      const totalW = Math.max(bubbleW, arrowW);
+      const totalH = bubbleH + arrowH - 5;
+
+      canvas.width = totalW;
+      canvas.height = totalH;
+
+      ctx.imageSmoothingEnabled = false;
+
+      if (balloonSlicesLoaded) {
+        const { nw, n, ne, w, c, e, sw, s, se, arrow } = balloonSlices;
+        const bx = Math.round((totalW - bubbleW) / 2);
+        const by = 0;
+
+        // Corners
+        ctx.drawImage(nw, bx, by, cornerW, cornerH);
+        ctx.drawImage(ne, bx + cornerW + contentW, by, cornerW, cornerH);
+        ctx.drawImage(sw, bx, by + cornerH + contentH, cornerW, cornerH);
+        ctx.drawImage(se, bx + cornerW + contentW, by + cornerH + contentH, cornerW, cornerH);
+
+        // Borders
+        ctx.drawImage(n, bx + cornerW, by, contentW, cornerH);
+        ctx.drawImage(s, bx + cornerW, by + cornerH + contentH, contentW, cornerH);
+        ctx.drawImage(w, bx, by + cornerH, cornerW, contentH);
+        ctx.drawImage(e, bx + cornerW + contentW, by + cornerH, cornerW, contentH);
+
+        // Center
+        ctx.drawImage(c, bx + cornerW, by + cornerH, contentW, contentH);
+
+        // Arrow tail pointing towards speaker (overlap bottom border by 5px for seamless ribbon connection)
+        const ax = Math.round((totalW - arrowW) / 2);
+        const ay = by + bubbleH - 5;
+        ctx.drawImage(arrow, ax, ay, arrowW, arrowH);
+      } else {
+        loadBalloonSlices();
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#2b2b2b";
+        ctx.lineWidth = 1.2;
+        if ((ctx as any).roundRect) (ctx as any).roundRect(1, 1, totalW - 2, bubbleH - 2, 4);
+        else ctx.rect(1, 1, totalW - 2, bubbleH - 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Authentic MapleStory chat text (black, bold, centered)
+      ctx.font = "bold 12px Arial, Tahoma, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#000000";
+      ctx.fillText(text, totalW / 2, cornerH + contentH / 2 + 1);
+    }
+
+    createImageBitmap(canvas).then((bmp) => {
+      const tex = r.texture(bmp);
+      textTexCache.set(key, tex);
+      textTexPending.delete(key);
+    }).catch(() => {
+      textTexPending.delete(key);
+    });
+  } catch {
+    textTexPending.delete(key);
+  }
+
+  return null;
+}
+
 const BODY = [2000, 12000, 20000, 30030];
-export const lookKey = (ids: number[]) => encodeURIComponent([...BODY, ...ids].map((i) => JSON.stringify({ itemId: i, region: "GMS", version: "240" })).join(","));
-export const charUrlFor = (key: string, anim: string, f: number) => `https://maplestory.io/api/character/${key}/${anim}/${f}?renderMode=1`;
+/** The default avatar: body, head, hair, face (equip ids). */
+export const DEFAULT_LOOK = [2000, 12000, 20000, 30030];
+
+/**
+ * A character frame URL. The server composes the equipped parts from the
+ * local client's Character.wz — no remote asset service.
+ */
+export const charUrlFor = (look: number[], anim: string, f: number, expr = "default", ef = 0) => {
+  let url = `/wz/char?eq=${look.join(",")}&action=${anim}&frame=${f}`;
+  if (expr !== "default") url += `&expr=${expr}`;
+  if (ef !== 0) url += `&ef=${ef}`;
+  return url;
+};
 export const BOSSES = [2220000, 3220000, 6130101, 9300003, 8220007, 5220000, 6300005];
 const STAGE_KILLS = 25;
+/**
+ * Frame timing per animation, in ms. This is the FALLBACK used until the
+ * real per-frame delays arrive from the server; the counts must not exceed
+ * what the body actually ships or the extra frames 404 and the loop stalls
+ * (the classic "idle animation freezes" bug — stand1 has 3 frames, not 4).
+ */
 const ANIMS: Record<string, number[]> = {
-  stand1: [500, 500, 500, 500], walk1: [180, 180, 180, 180], alert: [500, 500, 500], jump: [200],
-  prone: [200], ladder: [250, 250], rope: [250, 250], swingO1: [300, 150, 350], swingO2: [300, 150, 350],
+  stand1: [500, 500, 500], stand2: [500, 500, 500],
+  walk1: [180, 180, 180, 180], walk2: [180, 180, 180, 180],
+  alert: [500, 500, 500], jump: [200], prone: [100],
+  ladder: [250, 250], rope: [250, 250],
+  swingO1: [300, 150, 350], swingO2: [300, 150, 350], swingO3: [300, 150, 350],
+  swingOF: [200, 100, 100, 300], stabO1: [350, 450], stabO2: [350, 450], stabOF: [250, 150, 300],
+  swingT1: [300, 150, 350], swingT2: [300, 150, 350], swingT3: [300, 150, 350],
+  swingP1: [300, 150, 350], swingP2: [300, 150, 350],
+  shoot1: [300, 150, 350], shoot2: [300, 150, 350],
+  heal: [300, 150, 350], fly: [300, 300], sit: [100],
 };
 
 export const EXP_TABLE = [15, 34, 57, 92, 135, 372, 560, 840, 1242, 1716, 2360, 3216, 4200, 5460, 7050, 8840, 11040, 13716, 16680, 20216, 24402, 28980, 34320, 40512, 47216, 54900, 63666, 73080, 83720, 95700];
@@ -69,8 +288,9 @@ export type ChatKind = "system" | "exp" | "meso" | "level" | "notice" | "say" | 
 
 const emptyGt = () => ({ watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, att: 0, strP: 0, dexP: 0, intP: 0, lukP: 0, hpP: 0, boss: 0, meso: 0, drop: 0, exp: 0 });
 
-export class Game {
-  assets: Assets;
+export class Game extends ComponentBase {
+  r!: Renderer;
+  assets!: Assets;
   map!: MapData;
   tree!: FootholdTree;
   mobs: Mob[] = [];
@@ -93,7 +313,10 @@ export class Game {
   onMapChange: (m: MapData) => void = () => {};
 
   stats: Stats = {
-    name: "Wayfarer", level: 1, exp: 0, hp: 50, maxHp: 50, mp: 30, maxMp: 30, meso: 0, job: "Warrior", classId: "warrior",
+    name: (() => {
+      try { return localStorage.getItem("ms_player_name") || "Player"; } catch { return "Player"; }
+    })(),
+    level: 1, exp: 0, hp: 50, maxHp: 50, mp: 30, maxMp: 30, meso: 0, job: "Warrior", classId: "warrior",
     str: 12, dex: 5, int: 4, luk: 4, ap: 0, sp: 2, baseHp: 50, baseMp: 30, fame: 0,
   };
   get class() { return classFor(this.stats.classId); }
@@ -101,9 +324,13 @@ export class Game {
   mats: Record<number, number> = { 4010000: 10, 4000001: 10 };
   bag: Gear[] = [];
   eq: Partial<Record<Slot, Gear>> = {};
-  look = lookKey([1040002, 1060002, 1072001, 1302000]);
-  lookWant = "";
-  prevLook = "";
+  visualEq: Partial<Record<Slot, Gear>> = {};
+  look: number[] = [...DEFAULT_LOOK, 1040002, 1060002, 1072001, 1302000];
+  lookWant: number[] = [];
+  prevLook: number[] = [];
+  lastPlayerTex: import("./gpu.ts").Tex | null = null;
+  itemEffCache = new Map<number, ItemEffData | null>();
+  activeItemEffs: ItemEffData[] = [];
   gt = emptyGt();
 
   spawnDrop(item: Partial<Drop>, x: number, y = this.p.y - 20, vx = rand(-40, 40), vy = -400) {
@@ -122,8 +349,20 @@ export class Game {
   snailShell: Sprite | null = null;
   buffs: Record<string, { left: number; dur: number }> = {};
   quick: Record<string, Action | null> = { ...DEFAULT_QUICK };
-  auto: AutoSettings = { battle: false, hp: true, hpPct: 50, mp: true, mpPct: 30, buff: true, loot: true, ap: true, boss: true, magnet: true };
+  auto: AutoSettings = { battle: true, hp: true, hpPct: 50, mp: true, mpPct: 30, buff: true, loot: true, ap: true, boss: true, magnet: true };
   balloon = { text: "", t: 0 };
+  ws: WebSocket | null = null;
+  wsId: string | null = null;
+  wsPing = 0;
+  wsPingTimer: any = null;
+  remotePlayers = new Map<string, RemotePlayer>();
+  lastMoveSync = 0;
+  lastSyncedState = { x: 0, y: 0, face: 1, anim: "", frame: 0 };
+  prevHuntingMap = 100010000;
+  areaBossDefeated = false;
+  godMode = false;
+  infiniteMp = false;
+  speedMultiplier = 1;
   projectiles: Projectile[] = [];
   potCd = 0;
   ahT = 0;
@@ -150,6 +389,7 @@ export class Game {
   p = {
     x: 0, y: 0, vx: 0, vy: 0, fh: null as Foothold | null, ignoreFh: undefined as number | undefined,
     face: -1 as -1 | 1, anim: "stand1", frame: 0, ft: 0,
+    expr: "default", exprFrame: 0, blinkTimer: 3.5, blinkStep: -1, blinkFrameTimer: 0,
     ladder: null as Ladder | null, attack: 0, attackAnim: "swingO1", hitDone: false, skill: null as string | null,
     invuln: 0, prone: false, alert: 0, regen: 0, dead: false, leapt: false,
     coyote: 0, airTime: 0,
@@ -158,13 +398,41 @@ export class Game {
   keys = new Set<string>();
   pressed = new Set<string>();
 
-  constructor(public r: Renderer) {
-    this.assets = new Assets(r);
+  constructor(r?: Renderer) {
+    super();
+    if (r) {
+      this.r = r;
+      this.assets = new Assets(r);
+    }
   }
 
-  async init(startMap: number) {
-    this.fxData = await json("./data/fx.json");
-    const sk = await json<Record<string, any>>("./data/skills.json");
+  public override start(): void {
+    // Orillusion lifecycle start hook
+  }
+
+  public override onUpdate(): void {
+    // Ticked by main render loop
+  }
+
+  public override onLateUpdate(): void {
+    // Orillusion lifecycle late-update draw hook
+    this.draw();
+  }
+
+  async init(startMapOrParam: any) {
+    if (typeof startMapOrParam === "number") {
+      return this.initGame(startMapOrParam);
+    }
+    super.init(startMapOrParam);
+    if (startMapOrParam?.r && !this.r) {
+      this.r = startMapOrParam.r;
+      this.assets = new Assets(this.r);
+    }
+  }
+
+  async initGame(startMap: number) {
+    this.fxData = await json("/wz/data/fx");
+    const sk = await json<Record<string, any>>("/wz/data/skills");
     this.snailShell = sk.snailShell ?? null;
     for (const d of SKILL_DEFS) if (sk[d.id]) this.skillArt[d.id] = sk[d.id];
     this.recalc();
@@ -185,18 +453,222 @@ export class Game {
     for (const [a, fr] of Object.entries(ANIMS)) fr.forEach((_, i) => loads.push(this.assets.load(charUrlFor(this.look, a, i))));
     const fxs = [this.fxData.dmg, this.fxData.dmgFirst, this.fxData.hurt, this.fxData.hurtFirst].flatMap((o: any) => Object.values(o));
     for (const s of [...fxs, ...this.fxData.meso, ...this.fxData.portal, this.fxData.miss] as Sprite[]) if (s) loads.push(this.assets.load(s.url));
-    for (const a of Object.values(this.skillArt)) for (const f of [...a.effect, ...a.effect0, ...a.hit]) this.assets.load(f.url);
+    for (const a of Object.values(this.skillArt)) for (const f of [...a.effect, ...a.effect0, ...a.hit, ...(a.ball ?? [])]) this.assets.load(f.url);
     await this.loadMap(startMap, "spawn");
+    this.updateActiveItemEffs();
+    this.initWs();
     await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 25000))]);
+  }
+
+  // ------------------------------------------------------------ websocket networking
+  initWs() {
+    if (this.wsPingTimer) {
+      clearInterval(this.wsPingTimer);
+      this.wsPingTimer = null;
+    }
+    if (this.ws) {
+      try { this.ws.close(); } catch {}
+      this.ws = null;
+    }
+    try {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const host = location.host || "localhost:3000";
+      const ws = new WebSocket(`${proto}//${host}/ws`);
+      this.ws = ws;
+
+      ws.onopen = () => {
+        this.sendJoin();
+        // Start ping heartbeat
+        if (this.wsPingTimer) clearInterval(this.wsPingTimer);
+        this.wsPingTimer = setInterval(() => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ t: "ping", sentAt: performance.now() }));
+          }
+        }, 1000);
+        ws.send(JSON.stringify({ t: "ping", sentAt: performance.now() }));
+      };
+
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          this.handleWsMessage(msg);
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        if (this.wsPingTimer) {
+          clearInterval(this.wsPingTimer);
+          this.wsPingTimer = null;
+        }
+        this.ws = null;
+        setTimeout(() => {
+          if (!this.ws) this.initWs();
+        }, 3000);
+      };
+
+      ws.onerror = () => {
+        if (this.wsPingTimer) {
+          clearInterval(this.wsPingTimer);
+          this.wsPingTimer = null;
+        }
+        try { ws.close(); } catch {}
+      };
+    } catch {}
+  }
+
+  sendJoin() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({
+      t: "join",
+      name: this.stats.name,
+      mapId: this.map?.id || FREE_MARKET_MAP,
+      x: Math.round(this.p.x),
+      y: Math.round(this.p.y),
+      face: this.p.face,
+      anim: this.p.anim,
+      frame: this.p.frame,
+      look: this.look,
+    }));
+  }
+
+  syncAll(forceReconnect = false) {
+    if (forceReconnect || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.initWs();
+      return;
+    }
+    this.ws.send(JSON.stringify({
+      t: "sync",
+      name: this.stats.name,
+      mapId: this.map?.id || FREE_MARKET_MAP,
+      x: Math.round(this.p.x),
+      y: Math.round(this.p.y),
+      face: this.p.face,
+      anim: this.p.anim,
+      frame: this.p.frame,
+      look: this.look,
+    }));
+  }
+
+  syncMove() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const now = performance.now();
+    const p = this.p;
+    const dx = Math.abs(p.x - this.lastSyncedState.x);
+    const dy = Math.abs(p.y - this.lastSyncedState.y);
+    const animChanged = p.anim !== this.lastSyncedState.anim || p.frame !== this.lastSyncedState.frame || p.face !== this.lastSyncedState.face;
+    const isMoving = Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.1;
+    const stoppedMoving = !isMoving && (this.lastSyncedState.anim.startsWith("walk") || this.lastSyncedState.anim === "jump");
+
+    if ((now - this.lastMoveSync > 50 && (dx > 2 || dy > 2 || animChanged)) || stoppedMoving || (now - this.lastMoveSync > 2000)) {
+      this.lastMoveSync = now;
+      this.lastSyncedState = { x: Math.round(p.x), y: Math.round(p.y), face: p.face, anim: p.anim, frame: p.frame };
+      this.ws.send(JSON.stringify({
+        t: "move",
+        mapId: this.map?.id || FREE_MARKET_MAP,
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+        face: p.face,
+        anim: p.anim,
+        frame: p.frame,
+      }));
+    }
+  }
+
+  handleWsMessage(msg: any) {
+    if (!msg || !msg.t) return;
+    if (msg.t === "welcome") {
+      this.wsId = msg.id;
+      let savedName = "";
+      try {
+        savedName = localStorage.getItem("ms_player_name") || "";
+      } catch {}
+      if (!savedName && msg.id) {
+        const shortName = msg.id.length > 8 ? `P-${msg.id.slice(0, 4).toUpperCase()}` : msg.id;
+        this.stats.name = shortName;
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ t: "name", name: shortName }));
+        }
+        this.onChange();
+      }
+    } else if (msg.t === "player_name") {
+      if (msg.id === this.wsId) return;
+      const rp = this.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.name = msg.name;
+        this.onChange();
+      }
+    } else if (msg.t === "roster") {
+      this.remotePlayers.clear();
+      if (Array.isArray(msg.players)) {
+        for (const p of msg.players) {
+          if (p.id !== this.wsId) {
+            this.remotePlayers.set(p.id, {
+              ...p,
+              targetX: p.x,
+              targetY: p.y,
+            });
+            this.assets.load(charUrlFor(p.look, p.anim || "stand1", p.frame || 0));
+          }
+        }
+      }
+    } else if (msg.t === "player_join") {
+      if (msg.player && msg.player.id !== this.wsId) {
+        this.remotePlayers.set(msg.player.id, {
+          ...msg.player,
+          targetX: msg.player.x,
+          targetY: msg.player.y,
+        });
+        this.onChat("system", `${msg.player.name} entered the map.`);
+        this.assets.load(charUrlFor(msg.player.look, msg.player.anim || "stand1", msg.player.frame || 0));
+      }
+    } else if (msg.t === "player_move") {
+      if (msg.id === this.wsId) return;
+      const rp = this.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.targetX = msg.x;
+        rp.targetY = msg.y;
+        rp.face = msg.face;
+        rp.anim = msg.anim;
+        rp.frame = msg.frame;
+        this.assets.load(charUrlFor(rp.look, rp.anim, rp.frame));
+      } else {
+        this.syncAll(false);
+      }
+    } else if (msg.t === "player_leave") {
+      if (msg.id === this.wsId) return;
+      const rp = this.remotePlayers.get(msg.id);
+      if (rp) {
+        this.onChat("system", `${rp.name || "A player"} left the map.`);
+        this.remotePlayers.delete(msg.id);
+      }
+    } else if (msg.t === "player_look") {
+      if (msg.id === this.wsId) return;
+      const rp = this.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.look = msg.look;
+        this.assets.load(charUrlFor(rp.look, rp.anim || "stand1", rp.frame || 0));
+      }
+    } else if (msg.t === "chat") {
+      if (msg.id === this.wsId) return;
+      const rp = this.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.balloon = { text: msg.text, t: 5 };
+      }
+      this.onChat((msg.kind as ChatKind) || "say", `${msg.name} : ${msg.text}`);
+    } else if (msg.t === "pong") {
+      if (typeof msg.sentAt === "number") {
+        this.wsPing = Math.max(0, Math.round(performance.now() - msg.sentAt));
+      }
+    }
   }
 
   // ------------------------------------------------------------ map loading
   async loadMap(id: number, arrive: "spawn" | "left" | "right") {
     if (this.boss) this.endBoss(false);
     this.loadingMap = true;
-    const m = await json<MapData>(`./data/maps/${id}.json`);
+    const m = await json<MapData>(`/wz/data/map/${id}`);
     await Promise.all([...new Set(m.spawns.map((s) => s.id))].map(async (mid) => {
-      if (!this.mobData.has(mid)) this.mobData.set(mid, await json(`./data/mobs/${mid}.json`));
+      if (!this.mobData.has(mid)) this.mobData.set(mid, await json(`/wz/data/mob/${mid}`));
     }));
     const renderTex = this.assets.load(m.render);
     const backLoads = m.backs.map((b) => this.assets.load(b.sprite.url));
@@ -209,13 +681,10 @@ export class Game {
     const ox = m.renderOrigin.x, oy = m.renderOrigin.y;
     this.bounds = tex
       ? { l: -ox, t: -oy, r: tex.w - ox, b: tex.h - oy }
-      : { l: this.tree.minX, r: this.tree.maxX, t: this.tree.minY - 400, b: this.tree.maxY + 100 };
-    this.bounds.l = Math.max(this.bounds.l, this.tree.minX - 20);
-    this.bounds.r = Math.min(this.bounds.r, this.tree.maxX + 20);
+      : { l: this.tree.minX - 50, r: this.tree.maxX + 50, t: this.tree.minY - 200, b: this.tree.maxY + 100 };
 
     // Edge portals on the lowest floors.
     this.portals = [];
-    const link = MAP_LINKS[id];
     const groundAt = (x: number) => { const f = this.tree.below(x, this.tree.minY - 1000); return f ? FootholdTree.yAt(f, x) : this.tree.maxY; };
     const lowest = (fromLeft: boolean) => {
       const xs = this.tree.floors.map((f) => (fromLeft ? f.x1 : f.x2));
@@ -225,23 +694,47 @@ export class Game {
       for (const f of this.tree.floors) if (x >= f.x1 && x <= f.x2) best = Math.max(best, FootholdTree.yAt(f, x));
       return { x, y: best > -Infinity ? best : groundAt(x) };
     };
-    if (link) {
-      const L = lowest(true), R = lowest(false);
-      this.portals.push({ ...L, to: link.left, side: "left" }, { ...R, to: link.right, side: "right" });
+    const L = lowest(true), R = lowest(false);
+    if (id === FREE_MARKET_MAP) {
+      const returnMap = this.prevHuntingMap || 100010000;
+      this.portals.push({ ...L, to: returnMap, side: "left" }, { ...R, to: returnMap, side: "right" });
+    } else {
+      const idx = HUNTING_AREAS.indexOf(id);
+      const nextArea = idx >= 0 ? HUNTING_AREAS[(idx + 1) % HUNTING_AREAS.length] : 100010000;
+      this.portals.push({ ...L, to: FREE_MARKET_MAP, side: "left" }, { ...R, to: nextArea, side: "right" });
     }
 
     // Player placement.
     const p = this.p;
     let px: number, py: number;
-    if (arrive === "left") ({ x: px, y: py } = this.portals[0] ?? { x: 0, y: 0 });
-    else if (arrive === "right") ({ x: px, y: py } = this.portals[1] ?? { x: 0, y: 0 });
+    if (arrive === "left") ({ x: px, y: py } = this.portals[0] ? { x: this.portals[0].x + 30, y: this.portals[0].y } : { x: 0, y: 0 });
+    else if (arrive === "right") ({ x: px, y: py } = this.portals[1] ? { x: this.portals[1].x - 30, y: this.portals[1].y } : { x: 0, y: 0 });
     else ({ x: px, y: py } = this.portals[0] ? { x: this.portals[0].x + 40, y: this.portals[0].y } : (m.spawns[0] ?? { x: 0, y: 0 }));
     p.x = px; p.y = py - 5; p.vx = 0; p.vy = 0; p.ladder = null;
+    p.attack = 0; p.hitDone = true; p.skill = null;
     p.fh = this.tree.landing(p.x, p.y - 20, p.y + 40);
     if (p.fh) p.y = FootholdTree.yAt(p.fh, p.x);
 
+    // Reset area boss defeated status when entering a new hunting area
+    if (id !== FREE_MARKET_MAP) {
+      this.areaBossDefeated = false;
+    }
+
+    // WebSocket map change broadcast
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        t: "map_change",
+        mapId: id,
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+      }));
+      this.remotePlayers.clear();
+    }
+
     // Monsters.
-    this.mobs = m.spawns.map((s) => this.makeMob(s)).filter(Boolean) as Mob[];
+    this.mobs = id === FREE_MARKET_MAP ? [] : m.spawns.map((s) => this.makeMob(s)).filter(Boolean) as Mob[];
+    this.boss = null;
+    this.bossTimer = 0;
     this.drops = []; this.fx = []; this.dmg = [];
     this.snapCamera();
     this.loadingMap = false;
@@ -274,7 +767,7 @@ export class Game {
     if (b.r - b.l <= W) this.cam.x = (b.l + b.r) / 2 - W / 2;
     else this.cam.x = Math.max(b.l, Math.min(b.r - W, this.cam.x));
     if (b.b - b.t <= H) {
-      this.cam.y = b.t;
+      this.cam.y = (b.t + b.b) / 2 - H / 2;
     } else {
       this.cam.y = Math.max(b.t, Math.min(b.b - H, this.cam.y));
     }
@@ -303,9 +796,11 @@ export class Game {
     return Math.max(1, ((4 * this.primaryStat() + this.secondaryStat()) * this.watk()) / 40);
   }
   combatPower() { return Math.round(this.maxDamage() * 12 * (1 + this.gt.boss / 200) + this.stats.maxHp / 4 + this.gt.def * 4); }
-  computeLook() {
+  computeLook(): number[] {
     const order: Slot[] = ["cape", "shoes", "bottom", "top", "gloves", "hat", "earrings", "face", "eye", "shield", "weapon"];
-    return lookKey(order.map((k) => this.eq[k]?.id).filter((x): x is number => !!x));
+    const worn = order.map((k) => this.visualEq[k]?.id ?? this.eq[k]?.id).filter((x): x is number => !!x);
+    // Always include the base body parts so the avatar is never headless.
+    return [...DEFAULT_LOOK, ...worn];
   }
 
   /** Destination sockets a gear item of the given category can be placed into. */
@@ -391,20 +886,65 @@ export class Game {
   /** Re-renders the character with new equipment; keeps the old look until the new frames are ready. */
   refreshLook() {
     const want = this.computeLook();
-    if (want === this.look && want === this.lookWant) return;
+    const same = (a: number[], b: number[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+    if (same(want, this.look) && same(want, this.lookWant)) return;
     this.prevLook = this.look;
     this.look = want;
     this.lookWant = want;
+    this.lastPlayerTex = null;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ t: "look", look: this.look }));
+    }
     this.onChange();
-    // Stand/walk first so the switch is quick; the remaining frames stream in (old look fills gaps).
+    // Preload stand1/walk1 and blink frames with high priority so character updates immediately
     const key = Object.entries(ANIMS).filter(([a]) => a === "stand1" || a === "walk1");
-    const loads: Promise<unknown>[] = [];
-    for (const [a, fr] of key) fr.forEach((_, i) => loads.push(Promise.resolve(this.assets.load(charUrlFor(want, a, i))).catch(() => null)));
-    Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 10000))]).then(() => {
-      this.lookWant = "";
+    const priorityLoads: Promise<unknown>[] = [];
+    for (const [a, fr] of key) fr.forEach((_, i) => priorityLoads.push(Promise.resolve(this.assets.load(charUrlFor(want, a, i))).catch(() => null)));
+    for (let ef = 0; ef < 3; ef++) priorityLoads.push(Promise.resolve(this.assets.load(charUrlFor(want, "stand1", 0, "blink", ef))).catch(() => null));
+    
+    // Also preload all other animation frames in background
+    const allLoads: Promise<unknown>[] = [...priorityLoads];
+    for (const [a, fr] of Object.entries(ANIMS)) {
+      if (a !== "stand1" && a !== "walk1") {
+        fr.forEach((_, i) => allLoads.push(Promise.resolve(this.assets.load(charUrlFor(want, a, i))).catch(() => null)));
+      }
+    }
+
+    Promise.race([Promise.all(priorityLoads), new Promise((r) => setTimeout(r, 2000))]).then(() => {
+      this.lookWant = [];
       this.onChange();
-      for (const [a, fr] of Object.entries(ANIMS)) fr.forEach((_, i) => this.assets.load(charUrlFor(want, a, i)));
     });
+    Promise.race([Promise.all(allLoads), new Promise((r) => setTimeout(r, 8000))]).then(() => {
+      this.prevLook = [];
+      this.onChange();
+    });
+    this.updateActiveItemEffs();
+  }
+
+  async updateActiveItemEffs() {
+    const ids = Array.from(new Set([...Object.values(this.eq), ...Object.values(this.visualEq)].filter((g): g is Gear => !!g).map((g) => g.id)));
+    const effs: ItemEffData[] = [];
+    for (const id of ids) {
+      if (!this.itemEffCache.has(id)) {
+        try {
+          const res = await fetch(`/wz/data/item-eff/${id}`);
+          if (res.ok) {
+            const data: ItemEffData = await res.json();
+            this.itemEffCache.set(id, data);
+            for (const act of Object.values(data.actions)) {
+              for (const fr of act) this.assets.load(fr.url);
+            }
+          } else {
+            this.itemEffCache.set(id, null);
+          }
+        } catch {
+          this.itemEffCache.set(id, null);
+        }
+      }
+      const cached = this.itemEffCache.get(id);
+      if (cached) effs.push(cached);
+    }
+    this.activeItemEffs = effs;
   }
   mastery() { return Math.min(0.9, 0.15 + this.lv("1100000") * 0.05); }
   damageRange() { const mx = this.maxDamage(); return [Math.max(1, Math.floor(mx * this.mastery())), Math.floor(mx)]; }
@@ -415,7 +955,7 @@ export class Game {
       if (d?.buff?.speed) mult += (d.buff.speed + this.lv(id)) * 0.01;
     }
     if (this.buffs["0001002"]) mult += this.lv("0001002") * 0.1;
-    return WALK * mult;
+    return WALK * mult * (this.speedMultiplier || 1);
   }
   jobFor(level: number) {
     const c = this.class;
@@ -486,9 +1026,45 @@ export class Game {
     this.recalc(); this.onChange();
     return true;
   }
+  setName(name: string) {
+    const clean = name.trim().slice(0, 16);
+    if (!clean) return;
+    this.stats.name = clean;
+    try {
+      localStorage.setItem("ms_player_name", clean);
+    } catch {}
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ t: "name", name: clean }));
+    }
+    this.onChat("notice", `Your character name has been changed to "${clean}".`);
+    this.onChange();
+  }
+
   say(text: string) {
+    if (text.startsWith("/name ") || text.startsWith("/nick ") || text.startsWith("/rename ")) {
+      const newName = text.replace(/^\/(name|nick|rename)\s+/, "").trim();
+      if (newName) {
+        this.setName(newName);
+      } else {
+        this.onChat("system", "Usage: /name <newName>");
+      }
+      return;
+    }
     this.balloon = { text, t: 5 };
     this.onChat("say", `${this.stats.name} : ${text}`);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ t: "chat", text, kind: "say" }));
+    }
+  }
+
+  sendChat(text: string, kind: ChatKind = "say") {
+    if (kind === "say") {
+      this.say(text);
+    } else {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ t: "chat", text, kind }));
+      }
+    }
   }
 
   // ------------------------------------------------------------ actions (quick slots, keys, auto)
@@ -499,9 +1075,13 @@ export class Game {
       const it = ITEMS[a.id], n = this.inv[a.id] ?? 0;
       if (!it || n <= 0) { if (!quiet) this.onChat("system", `You don't have any ${it?.name ?? "of that item"}.`); return false; }
       if ((it.hp && s.hp >= s.maxHp && !it.mp) || (it.mp && s.mp >= s.maxMp && !it.hp)) return false;
+      if (it.hpPct && s.hp >= s.maxHp && !it.mpPct) return false;
+      if (it.mpPct && s.mp >= s.maxMp && !it.hpPct) return false;
       this.inv[a.id] = n - 1;
       if (it.hp) s.hp = Math.min(s.maxHp, s.hp + it.hp);
       if (it.mp) s.mp = Math.min(s.maxMp, s.mp + it.mp);
+      if (it.hpPct) s.hp = Math.min(s.maxHp, Math.round(s.hp + s.maxHp * (it.hpPct / 100)));
+      if (it.mpPct) s.mp = Math.min(s.maxMp, Math.round(s.mp + s.maxMp * (it.mpPct / 100)));
       this.onChange();
       return true;
     }
@@ -511,24 +1091,28 @@ export class Game {
     if (lv <= 0) { if (!quiet) this.onChat("system", "You haven't learned that skill yet."); return false; }
     if (!this.skillEligible(a.id)) { if (!quiet) this.onChat("system", "That skill doesn't belong to your class."); return false; }
     if (d.kind === "passive") return false;
-    const cost = d.mp(lv);
+    const cost = this.infiniteMp ? 0 : d.mp(lv);
     if (d.kind === "buff") {
       if (p.attack > 0 || p.ladder) return false;
-      if (s.mp < cost) { if (!quiet) this.onChat("system", "Not enough MP."); return false; }
-      s.mp -= cost;
+      if (!this.infiniteMp && s.mp < cost) { if (!quiet) this.onChat("system", "Not enough MP."); return false; }
+      if (!this.infiniteMp) s.mp -= cost;
       this.buffs[a.id] = { left: d.duration!(lv), dur: d.duration!(lv) };
       const art = this.skillArt[a.id];
       if (art?.effect.length) this.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
+      if (art?.effect0?.length) this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
       p.alert = 2;
       this.recalc(); this.onChange();
       return true;
     }
     if (d.kind === "move") {
-      if (p.fh || p.ladder || p.leapt || s.mp < cost) return false;
-      s.mp -= cost; p.leapt = true;
-      // War Leap: a much longer horizontal launch that grows with level.
+      if (p.fh || p.ladder || p.leapt || (!this.infiniteMp && s.mp < cost)) return false;
+      if (!this.infiniteMp) s.mp -= cost; p.leapt = true;
+      // War Leap / Flash Jump: launch horizontally with visual effects
       p.vy = -JUMP * 0.55;
       p.vx = p.face * this.speed() * (1.6 + lv * 0.12);
+      const art = this.skillArt[a.id];
+      if (art?.effect?.length) this.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
+      if (art?.effect0?.length) this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
       return true;
     }
     return this.startAttack(a.id);
@@ -539,9 +1123,9 @@ export class Game {
     if (p.attack > 0 || p.ladder || this.loadingMap) return false;
     const d = id ? SKILL[id] : null;
     if (d) {
-      const cost = d.mp(this.lv(d.id));
-      if (s.mp < cost) { this.onChat("system", "Not enough MP."); return false; }
-      s.mp -= cost;
+      const cost = this.infiniteMp ? 0 : d.mp(this.lv(d.id));
+      if (!this.infiniteMp && s.mp < cost) { this.onChat("system", "Not enough MP."); return false; }
+      if (!this.infiniteMp) s.mp -= cost;
     }
     p.skill = id;
     p.attack = d ? 0.75 : 0.6; p.hitDone = false; p.alert = 3;
@@ -564,7 +1148,7 @@ export class Game {
     this.updateProjectiles(dt);
     this.balloon.t = Math.max(0, this.balloon.t - dt);
     if (this.boss) { this.bossTimer -= dt; if (this.bossTimer <= 0) this.endBoss(false); }
-    else if (this.auto.boss && this.bossReady() && !this.p.ladder) this.challengeBoss();
+    else if (this.auto.boss && this.bossReady() && !this.p.ladder && this.map?.id !== FREE_MARKET_MAP) this.challengeBoss();
     if (this.auto.battle) { this.idle.autoTime += dt; if (this.idle.autoTime > 120) { this.idle.killRate = this.idle.autoKills / this.idle.autoTime; } if (this.idle.autoTime > 1800) { this.idle.autoTime /= 2; this.idle.autoKills /= 2; } }
     this.ahT = (this.ahT ?? 0) + dt;
     if (this.ahT > 5) { const sold = this.ah.tick(Date.now(), this.ahT); this.ahT = 0; if (sold) { this.onGain("meso", `Auction House: your ${goodsName(sold.goods)} sold for ${sold.price.toLocaleString()} mesos!`); this.onChat("system", `Auction House: your ${goodsName(sold.goods)} sold for ${sold.price.toLocaleString()} mesos! Collect it in the Auction House (H).`); this.onChange(); } }
@@ -574,6 +1158,16 @@ export class Game {
     this.fx = this.fx.filter((f) => f.t < f.frames.reduce((a, s) => a + (s.delay ?? 100), 0));
     for (const d of this.dmg) d.t += dt;
     this.dmg = this.dmg.filter((d) => d.t < 1.5);
+
+    // Update remote players (smooth interpolation and balloon timers)
+    for (const rp of this.remotePlayers.values()) {
+      rp.x += (rp.targetX - rp.x) * Math.min(1, dt * 15);
+      rp.y += (rp.targetY - rp.y) * Math.min(1, dt * 15);
+      if (rp.balloon) {
+        rp.balloon.t = Math.max(0, rp.balloon.t - dt);
+      }
+    }
+    this.syncMove();
 
     // Camera follow.
     const W = this.r.width, H = this.r.height;
@@ -615,11 +1209,18 @@ export class Game {
   updateProjectiles(dt: number) {
     for (const pr of this.projectiles) {
       pr.t += dt;
+      if (pr.t < 0) continue;
       const tx = pr.target.x, ty = pr.target.y - 25;
       const dx = tx - pr.x, dy = ty - pr.y, dist = Math.hypot(dx, dy);
       const step = 650 * dt;
       if (dist <= step || pr.target.state === "dead") {
-        if (pr.target.state !== "dead" && pr.target.state !== "die1") this.damageMob(pr.target, pr.dmg, pr.miss);
+        if (pr.target.state !== "dead" && pr.target.state !== "die1") {
+          this.damageMob(pr.target, pr.dmg, pr.miss);
+          if (pr.skillId) {
+            const art = this.skillArt[pr.skillId];
+            if (art?.hit?.length) this.fx.push({ frames: art.hit, x: pr.target.x, y: pr.target.y - 25, flip: this.p.face === 1, t: 0 });
+          }
+        }
         pr.t = 99;
       } else { pr.x += (dx / dist) * step; pr.y += (dy / dist) * step; }
     }
@@ -801,8 +1402,8 @@ export class Game {
   runAuto(dt: number) {
     const ai = this.ai, p = this.p, tree = this.tree;
     ai.keys.clear();
-    if (!this.auto.battle) return;
-    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Alt", " "].some((k) => this.keys.has(k))) ai.hold = 1.2;
+    if (!this.auto.battle || this.map?.id === FREE_MARKET_MAP) return;
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "a", "A", "d", "D", "w", "W", "s", "S", "Alt", " ", "c", "C", "x", "X", "z", "Z"].some((k) => this.keys.has(k)) || Object.keys(this.quick).some((k) => this.pressed.has(k))) ai.hold = 1.2;
     ai.hold = Math.max(0, ai.hold - dt);
     ai.jumpCooldown = Math.max(0, ai.jumpCooldown - dt);
     if (ai.hold > 0 || p.attack > 0) return;
@@ -814,6 +1415,24 @@ export class Game {
       ai.retreatTime -= dt;
       ai.keys.add(ai.retreatDir > 0 ? "ArrowRight" : "ArrowLeft");
       return;
+    }
+
+    // If area boss is defeated and auto-combat is ON, navigate to the right portal to advance to the next area!
+    if (this.areaBossDefeated && this.map.id !== FREE_MARKET_MAP) {
+      const rightPortal = this.portals.find((pt) => pt.side === "right");
+      if (rightPortal) {
+        if (Math.abs(rightPortal.x - p.x) < 35 && Math.abs(rightPortal.y - p.y) < 55) {
+          ai.keys.add("ArrowUp");
+          return;
+        }
+        const pDir = rightPortal.x > p.x ? "ArrowRight" : "ArrowLeft";
+        ai.keys.add(pDir);
+        if (rightPortal.y < p.y - 40 && ai.jumpCooldown <= 0) {
+          ai.keys.add("Alt");
+          ai.jumpCooldown = 0.6;
+        }
+        return;
+      }
     }
 
     ai.think -= dt;
@@ -902,21 +1521,20 @@ export class Game {
     // Ladders & ropes climbing
     if (p.ladder) {
       const L = p.ladder;
-      if (dy < -10) {
-        // Target is higher up: climb upwards
+      if (dy < -15) {
+        // Target is higher up: climb upwards until we land on the top floor
         ai.keys.add("ArrowUp");
         // Near top of ladder: step or jump off towards horizontal goal
-        if (p.y <= L.y1 + 22) {
+        if (p.y <= L.y1 + 4) {
           ai.keys.add(dx >= 0 ? "ArrowRight" : "ArrowLeft");
           ai.pressed.add(" ");
         }
-      } else if (dy > 10) {
+      } else if (dy > 15) {
         // Target is lower down: climb downwards
         ai.keys.add("ArrowDown");
         // Near bottom of ladder: step or jump off
-        if (p.y >= L.y2 - 22) {
+        if (p.y >= L.y2 - 6) {
           ai.keys.add(dx >= 0 ? "ArrowRight" : "ArrowLeft");
-          ai.pressed.add(" ");
         }
       } else {
         // At approximately target's vertical level: dismount horizontally towards target
@@ -987,9 +1605,13 @@ export class Game {
         .filter((L) => L.y2 > p.y + 20 && Math.abs(L.y1 - p.y) < 35 && L.x >= plat.minX - 35 && L.x <= plat.maxX + 35)
         .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
       if (ladderDown) {
-        if (Math.abs(ladderDown.x - p.x) > 10) {
-          ai.keys.add(ladderDown.x > p.x ? "ArrowRight" : "ArrowLeft");
+        const dist = ladderDown.x - p.x;
+        if (Math.abs(dist) > 12) {
+          ai.keys.add(dist > 0 ? "ArrowRight" : "ArrowLeft");
         } else {
+          ai.keys.add("ArrowDown");
+        }
+        if (Math.abs(dist) <= 22) {
           ai.keys.add("ArrowDown");
         }
         return;
@@ -1004,16 +1626,37 @@ export class Game {
       }
     }
 
-    // 2. Target is above (dy < -25): check for overhead platform jump or ladder
+    // 2. Target is above (dy < -25): prioritize ladder leading up, otherwise overhead platform jump
     if (dy < -25) {
-      // 2a. Check for overhead platforms within jump reach (DeltaY between -20 and -135)
+      // 2a. Check for accessible ladder on this platform that leads upward toward the target
+      const accessibleLadder = this.map.ladders
+        .filter((L) => {
+          if (L.y1 >= p.y - 20) return false; // Must lead up
+          if (p.y < L.y1 - 10 || p.y > L.y2 + 25) return false; // Must be vertically reachable
+          return L.x >= plat.minX - 35 && L.x <= plat.maxX + 35;
+        })
+        .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
+
+      if (accessibleLadder) {
+        const dist = accessibleLadder.x - p.x;
+        if (Math.abs(dist) > 12) {
+          ai.keys.add(dist > 0 ? "ArrowRight" : "ArrowLeft");
+        } else {
+          ai.keys.add("ArrowUp");
+        }
+        if (Math.abs(dist) <= 22) {
+          ai.keys.add("ArrowUp");
+        }
+        return;
+      }
+
+      // 2b. Check for overhead platforms within jump reach (DeltaY between -20 and -135)
       const overhead = tree.floors
         .filter((f) => {
           if (f.id === p.fh?.id) return false;
           const fy = (f.y1 + f.y2) / 2;
           const deltaY = fy - p.y;
           if (deltaY > -20 || deltaY < -135) return false;
-          // Must overlap or be within horizontal reach
           const minOverlap = Math.max(plat.minX - 40, f.x1 - 40);
           const maxOverlap = Math.min(plat.maxX + 40, f.x2 + 40);
           return minOverlap <= maxOverlap;
@@ -1029,7 +1672,6 @@ export class Game {
         if (Math.abs(distToLanding) > 15) {
           ai.keys.add(distToLanding > 0 ? "ArrowRight" : "ArrowLeft");
         }
-        // When horizontally aligned within landing zone of overhead platform, jump UP!
         if (p.x >= overhead.x1 - 25 && p.x <= overhead.x2 + 25 && ai.jumpCooldown <= 0) {
           ai.pressed.add(" ");
           ai.jumpCooldown = 0.35;
@@ -1038,25 +1680,6 @@ export class Game {
           ai.lastJumpTime = this.time;
           return;
         }
-      }
-
-      // 2b. Check for accessible ladder on this platform that leads upward
-      const accessibleLadder = this.map.ladders
-        .filter((L) => {
-          if (L.y1 >= p.y - 15) return false; // Must lead up
-          if (p.y < L.y1 - 10 || p.y > L.y2 + 25) return false; // Must be vertically reachable
-          // Must be horizontally reachable on this platform or nearby
-          return L.x >= plat.minX - 35 && L.x <= plat.maxX + 35;
-        })
-        .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
-
-      if (accessibleLadder) {
-        if (Math.abs(accessibleLadder.x - p.x) > 10) {
-          ai.keys.add(accessibleLadder.x > p.x ? "ArrowRight" : "ArrowLeft");
-        } else {
-          ai.keys.add("ArrowUp");
-        }
-        return;
       }
     }
 
@@ -1103,9 +1726,44 @@ export class Game {
     p.invuln = Math.max(0, p.invuln - dt);
     p.alert = Math.max(0, p.alert - dt);
 
-    const left = this.down("ArrowLeft"), right = this.down("ArrowRight");
-    const up = this.down("ArrowUp"), downK = this.down("ArrowDown");
-    const jump = this.hit("Alt", "c", "C", " ");
+    // Eye blink animation cycle
+    if (p.blinkStep >= 0) {
+      p.blinkFrameTimer -= dt;
+      if (p.blinkFrameTimer <= 0) {
+        p.blinkStep++;
+        if (p.blinkStep > 2) {
+          p.blinkStep = -1;
+          p.expr = "default";
+          p.exprFrame = 0;
+          p.blinkTimer = 3.0 + Math.random() * 2.5;
+        } else {
+          p.expr = "blink";
+          p.exprFrame = p.blinkStep;
+          p.blinkFrameTimer = p.blinkStep === 1 ? 0.12 : 0.08;
+        }
+      }
+    } else {
+      p.blinkTimer -= dt;
+      if (p.blinkTimer <= 0 && p.attack <= 0 && !p.dead) {
+        p.blinkStep = 0;
+        p.expr = "blink";
+        p.exprFrame = 0;
+        p.blinkFrameTimer = 0.08;
+      }
+    }
+    if (p.dead || p.invuln > 1.2) {
+      p.expr = "hit";
+      p.exprFrame = 0;
+    } else if (p.blinkStep < 0) {
+      p.expr = "default";
+      p.exprFrame = 0;
+    }
+
+    const left = this.down("ArrowLeft", "Left", "a", "A");
+    const right = this.down("ArrowRight", "Right", "d", "D");
+    const up = this.down("ArrowUp", "Up", "w", "W");
+    const downK = this.down("ArrowDown", "Down", "s", "S");
+    const jump = this.hit("Alt", "c", "C", " ", "Space");
     const dir = (right ? 1 : 0) - (left ? 1 : 0);
 
     // Quick slots: attacks repeat while held, everything else fires once per press.
@@ -1144,9 +1802,38 @@ export class Game {
     // Portals.
     if (up && p.fh && p.attack <= 0) {
       for (const pt of this.portals) {
-        if (Math.abs(pt.x - p.x) < 30 && Math.abs(pt.y - p.y) < 50) {
-          this.loadMap(pt.to, pt.side === "left" ? "right" : "left");
-          return;
+        if (Math.abs(pt.x - p.x) < 40 && Math.abs(pt.y - p.y) < 60) {
+          if (pt.side === "left") {
+            if (this.map.id !== FREE_MARKET_MAP) {
+              this.prevHuntingMap = this.map.id;
+              this.onChat("notice", "Entering Free Market...");
+              this.loadMap(FREE_MARKET_MAP, "spawn");
+            } else {
+              const returnMap = this.prevHuntingMap || 100010000;
+              this.onChat("notice", "Returning to hunting area...");
+              this.loadMap(returnMap, "left");
+            }
+            return;
+          } else if (pt.side === "right") {
+            if (this.map.id === FREE_MARKET_MAP) {
+              const returnMap = this.prevHuntingMap || 100010000;
+              this.onChat("notice", "Returning to hunting area...");
+              this.loadMap(returnMap, "left");
+              return;
+            }
+            if (!this.auto.battle) {
+              this.onChat("system", "Auto Combat must be ON to advance to the next area!");
+              return;
+            }
+            if (!this.areaBossDefeated) {
+              this.onChat("system", `Defeat the stage boss first before advancing to the next area! (Kills: ${this.stage.kills}/${this.stageNeed})`);
+              return;
+            }
+            this.areaBossDefeated = false;
+            this.onChat("notice", "Advancing to next area!");
+            this.loadMap(pt.to, "left");
+            return;
+          }
         }
       }
     }
@@ -1229,7 +1916,7 @@ export class Game {
           p.ignoreFh = p.fh.id; p.fh = null; p.vy = -120; p.vx = 0; p.coyote = 0;
         }
       } else if (jump && p.attack <= 0) {
-        p.fh = null; p.vy = -JUMP; p.vx = (dir !== 0 ? dir : p.face) * this.speed(); p.leapt = false; p.coyote = 0;
+        p.fh = null; p.vy = -JUMP; p.vx = dir !== 0 ? dir * this.speed() : 0; p.leapt = false; p.coyote = 0;
       }
     }
 
@@ -1250,17 +1937,20 @@ export class Game {
     } else {
       p.coyote = Math.max(0, p.coyote - dt);
       p.airTime += dt;
-      // Airborne: limited air control, ladder grab mid-air.
-      const leapOnHotbar = Object.values(this.quick).some((a) => a?.t === "skill" && a.id === "1001008");
+      // Airborne: double jump if jump skill learned; otherwise single jump arc in place
       if (jump && !downK && p.coyote > 0 && p.attack <= 0) {
         // Coyote jump right off the edge!
         p.vy = -JUMP;
-        p.vx = (dir !== 0 ? dir : p.face) * this.speed();
+        p.vx = dir !== 0 ? dir * this.speed() : 0;
         p.leapt = false;
         p.coyote = 0;
-      } else if (jump && !downK && leapOnHotbar && this.lv("1001008") > 0) {
-        if (dir !== 0) p.face = dir as -1 | 1;
-        this.useAction({ t: "skill", id: "1001008" }, true);
+      } else if (jump && !downK && !p.leapt && p.attack <= 0) {
+        const jumpSkills = ["1001008", "4001014", "4001011", "3000008", "3001007", "5001010", "2001009"];
+        const learned = jumpSkills.find((sid) => this.lv(sid) > 0);
+        if (learned) {
+          if (dir !== 0) p.face = dir as -1 | 1;
+          this.useAction({ t: "skill", id: learned }, true);
+        }
       }
       const vmax = p.leapt ? Math.max(Math.abs(p.vx), this.speed()) : this.speed();
       if (dir !== 0) { p.vx += dir * 300 * dt; p.vx = Math.max(-vmax, Math.min(vmax, p.vx)); if (p.attack <= 0) p.face = dir as -1 | 1; }
@@ -1328,6 +2018,14 @@ export class Game {
           const r = this.rollDamage(pct, m);
           this.projectiles.push({ x: p.x + p.face * 20, y: p.y - 35, target: m, dmg: r.dmg, miss: r.miss, t: 0, skillId: id ?? undefined });
         }
+        // Shadow Partner bonus ranged attack (50% damage)
+        if (this.buffs["4111002"]) {
+          const shadowPct = Math.round(pct * 0.5);
+          for (let h = 0; h < (d?.hits ?? 1); h++) {
+            const r = this.rollDamage(shadowPct, m);
+            this.projectiles.push({ x: p.x + p.face * 20, y: p.y - 35, target: m, dmg: r.dmg, miss: r.miss, t: -0.09, skillId: id ?? undefined });
+          }
+        }
       }
       return;
     }
@@ -1337,6 +2035,15 @@ export class Game {
         if (m.state === "die1" || m.state === "dead") break;
         const r = this.rollDamage(pct, m);
         this.damageMob(m, r.dmg, r.miss);
+      }
+      // Shadow Partner bonus melee attack (50% damage)
+      if (this.buffs["4111002"]) {
+        const shadowPct = Math.round(pct * 0.5);
+        for (let h = 0; h < (d?.hits ?? 1); h++) {
+          if (m.state === "die1" || m.state === "dead") break;
+          const r = this.rollDamage(shadowPct, m);
+          this.damageMob(m, r.dmg, r.miss);
+        }
       }
       if (art?.hit.length) this.fx.push({ frames: art.hit, x: m.x, y: m.y - 25, flip: p.face === 1, t: 0 });
     }
@@ -1416,7 +2123,7 @@ export class Game {
 
   checkMobContact() {
     const p = this.p;
-    if (p.invuln > 0) return;
+    if (p.invuln > 0 || this.godMode) return;
     for (const m of this.mobs) {
       if (m.state === "die1" || m.state === "dead" || m.alpha < 1) continue;
       const b = this.mobBox(m);
@@ -1448,18 +2155,135 @@ export class Game {
     this.loadMap(this.map.id, "spawn").then(() => { this.p.invuln = 3; });
   }
 
+  // ------------------------------------------------------------ debug GM commands
+  setLevel(targetLevel: number) {
+    const s = this.stats;
+    const oldLevel = s.level;
+    s.level = Math.max(1, Math.min(300, targetLevel));
+    s.exp = 0;
+    const delta = s.level - oldLevel;
+    if (delta > 0) {
+      s.ap += delta * 5;
+      s.sp += delta * 3;
+      s.baseHp += delta * 20;
+      s.baseMp += delta * 5;
+    }
+    this.recalc();
+    s.hp = s.maxHp;
+    s.mp = s.maxMp;
+    this.fx.push({ frames: this.fxData.levelUp, x: this.p.x, y: this.p.y, flip: false, t: 0, follow: true });
+    this.onChat("notice", `[DEBUG] Level set to ${s.level}.`);
+    this.onChange();
+  }
+
+  addExp(n: number) {
+    this.gainExp(n);
+  }
+
+  setJob(classId: ClassId, jobName?: string) {
+    const s = this.stats;
+    const c = classFor(classId);
+    s.classId = c.id;
+    s.job = jobName || c.tabs[Math.min(c.tabs.length - 1, s.level >= 60 ? 3 : s.level >= 30 ? 2 : 1)] || c.name;
+    this.recalc();
+    this.onChat("notice", `[DEBUG] Class set to ${c.name} (${s.job}).`);
+    this.onChange();
+  }
+
+  giveMesos(amt: number) {
+    this.stats.meso = Math.max(0, Math.min(9999999999, this.stats.meso + amt));
+    this.onGain("meso", `[DEBUG] Mesos adjusted by ${amt >= 0 ? "+" : ""}${amt.toLocaleString()}. Total: ${this.stats.meso.toLocaleString()}`);
+    this.onChange();
+  }
+
+  giveItem(id: number, count = 1) {
+    this.inv[id] = (this.inv[id] ?? 0) + count;
+    this.onChat("item", `[DEBUG] Received ${count}x item (${ITEMS[id]?.name ?? id}).`);
+    this.onChange();
+  }
+
+  giveMat(id: number, count = 1) {
+    this.mats[id] = (this.mats[id] ?? 0) + count;
+    this.onChat("item", `[DEBUG] Received ${count}x material (${MATS.get(id) ?? id}).`);
+    this.onChange();
+  }
+
+  fullHeal() {
+    this.stats.hp = this.stats.maxHp;
+    this.stats.mp = this.stats.maxMp;
+    this.onChat("notice", "[DEBUG] Fully restored HP and MP.");
+    this.onChange();
+  }
+
+  killAllMobs() {
+    let count = 0;
+    for (const m of this.mobs) {
+      if (m.state !== "dead" && m.state !== "die1") {
+        this.damageMob(m, 9999999, false);
+        count++;
+      }
+    }
+    this.onChat("notice", `[DEBUG] Instakilled ${count} monsters.`);
+  }
+
+  maxAllSkills() {
+    const c = this.class;
+    let count = 0;
+    for (const tab of c.skillsByTab) {
+      for (const sid of tab) {
+        const def = SKILL[sid];
+        if (def) {
+          this.skillLv[sid] = def.maxLevel;
+          count++;
+        }
+      }
+    }
+    this.recalc();
+    this.onChat("notice", `[DEBUG] Maxed out ${count} skills for ${c.name}.`);
+    this.onChange();
+  }
+
+  spawnBossImmediate() {
+    this.stage.kills = this.stageNeed;
+    this.challengeBoss();
+  }
+
+  readyBossImmediate() {
+    this.stage.kills = this.stageNeed;
+    this.onChat("notice", `[DEBUG] Stage ${this.stage.n} boss is now ready!`);
+    this.onChange();
+  }
+
+  advanceStageImmediate() {
+    this.areaBossDefeated = true;
+    const pt = this.portals.find((p) => p.side === "right");
+    if (pt) {
+      this.loadMap(pt.to, "left");
+      this.onChat("notice", "[DEBUG] Force advanced to next area.");
+    }
+  }
+
   updateMob(m: Mob, dt: number) {
     const tree = this.tree;
     m.hpShow = Math.max(0, m.hpShow - dt);
     m.aggro = Math.max(0, m.aggro - dt);
     const books = m.data.books;
     const play = (book: string, loop: boolean) => {
-      const fr = books[book];
+      const fr = books[book] ?? books.stand;
       if (!fr?.length) return true;
+      if (m.frame >= fr.length) m.frame = 0;
       m.anim += dt * 1000;
       while (m.anim > (fr[m.frame]?.delay ?? 150)) {
-        m.anim -= fr[m.frame]?.delay ?? 150;
-        if (m.frame + 1 >= fr.length) { if (!loop) return true; m.frame = 0; } else m.frame++;
+        m.anim -= (fr[m.frame]?.delay ?? 150);
+        if (m.frame + 1 >= fr.length) {
+          if (!loop) {
+            m.frame = fr.length - 1;
+            return true;
+          }
+          m.frame = 0;
+        } else {
+          m.frame++;
+        }
       }
       return false;
     };
@@ -1609,6 +2433,33 @@ export class Game {
     this.bag.push(g);
     this.recalc(); this.refreshLook(); this.onChange();
   }
+  equipVisual(uid: string) {
+    const i = this.bag.findIndex((g) => g.uid === uid);
+    if (i < 0) return false;
+    const g = this.bag[i];
+    const b = GEAR.get(g.id);
+    if (!b) return false;
+    const sockets = this.socketsFor(b.slot);
+    let target: Slot | null = null;
+    for (const s of sockets) {
+      if (!this.visualEq[s]) { target = s; break; }
+    }
+    if (!target) target = sockets[0];
+    this.bag.splice(i, 1);
+    const old = this.visualEq[target];
+    if (old) this.bag.push(old);
+    this.visualEq[target] = g;
+    this.refreshLook(); this.onChange();
+    return true;
+  }
+  unequipVisual(slot: Slot) {
+    const g = this.visualEq[slot];
+    if (!g) return;
+    if (this.bag.length >= 48) { this.onChat("system", "Your Equip inventory is full."); return; }
+    delete this.visualEq[slot];
+    this.bag.push(g);
+    this.refreshLook(); this.onChange();
+  }
   sellGear(uid: string) {
     const i = this.bag.findIndex((g) => g.uid === uid);
     if (i < 0) return;
@@ -1626,7 +2477,12 @@ export class Game {
     this.onGain("meso", junk.length ? `Sold ${junk.length} Normal items for ${total.toLocaleString()} mesos.` : "No Normal-grade items to sell.");
     this.onChange();
   }
-  findGear(uid: string) { return this.bag.find((g) => g.uid === uid) ?? Object.values(this.eq).find((g) => g?.uid === uid) ?? null; }
+  findGear(uid: string) {
+    return this.bag.find((g) => g.uid === uid) ??
+      Object.values(this.eq).find((g) => g?.uid === uid) ??
+      Object.values(this.visualEq).find((g) => g?.uid === uid) ??
+      null;
+  }
   addGear(g: Gear) {
     if (this.bag.length >= 48) { const p = npcSellPrice(g); this.stats.meso += p; this.onChat("meso", `Equip inventory full — auto-sold ${GEAR.get(g.id)?.name} for ${p} mesos.`); return; }
     this.bag.push(g);
@@ -1733,7 +2589,7 @@ export class Game {
     this.bossLoading = true;
     const id = this.bossFor();
     try {
-      if (!this.mobData.has(id)) this.mobData.set(id, await json(`./data/mobs/${id}.json`));
+      if (!this.mobData.has(id)) this.mobData.set(id, await json(`/wz/data/mob/${id}`));
       const data = this.mobData.get(id)!;
       await Promise.race([Promise.all(Object.values(data.books).flat().map((s) => Promise.resolve(this.assets.load(s.url)).catch(() => null))), new Promise((r) => setTimeout(r, 15000))]);
       const p = this.p;
@@ -1774,7 +2630,9 @@ export class Game {
       if (bm) for (let i = 0; i < 3; i++) this.spawnDrop({ mat: bm }, m.x + rand(-50, 50), m.y - 30, rand(-70, 70), -440);
       for (let i = 0; i < 2; i++) this.spawnDrop({ mat: ORES[Math.min(ORES.length - 1, Math.floor(s.n / 3) % ORES.length)] }, m.x + rand(-50, 50), m.y - 30, rand(-70, 70), -440);
       s.n++; s.kills = 0; s.best = Math.max(s.best, s.n);
+      this.areaBossDefeated = true;
       this.onChat("level", `Stage cleared! Welcome to Stage ${s.n}. Monsters grow stronger — and so do their rewards.`);
+      this.onChat("notice", "★ Area Boss Defeated! Enter the right portal with Auto Combat ON to advance to the next area!");
       for (const x of this.mobs) if (!x.boss) { const sc = this.stageMul(); x.maxHp = Math.round((x.data.meta?.maxHP ?? 50) * sc.hp); x.hp = Math.min(x.hp, x.maxHp); x.mul = { exp: sc.exp, meso: sc.meso }; x.atk = this.mobAtk(x.data); }
     }
     this.onBoss(null);
@@ -1811,7 +2669,7 @@ export class Game {
   save() {
     return {
       v: 1, stats: this.stats, inv: this.inv, skillLv: this.skillLv, quick: this.quick, auto: this.auto, map: this.map?.id,
-      mats: this.mats, bag: this.bag, eq: this.eq, stage: this.stage, idle: this.idle, ah: this.ah.save(), savedAt: Date.now(),
+      mats: this.mats, bag: this.bag, eq: this.eq, visualEq: this.visualEq, stage: this.stage, idle: this.idle, ah: this.ah.save(), savedAt: Date.now(),
     };
   }
   restore(d: any) {
@@ -1820,10 +2678,12 @@ export class Game {
     if (d.inv) this.inv = d.inv;
     if (d.skillLv) this.skillLv = d.skillLv;
     if (d.quick) this.quick = d.quick;
-    if (d.auto) Object.assign(this.auto, d.auto, { battle: false });
+    if (d.auto) Object.assign(this.auto, d.auto, { battle: true });
     if (d.mats) this.mats = d.mats;
     if (d.bag) this.bag = d.bag.filter((g: Gear) => GEAR.has(g.id));
     if (d.eq) { this.eq = {}; for (const [k, g] of Object.entries(d.eq as Record<string, Gear>)) if (g && GEAR.has(g.id)) this.eq[k as Slot] = g; }
+    if (d.visualEq) { this.visualEq = {}; for (const [k, g] of Object.entries(d.visualEq as Record<string, Gear>)) if (g && GEAR.has(g.id)) this.visualEq[k as Slot] = g; }
+    this.refreshLook();
     if (d.stage) Object.assign(this.stage, d.stage);
     if (d.idle) Object.assign(this.idle, d.idle);
     if (d.ah) this.ah.restore(d.ah);
@@ -1841,22 +2701,20 @@ export class Game {
     const mt = this.assets.get(this.map.render);
     if (mt) r.draw(mt, -this.map.renderOrigin.x - cx, -this.map.renderOrigin.y - cy);
 
-    // Ladders & ropes.
-    this.drawLadders(cx, cy);
-
     // Portals.
     const pf: Sprite[] = this.fxData?.portal;
     if (pf?.length && this.portals.length) {
-      const ready = pf.filter((f) => this.assets.get(f.url));
+      const ready = pf.filter((f) => f.w > 2 && f.h > 2);
       let fr: Sprite | null = null;
       let tex: Tex | null = null;
       if (ready.length) {
-        const total = ready.reduce((n, f) => n + (f.delay ?? 100), 0);
+        const total = ready.reduce((n, f) => n + (f.delay ?? 100), 0) || 700;
         let t = (this.time * 1000) % total;
-        fr = ready[0];
+        fr = ready[ready.length - 1];
         for (const f of ready) {
-          if (t < (f.delay ?? 100)) { fr = f; break; }
-          t -= f.delay ?? 100;
+          const d = f.delay ?? 100;
+          if (t < d) { fr = f; break; }
+          t -= d;
         }
         tex = this.assets.get(fr.url);
         if (tex) {
@@ -1891,20 +2749,37 @@ export class Game {
       const t = fr && this.assets.get(fr.url);
       if (t) r.draw(t, d.x - fr.ox - cx, d.y - fr.oy - cy - (d.fh ? Math.abs(Math.sin(d.t * 3)) * 3 : 0), fr.w, fr.h, { alpha: d.picked ? Math.max(0, 1 - d.picked / 0.45) : 1 });
     }
+    for (const rp of this.remotePlayers.values()) {
+      this.drawRemotePlayer(rp, cx, cy);
+    }
     this.drawPlayer(cx, cy);
     for (const f of this.fx) this.drawFx(f, cx, cy);
-    // Projectiles render with the skill's real effect frame when available, otherwise
-    // the shared snail-shell sprite (the default basic-attack visual).
+    // Projectiles render with the skill's real ball frame when available, otherwise
+    // the first effect frame or shared snail-shell sprite.
     for (const pr of this.projectiles) {
+      if (pr.t < 0) continue;
       let fr: Sprite | null = null;
       if (pr.skillId) {
         const art = this.skillArt[pr.skillId];
-        if (art?.effect?.length) fr = art.effect[0];
+        if (art?.ball?.length) {
+          fr = art.ball[Math.floor(pr.t * 12) % art.ball.length];
+        } else if (art?.effect?.length) {
+          fr = art.effect[0];
+        }
       }
       if (!fr) fr = this.snailShell;
       if (!fr) continue;
       const st = this.assets.get(fr.url);
-      if (st) r.draw(st, Math.round(pr.x - fr.w / 2 - cx), Math.round(pr.y - fr.h / 2 - cy), fr.w, fr.h, { flip: Math.floor(pr.t * 12) % 2 === 0 });
+      if (st) {
+        const ox = fr.ox ?? Math.round(fr.w / 2);
+        const oy = fr.oy ?? Math.round(fr.h / 2);
+        const art = pr.skillId ? this.skillArt[pr.skillId] : null;
+        const movingRight = pr.target ? pr.target.x >= pr.x : this.p.face === 1;
+        const flip = (art?.ball && art.ball.length > 1) ? (Math.floor(pr.t * 12) % 2 === 0) : movingRight;
+        r.draw(st, Math.round(pr.x - ox - cx), Math.round(pr.y - oy - cy), fr.w, fr.h, { flip });
+      } else {
+        this.assets.load(fr.url);
+      }
     }
     for (const m of this.mobs) this.drawMobHp(m, cx, cy);
     for (const d of this.dmg) this.drawDamage(d, cx, cy);
@@ -1916,7 +2791,6 @@ export class Game {
 
   drawBacks(front: boolean, cx: number, cy: number) {
     const r = this.r, W = r.width, H = r.height;
-    const viewx = -cx, viewy = -cy;
     const WO = W / 2, HO = H / 2;
     for (const b of this.map.backs) {
       if (b.front !== front) continue;
@@ -1925,52 +2799,183 @@ export class Game {
       const cxx = b.cx || s.w, cyy = b.cy || s.h;
       const hmove = b.type === 4 || b.type === 6, vmove = b.type === 5 || b.type === 7;
       const htile = [1, 3, 4, 6, 7].includes(b.type), vtile = [2, 3, 5, 6, 7].includes(b.type);
-      let x = hmove ? b.x + this.time * b.rx * 5 + viewx : b.x + (b.rx * (WO - viewx)) / 100 + WO;
-      let y = vmove ? b.y + this.time * b.ry * 5 + viewy : b.y + (b.ry * (HO - viewy)) / 100 + HO;
-      // Convert anchor to top-left using the sprite origin.
-      const ox = b.flip ? s.w - s.ox : s.ox;
-      x -= ox; y -= s.oy;
-      let nx = 1, ny = 1;
-      if (htile) { 
-        // Fix: align to nearest tile boundary from the left edge of screen for seamless tiling
-        const relX = ((x - viewx) % cxx + cxx) % cxx;
-        x = Math.floor(relX / cxx) * cxx;
-        nx = Math.ceil((W - x) / cxx) + 2; 
+      const baseX = (hmove ? b.x + this.time * b.rx * 5 - cx : b.x + WO + (b.rx * (cx + WO)) / 100) - (b.flip ? s.w - s.ox : s.ox);
+      const baseY = (vmove ? b.y + this.time * b.ry * 5 - cy : b.y + HO + (b.ry * (cy + HO)) / 100) - s.oy;
+
+      const minI = htile ? Math.floor(-baseX / cxx) : 0;
+      const maxI = htile ? Math.ceil((W - baseX) / cxx) : 0;
+      const minJ = vtile ? Math.floor(-baseY / cyy) : (baseY > 0 ? Math.floor(-baseY / cyy) : 0);
+      const maxJ = vtile ? Math.ceil((H - baseY) / cyy) : 0;
+
+      for (let i = minI; i <= maxI; i++) {
+        for (let j = minJ; j <= maxJ; j++) {
+          r.draw(t, Math.round(baseX + i * cxx), Math.round(baseY + j * cyy), s.w, s.h, { flip: b.flip, alpha: b.a / 255 });
+        }
       }
-      if (vtile) { 
-        // Fix: align to nearest tile boundary from the top edge for seamless vertical tiling
-        const relY = ((y - viewy) % cyy + cyy) % cyy;
-        y = Math.floor(relY / cyy) * cyy;
-        ny = Math.ceil((H - y) / cyy) + 2;
+    }
+  }
+
+  drawNameTag(name: string, x: number, y: number, cx: number, cy: number) {
+    const tex = renderTextTexture(this.r, name, "name");
+    if (tex) {
+      this.r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y + 2 - cy), tex.w, tex.h);
+    }
+  }
+
+  drawSpeechBalloon(text: string, x: number, y: number, cx: number, cy: number) {
+    const tex = renderTextTexture(this.r, text, "balloon");
+    if (tex) {
+      this.r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y - 75 - tex.h - cy), tex.w, tex.h);
+    }
+  }
+
+  drawItemEffect(eff: ItemEffData, x: number, y: number, face: number, anim: string, cx: number, cy: number, layer: "back" | "front") {
+    let actionFrames: ItemEffFrame[] | undefined;
+    if (layer === "back") {
+      if (anim === "ladder" && eff.actions.ladder) actionFrames = eff.actions.ladder;
+      else if (anim === "rope" && eff.actions.rope) actionFrames = eff.actions.rope;
+      else if (eff.actions.backDefault) actionFrames = eff.actions.backDefault;
+      else if (eff.actions[anim] && (eff.actions[anim][0]?.z ?? 0) < 0) actionFrames = eff.actions[anim];
+      else if (eff.actions.default && (eff.actions.default[0]?.z ?? 0) < 0) actionFrames = eff.actions.default;
+    } else {
+      if (anim === "ladder" || anim === "rope") {
+        if (eff.actions[anim + "2"]) actionFrames = eff.actions[anim + "2"];
+      } else {
+        if (eff.actions[anim] && (eff.actions[anim][0]?.z ?? 0) >= 0) actionFrames = eff.actions[anim];
+        else if (eff.actions.default && (eff.actions.default[0]?.z ?? 0) >= 0) actionFrames = eff.actions.default;
       }
-      for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++)
-        r.draw(t, Math.round(x + i * cxx), Math.round(y + j * cyy), s.w, s.h, { flip: b.flip, alpha: b.a / 255 });
+    }
+    if (!actionFrames?.length) return;
+    const totalDelay = actionFrames.reduce((acc, f) => acc + (f.delay ?? 100), 0) || 800;
+    let t = (this.time * 1000) % totalDelay;
+    let fr = actionFrames[0];
+    for (const f of actionFrames) {
+      const d = f.delay ?? 100;
+      if (t < d) { fr = f; break; }
+      t -= d;
+    }
+    const tex = this.assets.get(fr.url);
+    if (!tex) {
+      this.assets.load(fr.url);
+      return;
+    }
+    const isFixed = Boolean(fr.fixed ?? eff.fixed);
+    const flip = isFixed ? false : face === 1;
+    const drawX = flip ? Math.round(x - (fr.w - fr.ox) - cx) : Math.round(x - fr.ox - cx);
+    const anchorY = fr.pos === 1 ? y - 48 : fr.pos === 2 ? y - 25 : fr.pos === 3 ? y - 65 : y;
+    const drawY = Math.round(anchorY - fr.oy - cy);
+    this.r.draw(tex, drawX, drawY, fr.w, fr.h, { flip });
+  }
+
+  drawRemotePlayer(rp: RemotePlayer, cx: number, cy: number) {
+    for (const id of rp.look) {
+      if (!this.itemEffCache.has(id)) {
+        this.itemEffCache.set(id, null);
+        fetch(`/wz/data/item-eff/${id}`).then((r) => r.ok ? r.json() : null).then((data) => {
+          if (data) {
+            this.itemEffCache.set(id, data);
+            for (const act of Object.values(data.actions as Record<string, ItemEffFrame[]>)) {
+              for (const fr of act) this.assets.load(fr.url);
+            }
+          }
+        }).catch(() => {});
+      }
+      const eff = this.itemEffCache.get(id);
+      if (eff) this.drawItemEffect(eff, rp.x, rp.y, rp.face, rp.anim, cx, cy, "back");
+    }
+    let t = this.assets.get(charUrlFor(rp.look, rp.anim, rp.frame))
+      ?? this.assets.get(charUrlFor(rp.look, "stand1", 0));
+    if (t) {
+      rp.lastTex = t;
+    } else if (rp.lastTex) {
+      t = rp.lastTex;
+    }
+    if (t) {
+      const ox = Math.round(t.w / 2);
+      const oy = t.w === 96 && t.h === 96 ? 88 : t.h === 384 ? 256 : Math.round(t.h * (256 / 384));
+      this.r.draw(t, Math.round(rp.x - ox - cx), Math.round(rp.y - oy - cy), t.w, t.h, { flip: rp.face === 1 });
+    }
+    for (const id of rp.look) {
+      const eff = this.itemEffCache.get(id);
+      if (eff) this.drawItemEffect(eff, rp.x, rp.y, rp.face, rp.anim, cx, cy, "front");
+    }
+    this.drawNameTag(rp.name, rp.x, rp.y, cx, cy);
+    if (rp.balloon && rp.balloon.t > 0 && rp.balloon.text) {
+      this.drawSpeechBalloon(rp.balloon.text, rp.x, rp.y, cx, cy);
     }
   }
 
   drawPlayer(cx: number, cy: number) {
     const p = this.p;
-    const t = this.assets.get(charUrlFor(this.look, p.anim, p.frame))
-      ?? (this.prevLook ? this.assets.get(charUrlFor(this.prevLook, p.anim, p.frame)) : null)
-      ?? this.assets.get(charUrlFor(this.look, "stand1", 0));
-    if (!t) return;
-    const blink = p.invuln > 0 && Math.floor(this.time * 16) % 2 === 0;
-    // Fixed anchor for character sprites: 96x96 has origin centered horizontally at 48, feet at 88
-    const ox = t.w === 96 ? 48 : Math.round(t.w / 2);
-    const oy = t.h === 96 ? 88 : Math.round(t.h * 0.7);
-    this.r.draw(t, Math.round(p.x - ox - cx), Math.round(p.y - oy - cy), t.w, t.h, { flip: p.face === 1, alpha: blink ? 0.35 : 1 });
+    // 1. Back item effects (drawn before character sprite)
+    for (const eff of this.activeItemEffs) {
+      this.drawItemEffect(eff, p.x, p.y, p.face, p.anim, cx, cy, "back");
+    }
+
+    // 2. Character sprite
+    const currentUrl = charUrlFor(this.look, p.anim, p.frame, p.expr, p.exprFrame);
+    let t = this.assets.get(currentUrl)
+      ?? this.assets.get(charUrlFor(this.look, p.anim, p.frame))
+      ?? this.assets.get(charUrlFor(this.look, "stand1", 0))
+      ?? (this.prevLook.length ? this.assets.get(charUrlFor(this.prevLook, p.anim, p.frame)) : null);
+    if (!this.assets.get(currentUrl)) {
+      this.assets.load(currentUrl);
+    }
+    if (t) {
+      this.lastPlayerTex = t;
+    } else if (this.lastPlayerTex) {
+      t = this.lastPlayerTex;
+    }
+    if (t) {
+      const invulnBlink = p.invuln > 0 && Math.floor(this.time * 16) % 2 === 0;
+      const isDarkSight = !!this.buffs["4001003"];
+      const baseAlpha = invulnBlink ? 0.35 : (isDarkSight ? 0.45 : 1);
+
+      // Fixed anchor for character sprites: 96x96 has origin centered horizontally at 48, feet at 88; 384x384 has center at 192, feet at 256
+      const ox = Math.round(t.w / 2);
+      const oy = t.w === 96 && t.h === 96 ? 88 : t.h === 384 ? 256 : Math.round(t.h * (256 / 384));
+
+      // Shadow Partner clone: dark silhouette following behind player
+      if (this.buffs["4111002"]) {
+        const shadowOffset = p.face === 1 ? -18 : 18;
+        this.r.draw(t, Math.round(p.x - ox - cx + shadowOffset), Math.round(p.y - oy - cy), t.w, t.h, {
+          flip: p.face === 1,
+          tint: [0.15, 0.12, 0.25],
+          alpha: baseAlpha * 0.65,
+        });
+      }
+
+      this.r.draw(t, Math.round(p.x - ox - cx), Math.round(p.y - oy - cy), t.w, t.h, {
+        flip: p.face === 1,
+        alpha: baseAlpha,
+      });
+    }
+
+    // 3. Front item effects (drawn after character sprite)
+    for (const eff of this.activeItemEffs) {
+      this.drawItemEffect(eff, p.x, p.y, p.face, p.anim, cx, cy, "front");
+    }
+
+    this.drawNameTag(this.stats.name, p.x, p.y, cx, cy);
+
+    if (this.balloon && this.balloon.t > 0 && this.balloon.text) {
+      this.drawSpeechBalloon(this.balloon.text, p.x, p.y, cx, cy);
+    }
   }
 
   drawMob(m: Mob, cx: number, cy: number) {
     if (m.state === "dead") return;
     const book = m.attacking ?? (m.state === "move" ? (m.data.books.move ? "move" : "stand") : m.state);
-    const fr = m.data.books[book]?.[m.frame] ?? m.data.books.stand?.[0];
+    const bookFrames = m.data.books[book] ?? m.data.books.stand;
+    if (!bookFrames?.length) return;
+    const safeFrame = Math.max(0, Math.min(bookFrames.length - 1, m.frame));
+    const fr = bookFrames[safeFrame] ?? bookFrames[0];
     if (!fr) return;
     let t = this.assets.get(fr.url);
     let useFr = fr;
     // Fallback if current animation frame is loading: prevent flickering/blinking
     if (!t) {
-      const altFr = m.data.books[book]?.find((f) => this.assets.get(f.url))
+      const altFr = bookFrames.find((f) => this.assets.get(f.url))
         ?? m.data.books.stand?.find((f) => this.assets.get(f.url));
       if (altFr) {
         t = this.assets.get(altFr.url);
@@ -2071,7 +3076,10 @@ export class Game {
     const fr = f.frames[i];
     if (!fr) return;
     const tex = this.assets.get(fr.url);
-    if (!tex) return;
+    if (!tex) {
+      this.assets.load(fr.url);
+      return;
+    }
     const x = f.follow ? this.p.x : f.x, y = f.follow ? this.p.y : f.y;
     const left = f.flip ? x - (fr.w - fr.ox) : x - fr.ox;
     this.r.draw(tex, Math.round(left - cx), Math.round(y - fr.oy - cy), fr.w, fr.h, { flip: f.flip });

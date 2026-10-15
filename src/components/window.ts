@@ -1,4 +1,6 @@
-// Modular Window Component — handles clamping, dragging, z-index elevation, and titlebars
+// Modular Window Component — Orillusion Component architecture (https://www.orillusion.com/en/guide/core/component.html)
+// Handles clamping, dragging, z-index elevation, and titlebars
+import { ComponentBase } from "@orillusion/core";
 import { el } from "../util.ts";
 
 export function clampWindow(e: HTMLElement) {
@@ -85,4 +87,22 @@ export function makeWindow(opts: WindowOptions): HTMLElement {
 
   win.addEventListener("pointerdown", () => { win.style.zIndex = String(nextZ()); });
   return win;
+}
+
+export class WindowComponent extends ComponentBase {
+  public override start(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public override onUpdate(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public clamp(e: HTMLElement) {
+    clampWindow(e);
+  }
+
+  public create(opts: WindowOptions): HTMLElement {
+    return makeWindow(opts);
+  }
 }

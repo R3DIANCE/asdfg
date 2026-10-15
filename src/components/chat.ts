@@ -1,23 +1,60 @@
-// Modular Chat Component — smart idle/expanded behavior, auto-fading in idle, channel tabs & input
+// Modular Chat Component — Orillusion Component architecture (https://www.orillusion.com/en/guide/core/component.html)
+// Smart idle/expanded behavior, auto-fading in idle, channel tabs & input
+import { ComponentBase } from "@orillusion/core";
 import type { ChatKind, Game } from "../game.ts";
 import { el } from "../util.ts";
 
 export type ChatFilter = "all" | "other" | "party" | "friends" | "guild" | "alliance";
 
-export class ChatComponent {
-  root: HTMLElement;
-  header: HTMLElement;
-  tabs: HTMLElement;
-  log: HTMLElement;
-  input: HTMLInputElement;
-  minBtn: HTMLButtonElement;
+export class ChatComponent extends ComponentBase {
+  root!: HTMLElement;
+  header!: HTMLElement;
+  tabs!: HTMLElement;
+  log!: HTMLElement;
+  input!: HTMLInputElement;
+  minBtn!: HTMLButtonElement;
   filter: ChatFilter = "all";
   minimized = false;
   idleTimer = 0;
   isFocused = false;
 
-  constructor(parent: HTMLElement, private game: Game) {
-    this.root = el("div", "chat idle", parent);
+  private parentEl!: HTMLElement;
+  private game!: Game;
+
+  constructor(parent?: HTMLElement, game?: Game) {
+    super();
+    if (parent && game) {
+      this.parentEl = parent;
+      this.game = game;
+      this.initComponent();
+    }
+  }
+
+  public override init(param?: { parent: HTMLElement; game: Game }): void {
+    super.init(param);
+    if (param?.parent && param?.game && !this.root) {
+      this.parentEl = param.parent;
+      this.game = param.game;
+      this.initComponent();
+    }
+  }
+
+  public override start(): void {
+    // Orillusion lifecycle start hook
+  }
+
+  public override onUpdate(): void {
+    // Orillusion lifecycle per-frame update hook
+  }
+
+  public override destroy(force?: boolean): void {
+    super.destroy(force);
+    clearTimeout(this.idleTimer);
+    this.root?.remove();
+  }
+
+  private initComponent() {
+    this.root = el("div", "chat idle", this.parentEl);
     this.root.addEventListener("pointerenter", () => this.expand());
     this.root.addEventListener("pointerleave", () => this.collapse(2000));
     this.root.addEventListener("click", () => this.expand());
@@ -74,7 +111,26 @@ export class ChatComponent {
       e.stopPropagation();
       if (e.key === "Enter") {
         const t = this.input.value.trim();
-        if (t) this.game.say(t);
+        if (t) {
+          if (t === "/debug" || t === "/gm" || t === "/help gm" || t === "/admin") {
+            window.dispatchEvent(new CustomEvent("toggle-debug-win"));
+            this.game.onChat("system", "[GM] Toggled Debug Menu (Hotkey: F1).");
+          } else if (t === "/sync" || t === "/resync" || t === "/reconnect") {
+            this.game.syncAll(true);
+            this.game.onChat("system", "[Sync] WebSocket connection and player state synchronized with server.");
+          } else if (t.startsWith("/name ") || t.startsWith("/nick ") || t.startsWith("/rename ")) {
+            const newName = t.replace(/^\/(name|nick|rename)\s+/, "").trim();
+            if (newName) {
+              this.game.setName(newName);
+            } else {
+              this.game.onChat("system", "Usage: /name <newName>");
+            }
+          } else if (t === "/help" || t === "/commands") {
+            this.game.onChat("system", "[Commands] /name <newName> - Change character name | /sync - Resync state | /debug - GM Menu");
+          } else {
+            this.game.say(t);
+          }
+        }
         this.input.value = "";
         this.input.blur();
       } else if (e.key === "Escape") {
@@ -100,13 +156,14 @@ export class ChatComponent {
     }, delay) as unknown as number;
   }
 
-  setFilter(filter: ChatFilter) {
-    this.filter = filter;
-  }
-
   toggleMinimize() {
     this.minimized = !this.minimized;
-    this.root.classList.toggle("minimized", this.minimized);
+    this.root.classList.toggle("chat-minimized", this.minimized);
+    this.minBtn.style.transform = this.minimized ? "rotate(180deg)" : "none";
+  }
+
+  setFilter(f: ChatFilter) {
+    this.filter = f;
   }
 
   addMessage(kind: ChatKind, text: string) {

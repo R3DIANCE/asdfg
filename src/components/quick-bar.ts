@@ -1,22 +1,78 @@
-// Modular QuickBar Component — keyboard layout, slot binding, drag/drop & key badges
+// Modular QuickBar Component — Orillusion Component architecture (https://www.orillusion.com/en/guide/core/component.html)
+// Keyboard layout, slot binding, drag/drop & key badges
+import { ComponentBase } from "@orillusion/core";
 import type { Game } from "../game.ts";
 import { KEY_BADGES, KEY_LABEL, QUICK_KEYS, SKILL, type Action } from "../skills.ts";
 import { el, bg } from "../util.ts";
 
-export class QuickBarComponent {
-  root: HTMLElement;
+export class QuickBarComponent extends ComponentBase {
+  root!: HTMLElement;
   slots: Record<string, HTMLElement> = {};
   lastSig = "";
 
+  private parentEl!: HTMLElement;
+  private game!: Game;
+  private makeDraggable!: (el: HTMLElement, getAction: () => Action | null, fromKey?: string, onClick?: () => void) => void;
+  private bindTip!: (el: HTMLElement, getHtml: () => string | null) => void;
+  private getActionTip!: (a: Action) => string;
+  private getActionIcon!: (a: Action, disabled?: boolean) => string;
+
   constructor(
-    parent: HTMLElement,
-    private game: Game,
-    private makeDraggable: (el: HTMLElement, getAction: () => Action | null, fromKey?: string, onClick?: () => void) => void,
-    private bindTip: (el: HTMLElement, getHtml: () => string | null) => void,
-    private getActionTip: (a: Action) => string,
-    private getActionIcon: (a: Action, disabled?: boolean) => string
+    parent?: HTMLElement,
+    game?: Game,
+    makeDraggable?: (el: HTMLElement, getAction: () => Action | null, fromKey?: string, onClick?: () => void) => void,
+    bindTip?: (el: HTMLElement, getHtml: () => string | null) => void,
+    getActionTip?: (a: Action) => string,
+    getActionIcon?: (a: Action, disabled?: boolean) => string
   ) {
-    this.root = el("div", "quick-keyboard flex items-center gap-[4px] p-0 bg-transparent border-0 shadow-none", parent);
+    super();
+    if (parent && game && makeDraggable && bindTip && getActionTip && getActionIcon) {
+      this.parentEl = parent;
+      this.game = game;
+      this.makeDraggable = makeDraggable;
+      this.bindTip = bindTip;
+      this.getActionTip = getActionTip;
+      this.getActionIcon = getActionIcon;
+      this.initComponent();
+    }
+  }
+
+  public override init(param?: {
+    parent: HTMLElement;
+    game: Game;
+    makeDraggable: (el: HTMLElement, getAction: () => Action | null, fromKey?: string, onClick?: () => void) => void;
+    bindTip: (el: HTMLElement, getHtml: () => string | null) => void;
+    getActionTip: (a: Action) => string;
+    getActionIcon: (a: Action, disabled?: boolean) => string;
+  }): void {
+    super.init(param);
+    if (param?.parent && !this.root) {
+      this.parentEl = param.parent;
+      this.game = param.game;
+      this.makeDraggable = param.makeDraggable;
+      this.bindTip = param.bindTip;
+      this.getActionTip = param.getActionTip;
+      this.getActionIcon = param.getActionIcon;
+      this.initComponent();
+    }
+  }
+
+  public override start(): void {
+    // Orillusion lifecycle start hook
+  }
+
+  public override onUpdate(): void {
+    // Orillusion lifecycle per-frame update hook
+    this.render();
+  }
+
+  public override destroy(force?: boolean): void {
+    super.destroy(force);
+    this.root?.remove();
+  }
+
+  private initComponent() {
+    this.root = el("div", "quick-keyboard flex items-center gap-[4px] p-0 bg-transparent border-0 shadow-none", this.parentEl);
 
     const navCluster = el("div", "quick-cluster cluster-nav grid grid-cols-4 grid-rows-2 gap-[2px]", this.root);
     const navKeys = ["Shift", "Insert", "Home", "PageUp", "Control", "Delete", "End", "PageDown"];

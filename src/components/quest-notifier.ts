@@ -1,19 +1,71 @@
-// Modular Quest Notifier Component — left edge vertical capsule with 4 alert buttons
+// Modular Quest Notifier Component — Orillusion Component architecture (https://www.orillusion.com/en/guide/core/component.html)
+// Left edge vertical capsule with 4 alert buttons
+import { ComponentBase } from "@orillusion/core";
 import type { Game } from "../game.ts";
 import { el } from "../util.ts";
 
-export class QuestNotifierComponent {
-  root: HTMLElement;
+export class QuestNotifierComponent extends ComponentBase {
+  root!: HTMLElement;
   pulses: Record<string, HTMLElement> = {};
 
+  private parentEl!: HTMLElement;
+  private game!: Game;
+  private onDailyGift!: () => void;
+  private onNotice!: (msg: string) => void;
+  private onJobAdvancement?: () => void;
+
   constructor(
-    parent: HTMLElement,
-    private game: Game,
-    private onDailyGift: () => void,
-    private onNotice: (msg: string) => void,
-    private onJobAdvancement?: () => void
+    parent?: HTMLElement,
+    game?: Game,
+    onDailyGift?: () => void,
+    onNotice?: (msg: string) => void,
+    onJobAdvancement?: () => void
   ) {
-    this.root = el("div", "quest-notifier", parent);
+    super();
+    if (parent && game && onDailyGift && onNotice) {
+      this.parentEl = parent;
+      this.game = game;
+      this.onDailyGift = onDailyGift;
+      this.onNotice = onNotice;
+      this.onJobAdvancement = onJobAdvancement;
+      this.initComponent();
+    }
+  }
+
+  public override init(param?: {
+    parent: HTMLElement;
+    game: Game;
+    onDailyGift: () => void;
+    onNotice: (msg: string) => void;
+    onJobAdvancement?: () => void;
+  }): void {
+    super.init(param);
+    if (param?.parent && !this.root) {
+      this.parentEl = param.parent;
+      this.game = param.game;
+      this.onDailyGift = param.onDailyGift;
+      this.onNotice = param.onNotice;
+      this.onJobAdvancement = param.onJobAdvancement;
+      this.initComponent();
+    }
+  }
+
+  public override start(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public override onUpdate(): void {
+    // Orillusion lifecycle hook
+    this.update();
+  }
+
+  public override destroy(force?: boolean): void {
+    super.destroy(force);
+    this.root?.remove();
+  }
+
+  private initComponent() {
+    this.root = el("div", "quest-notifier", this.parentEl);
 
     // 1) Sun: Maple Life / Daily bonus
     const sun = el("button", "quest-btn quest-sun", this.root) as HTMLButtonElement;

@@ -19,6 +19,7 @@ export class ExtWindows {
   items: ItemBrowser;
   tips = new Map<string, () => string>();
   sig: Record<string, string> = {};
+  equipTab: "equip" | "visual" | "pet" = "equip";
   invTab: Tab<"equip" | "use" | "etc" | "setup" | "cash" | "dec"> = { cur: "equip" };
   invSearch = "";
   craftTab: Tab<"gear" | "refine" | "star" | "cube"> = { cur: "gear" };
@@ -59,6 +60,7 @@ export class ExtWindows {
       ["Inventory", "I", () => this.open("inv")], ["Crafting", "J", () => this.open("craft")], ["Auction House", "H", () => this.open("ah")],
       ["All Items", "L", () => this.items.open()],
       ["Auto Settings", "B·RMB", () => w.toggle(w.autoWin)],
+      ["GM Debug Menu", "F1", () => w.toggle(w.debugWin)],
     ];
     for (const [label, key, fn] of entries) {
       const b = el("button", "menu-pop-item", this.menuPop) as HTMLButtonElement;
@@ -123,8 +125,34 @@ export class ExtWindows {
     const g = this.w.game, a = t.dataset.act!, uid = t.dataset.uid ?? "";
     this.w.hideTip();
     switch (a) {
-      case "unequip": g.unequip(t.dataset.slot as Slot); break;
-      case "equip": g.equip(uid); break;
+      case "unequip":
+        g.unequip(t.dataset.slot as Slot);
+        this.renderEquip();
+        this.renderInv();
+        break;
+      case "unequip-visual":
+        g.unequipVisual(t.dataset.slot as Slot);
+        this.renderEquip();
+        this.renderInv();
+        break;
+      case "equip":
+        if (this.equipTab === "visual" || GEAR.get(g.findGear(uid)?.id ?? 0)?.cosmetic) {
+          g.equipVisual(uid);
+        } else {
+          g.equip(uid);
+        }
+        this.renderEquip();
+        this.renderInv();
+        break;
+      case "equip-visual":
+        g.equipVisual(uid);
+        this.renderEquip();
+        this.renderInv();
+        break;
+      case "equiptab":
+        this.equipTab = t.dataset.v as any;
+        this.renderEquip();
+        break;
       case "invtab": this.invTab.cur = t.dataset.v as any; break;
       case "selljunk": g.sellJunk(); break;
       case "crafttab": this.craftTab.cur = t.dataset.v as any; this.lastResult = ""; break;
@@ -185,6 +213,9 @@ export class ExtWindows {
     const body = this.equipWin.querySelector(".x-body") as HTMLElement;
     if (!body) return;
 
+    const isVisual = this.equipTab === "visual";
+    const isPet = this.equipTab === "pet";
+
     // Modern MapleStory Equipment Layout (exact 1:1 match to reference)
     const leftCol1: Slot[] = ["ring1", "ring2", "ring3", "ring4", "pocket"];
     const leftCol2: Slot[] = ["pendant", "face", "eye", "earrings", "belt"];
@@ -192,11 +223,15 @@ export class ExtWindows {
     const rightCol2: Slot[] = ["cape", "weapon", "shield", "shoulder", "emblem"];
 
     const cellFor = (s: Slot) => {
-      const it = g.eq[s];
+      const it = isVisual ? g.visualEq[s] : g.eq[s];
       if (!it) {
-        return `<div class="eslot empty" data-slot="${s}" ${this.tip("eslot-" + s, () => `<div class="ms-tooltip-card p-2 min-w-[130px] text-center"><div class="tt-title text-[12px] text-slate-200">${SLOT_NAME[s]}</div><div class="text-[9.5px] text-slate-400 mt-1">Empty Slot</div></div>`)}></div>`;
+        const title = isVisual ? `Visual ${SLOT_NAME[s]}` : SLOT_NAME[s];
+        const emptyLabel = isVisual ? "Empty Visual Slot (Replaces Outfit)" : "Empty Slot";
+        return `<div class="eslot empty ${isVisual ? "visual-slot" : ""}" data-slot="${s}" ${this.tip("eslot-" + (isVisual ? "v-" : "") + s, () => `<div class="ms-tooltip-card p-2 min-w-[140px] text-center"><div class="tt-title text-[12px] ${isVisual ? "text-purple-300" : "text-slate-200"}">${title}</div><div class="text-[9.5px] text-slate-400 mt-1">${emptyLabel}</div></div>`)}></div>`;
       }
-      return `<div class="eslot filled" data-slot="${s}" data-act="unequip" data-uid="${it.uid}" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to unequip"))}>${this.gearCell(it, "unequip", "Click to unequip", `data-slot="${s}"`)}</div>`;
+      const act = isVisual ? "unequip-visual" : "unequip";
+      const note = isVisual ? "Click to unequip visual cosmetic" : "Click to unequip";
+      return `<div class="eslot filled ${isVisual ? "visual-slot" : ""}" data-slot="${s}" data-act="${act}" data-uid="${it.uid}" ${this.tip("g" + it.uid, () => this.gearTip(it, note))}>${this.gearCell(it, act, note, `data-slot="${s}"`)}</div>`;
     };
 
     let cells = `<div class="e-sub-col">${leftCol1.map(cellFor).join("")}</div>`;
@@ -215,12 +250,13 @@ export class ExtWindows {
 
     body.innerHTML = `
       <div class="equip-head-tabs">
-        <div class="equip-tab on">Equipment</div>
-        <div class="equip-tab">Pet</div>
+        <button type="button" data-act="equiptab" data-v="equip" class="equip-tab ${this.equipTab === "equip" ? "on" : ""}">Equipment</button>
+        <button type="button" data-act="equiptab" data-v="visual" class="equip-tab ${this.equipTab === "visual" ? "on" : ""}">Cash / Visual</button>
+        <button type="button" data-act="equiptab" data-v="pet" class="equip-tab ${this.equipTab === "pet" ? "on" : ""}">Pet</button>
       </div>
       <div class="equip-sub-bar">
-        <span class="equip-title-label">EQUIPMENT</span>
-        <button type="button" class="equip-decor-btn">Decorations &gt;</button>
+        <span class="equip-title-label">${isVisual ? "VISUAL COSMETICS (NX)" : isPet ? "PET EQUIPMENT" : "EQUIPMENT"}</span>
+        <button type="button" data-act="equiptab" data-v="${isVisual ? "equip" : "visual"}" class="equip-decor-btn">${isVisual ? "&lt; Regular Gear" : "Decorations (NX) &gt;"}</button>
       </div>
       <div class="egrid-container">${cells}</div>
       <div class="equip-presets-bar">
@@ -270,7 +306,14 @@ export class ExtWindows {
       for (const [id, n] of entries) {
         grid += `<div class="gcell" ${this.tip("m" + id, () => renderMatTooltip(+id, n))}>${icon(matIcon(+id))}<span class="cnt">${n}</span></div>`;
       }
-      for (let i = entries.length; i < 64; i++) grid += `<div class="gcell blank"></div>`;
+    } else if (tab === "cash" || tab === "dec") {
+      let bag = g.bag.filter((it) => {
+        const b = GEAR.get(it.id);
+        return Boolean(b?.cosmetic || b?.cash);
+      });
+      if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
+      for (const it of bag) grid += this.gearCell(it, "equip-visual", `Click to equip as visual outfit · right-click to sell (${fmt(npcSellPrice(it))} mesos)`);
+      for (let i = bag.length; i < 64; i++) grid += `<div class="gcell blank"></div>`;
     } else {
       for (let i = 0; i < 64; i++) grid += `<div class="gcell blank"></div>`;
     }
@@ -509,20 +552,20 @@ export class ExtWindows {
     };
     // Don't re-render while the user is typing a price.
     const typing = document.activeElement?.closest("#ah-win") && document.activeElement?.tagName === "INPUT";
-    run("eq", this.equipWin, () => JSON.stringify([g.eq, g.stats.level, g.look, g.stats.maxHp, g.buffs["1101006"] ? 1 : 0]), () => this.renderEquip());
+    run("eq", this.equipWin, () => JSON.stringify([g.eq, g.visualEq, this.equipTab, g.stats.level, g.look, g.stats.maxHp, g.buffs["1101006"] ? 1 : 0]), () => this.renderEquip());
     run("inv", this.invWin, () => JSON.stringify([this.invTab.cur, g.bag.length, g.bag.map((b) => b.uid + b.star + b.rarity).join(), g.inv, g.mats, g.stats.meso, g.stats.level]), () => this.renderInv());
     run("craft", this.craftWin, () => JSON.stringify([this.craftTab.cur, this.pick, this.lastResult, g.mats, g.stats.meso, g.stats.level, g.bag.length, g.eq, g.bag.map((b) => b.uid + b.star + b.rarity).join()]), () => this.renderCraft());
     if (!typing) run("ah", this.ahWin, () => JSON.stringify([this.ahTab.cur, this.ahFilter, g.ah.listings.length, g.ah.listings[0]?.lid, g.ah.mine.map((m) => m.lid + m.sold), g.stats.meso, this.ahTab.cur === "sell" ? [g.bag.length, g.mats, g.inv] : 0, this.ahTab.cur === "mine" ? Math.floor(Date.now() / 30000) : 0]), () => this.renderAh());
 
     // Character preview idle animation inside equipment window
     if (vis(this.equipWin)) {
-      const f = Math.floor(Date.now() / 500) % 4;
-      if (f !== this.equipAnimFrame) {
-        this.equipAnimFrame = f;
-        const img = this.equipWin.querySelector<HTMLImageElement>(".eprev-char");
-        if (img) {
-          const url = charUrlFor(g.look, "stand1", f);
-          if (img.src !== url) img.src = url;
+      const f = Math.floor(Date.now() / 500) % 3;
+      const img = this.equipWin.querySelector<HTMLImageElement>(".eprev-char");
+      if (img) {
+        const url = charUrlFor(g.look, "stand1", f);
+        if (img.getAttribute("src") !== url) {
+          img.src = url;
+          this.equipAnimFrame = f;
         }
       }
     }

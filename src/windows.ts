@@ -2,13 +2,13 @@
 import { ExtWindows } from "./windows2.ts";
 import { expToLevel, charUrlFor } from "./game.ts";
 import type { Game, ChatKind } from "./game.ts";
-import { cacheAsset } from "./item-browser.ts";
 import {
   ITEMS, JOB_TABS, KEY_BADGES, KEY_LABEL, QUICK_KEYS, SKILL, SKILL_DEFS, TAB_LEVEL, WEAPON_ICON,
   cleanDesc, itemIcon, classFor, type Action, type ClassId,
 } from "./skills.ts";
 
 import { el, bg, fmt } from "./util.ts";
+import { makeGear } from "./items.ts";
 import type { Sprite } from "./assets.ts";
 export { el, bg };
 type Btn = Record<"normal" | "mouseOver" | "pressed" | "disabled", Sprite | null>;
@@ -57,8 +57,8 @@ export class Windows {
   skill!: HTMLElement;
   item!: HTMLElement;
   autoWin!: HTMLElement;
+  debugWin!: HTMLElement;
   buffBar: HTMLElement;
-  balloon: HTMLElement; balloonText: HTMLElement;
   autoBtn: HTMLElement;
   autoBossBtn!: HTMLElement;
   skillTab = 1;
@@ -75,9 +75,6 @@ export class Windows {
     this.layer = el("div", "win-layer", document.body);
     this.tip = el("div", "tooltip hidden", document.body);
     this.buffBar = el("div", "buffbar", hudRoot);
-    this.balloon = el("div", "balloon hidden", hudRoot);
-    this.buildBalloon();
-    this.balloonText = this.balloon.querySelector(".balloon-text") as HTMLElement;
     this.autoBtn = el("button", "auto-btn auto-battle-btn", hudRoot);
     this.autoBtn.innerHTML = `<span class="auto-dot"></span>AUTO`;
     this.autoBtn.title = "Toggle auto battle (B). Right-click for settings.";
@@ -88,6 +85,7 @@ export class Windows {
     this.autoBossBtn.innerHTML = `<span class="auto-dot"></span>AUTO BOSS`;
     this.autoBossBtn.title = "Toggle Auto Boss Challenge. Right-click for settings.";
     this.autoBossBtn.addEventListener("click", () => {
+      if (!this.game) return;
       this.game.auto.boss = !this.game.auto.boss;
       this.game.onChat("notice", this.game.auto.boss ? "Auto Boss is ON. Stage boss will be challenged automatically." : "Auto Boss is OFF.");
       this.game.onChange();
@@ -103,9 +101,11 @@ export class Windows {
     this.buildJobAdvancement();
     this.buildSkill();
     this.buildAuto();
+    this.buildDebug();
     this.ext = new ExtWindows(this);
 
     // All windows start closed by default; toggled via dedicated menu buttons or hotkeys
+    addEventListener("toggle-debug-win", () => this.toggle(this.debugWin));
 
     addEventListener("pointermove", (e) => { const pe = e as PointerEvent; if (this.ghost) this.moveGhost(pe.clientX, pe.clientY); });
     addEventListener("resize", () => {
@@ -499,9 +499,11 @@ export class Windows {
     this.jobAdvWin = this.makeWindow("job-adv-win", 400, 490, "JOB ADVANCEMENT", 260, 140);
     this.jobAdvWin.classList.add("hidden");
     el("div", "job-adv-body", this.jobAdvWin);
-    this.game.onJobAdvancementReady = (tier) => {
-      this.openJobAdvancement(tier);
-    };
+    if (this.game) {
+      this.game.onJobAdvancementReady = (tier) => {
+        this.openJobAdvancement(tier);
+      };
+    }
     this.jobAdvWin.addEventListener("click", (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-job]");
       if (btn?.dataset.job) {
@@ -567,6 +569,16 @@ export class Windows {
             <p class="job-adv-card-desc">Shadow masters from Kerning City using unmatched agility, stealth, and razor-sharp throwing stars.</p>
             <span class="job-adv-card-skills">Lucky Seven · Double Stab · Haste</span>
             <button type="button" class="ci-action-btn cyan mt-1 font-bold">Advance to Thief</button>
+          </div>
+
+          <div class="job-adv-card" data-job="pirate">
+            <div class="job-adv-card-name">
+              <span class="text-orange-300 font-black">Pirate</span>
+              <span class="text-[9px] text-orange-400/80">STR</span>
+            </div>
+            <p class="job-adv-card-desc">Fearless brawlers from Nautilus wielding heavy knuckles, somersault kicks, and concussive energy blasts.</p>
+            <span class="job-adv-card-skills">Somersault Kick · Octopush · Dash</span>
+            <button type="button" class="ci-action-btn cyan mt-1 font-bold">Advance to Pirate</button>
           </div>
         </div>
       `;
@@ -681,7 +693,7 @@ export class Windows {
 
   // ------------------------------------------------------------- skill window
   buildSkill() {
-    const w = this.makeWindow("skill-win", 320, 420, "SKILLS", 400, 110);
+    const w = this.makeWindow("skill-win", 420, 520, "SKILLS", 400, 110);
     this.skill = w;
     const body = el("div", "skill-win-body", w);
     const tabs = el("div", "skill-tabs", body);
@@ -805,6 +817,401 @@ export class Windows {
     };
   }
 
+  // ------------------------------------------------------------- debug GM menu
+  buildDebug() {
+    const w = this.makeWindow("debug-win", 400, 520, "GM DEBUG MENU (F1)", innerWidth / 2 - 200, 70);
+    this.debugWin = w;
+    const g = this.game;
+    const body = el("div", "debug-body", w);
+
+    // Top Tabs
+    const tabs = el("div", "debug-tabs", body);
+    const content = el("div", "debug-content", body);
+
+    const tabList = [
+      { id: "player", label: "Player" },
+      { id: "stats", label: "Stats" },
+      { id: "cheats", label: "Cheats" },
+      { id: "items", label: "Items" },
+      { id: "world", label: "World" },
+    ];
+    const tabPanes: Record<string, HTMLElement> = {};
+
+    const switchTab = (id: string) => {
+      for (const t of Array.from(tabs.children)) {
+        t.classList.toggle("active", (t as HTMLElement).dataset.tab === id);
+      }
+      for (const [k, p] of Object.entries(tabPanes)) {
+        p.classList.toggle("hidden", k !== id);
+      }
+    };
+
+    for (const t of tabList) {
+      const btn = el("button", `debug-tab ${t.id === "player" ? "active" : ""}`, tabs) as HTMLButtonElement;
+      btn.type = "button";
+      btn.textContent = t.label;
+      btn.dataset.tab = t.id;
+      btn.addEventListener("click", () => switchTab(t.id));
+      const pane = el("div", `debug-pane ${t.id !== "player" ? "hidden" : ""}`, content);
+      tabPanes[t.id] = pane;
+    }
+
+    // --- TAB 1: PLAYER ---
+    {
+      const p = tabPanes.player;
+      const secLv = el("div", "debug-section", p);
+      el("div", "debug-sec-title", secLv).textContent = "Character Level & EXP";
+      const lvRow = el("div", "debug-row", secLv);
+      el("span", "debug-label", lvRow).textContent = "Level:";
+      const lvInp = el("input", "debug-input", lvRow) as HTMLInputElement;
+      lvInp.type = "number"; lvInp.min = "1"; lvInp.max = "300"; lvInp.value = String(g.stats.level);
+      const setLvBtn = el("button", "debug-btn", lvRow) as HTMLButtonElement;
+      setLvBtn.type = "button"; setLvBtn.textContent = "Set Level";
+      setLvBtn.addEventListener("click", () => {
+        const val = parseInt(lvInp.value);
+        if (!isNaN(val)) g.setLevel(val);
+      });
+      const quickLvRow = el("div", "debug-row wrap gap-1 mt-1", secLv);
+      for (const n of [1, 5, 10, 30, 60, 100, 200, 250]) {
+        const b = el("button", "debug-btn small", quickLvRow);
+        b.textContent = n >= 30 ? `Lv. ${n}` : `+${n}`;
+        b.addEventListener("click", () => {
+          if (n >= 30) g.setLevel(n);
+          else g.setLevel(g.stats.level + n);
+          lvInp.value = String(g.stats.level);
+        });
+      }
+
+      const expRow = el("div", "debug-row wrap gap-1 mt-1", secLv);
+      el("span", "debug-label", expRow).textContent = "Add EXP:";
+      for (const e of [1000, 10000, 100000, 1000000, 10000000]) {
+        const b = el("button", "debug-btn small green", expRow);
+        b.textContent = `+${fmt(e)}`;
+        b.addEventListener("click", () => g.addExp(e));
+      }
+
+      const secJob = el("div", "debug-section", p);
+      el("div", "debug-sec-title", secJob).textContent = "Class & Job Advancement";
+      const jobRow = el("div", "debug-row", secJob);
+      const selClass = el("select", "debug-select flex-1", jobRow) as HTMLSelectElement;
+      const classOptions: { id: ClassId; name: string }[] = [
+        { id: "beginner", name: "Beginner" },
+        { id: "warrior", name: "Warrior" },
+        { id: "magician", name: "Magician" },
+        { id: "bowman", name: "Bowman" },
+        { id: "thief", name: "Thief" },
+        { id: "pirate", name: "Pirate" },
+      ];
+      for (const c of classOptions) {
+        const opt = el("option", "", selClass) as HTMLOptionElement;
+        opt.value = c.id; opt.textContent = c.name;
+        if (c.id === g.stats.classId) opt.selected = true;
+      }
+      const setJobBtn = el("button", "debug-btn", jobRow) as HTMLButtonElement;
+      setJobBtn.type = "button"; setJobBtn.textContent = "Switch Class";
+      setJobBtn.addEventListener("click", () => {
+        g.setJob(selClass.value as ClassId);
+      });
+
+      const advRow = el("div", "debug-row gap-1 mt-1", secJob);
+      for (const tier of [1, 2, 3]) {
+        const b = el("button", "debug-btn small gold", advRow);
+        b.textContent = `${tier}${tier === 1 ? "st" : tier === 2 ? "nd" : "rd"} Job`;
+        b.addEventListener("click", () => {
+          const c = g.class;
+          if (c.tabs[tier]) {
+            g.stats.job = c.tabs[tier];
+            g.recalc();
+            g.onChat("notice", `[DEBUG] Advanced to ${g.stats.job}!`);
+            g.onChange();
+          }
+        });
+      }
+
+      const secMeso = el("div", "debug-section", p);
+      el("div", "debug-sec-title", secMeso).textContent = "Mesos";
+      const mesoRow = el("div", "debug-row", secMeso);
+      const mesoInp = el("input", "debug-input flex-1", mesoRow) as HTMLInputElement;
+      mesoInp.type = "number"; mesoInp.value = String(g.stats.meso);
+      const setMesoBtn = el("button", "debug-btn gold", mesoRow) as HTMLButtonElement;
+      setMesoBtn.textContent = "Set Meso";
+      setMesoBtn.addEventListener("click", () => {
+        const val = parseInt(mesoInp.value);
+        if (!isNaN(val)) {
+          g.stats.meso = Math.max(0, val);
+          g.onGain("meso", `[DEBUG] Mesos set to ${g.stats.meso.toLocaleString()}`);
+          g.onChange();
+        }
+      });
+      const quickMesoRow = el("div", "debug-row wrap gap-1 mt-1", secMeso);
+      for (const amt of [100000, 1000000, 10000000, 100000000, 1000000000]) {
+        const b = el("button", "debug-btn small gold", quickMesoRow);
+        b.textContent = `+${fmt(amt)}`;
+        b.addEventListener("click", () => {
+          g.giveMesos(amt);
+          mesoInp.value = String(g.stats.meso);
+        });
+      }
+    }
+
+    // --- TAB 2: STATS ---
+    {
+      const s = tabPanes.stats;
+      const secApSp = el("div", "debug-section", s);
+      el("div", "debug-sec-title", secApSp).textContent = "AP & SP Points";
+      const apRow = el("div", "debug-row", secApSp);
+      el("span", "debug-label", apRow).textContent = "AP:";
+      const apInp = el("input", "debug-input", apRow) as HTMLInputElement;
+      apInp.type = "number"; apInp.value = String(g.stats.ap);
+      const setApBtn = el("button", "debug-btn", apRow) as HTMLButtonElement;
+      setApBtn.textContent = "Set AP";
+      setApBtn.addEventListener("click", () => {
+        const val = parseInt(apInp.value);
+        if (!isNaN(val)) { g.stats.ap = Math.max(0, val); g.onChange(); }
+      });
+      for (const n of [10, 50, 100, 500]) {
+        const b = el("button", "debug-btn small", apRow);
+        b.textContent = `+${n}`;
+        b.addEventListener("click", () => { g.stats.ap += n; apInp.value = String(g.stats.ap); g.onChange(); });
+      }
+
+      const spRow = el("div", "debug-row mt-1", secApSp);
+      el("span", "debug-label", spRow).textContent = "SP:";
+      const spInp = el("input", "debug-input", spRow) as HTMLInputElement;
+      spInp.type = "number"; spInp.value = String(g.stats.sp);
+      const setSpBtn = el("button", "debug-btn", spRow) as HTMLButtonElement;
+      setSpBtn.textContent = "Set SP";
+      setSpBtn.addEventListener("click", () => {
+        const val = parseInt(spInp.value);
+        if (!isNaN(val)) { g.stats.sp = Math.max(0, val); g.onChange(); }
+      });
+      for (const n of [10, 50, 100]) {
+        const b = el("button", "debug-btn small", spRow);
+        b.textContent = `+${n}`;
+        b.addEventListener("click", () => { g.stats.sp += n; spInp.value = String(g.stats.sp); g.onChange(); });
+      }
+
+      const secAttr = el("div", "debug-section", s);
+      el("div", "debug-sec-title", secAttr).textContent = "Primary Attributes";
+      for (const stat of ["str", "dex", "int", "luk"] as const) {
+        const row = el("div", "debug-row", secAttr);
+        el("span", "debug-label uppercase", row).textContent = `${stat}:`;
+        const inp = el("input", "debug-input", row) as HTMLInputElement;
+        inp.type = "number"; inp.value = String(g.stats[stat]);
+        const setBtn = el("button", "debug-btn", row) as HTMLButtonElement;
+        setBtn.textContent = "Set";
+        setBtn.addEventListener("click", () => {
+          const val = parseInt(inp.value);
+          if (!isNaN(val)) { g.stats[stat] = Math.max(4, val); g.recalc(); g.onChange(); }
+        });
+        for (const n of [10, 50, 100]) {
+          const b = el("button", "debug-btn small", row);
+          b.textContent = `+${n}`;
+          b.addEventListener("click", () => { g.stats[stat] += n; inp.value = String(g.stats[stat]); g.recalc(); g.onChange(); });
+        }
+      }
+      const allRow = el("div", "debug-row gap-2 mt-2", secAttr);
+      const addAll50 = el("button", "debug-btn green flex-1", allRow);
+      addAll50.textContent = "+50 All Attributes";
+      addAll50.addEventListener("click", () => {
+        g.stats.str += 50; g.stats.dex += 50; g.stats.int += 50; g.stats.luk += 50;
+        g.recalc(); g.onChange();
+      });
+      const addAll500 = el("button", "debug-btn gold flex-1", allRow);
+      addAll500.textContent = "+500 All Attributes";
+      addAll500.addEventListener("click", () => {
+        g.stats.str += 500; g.stats.dex += 500; g.stats.int += 500; g.stats.luk += 500;
+        g.recalc(); g.onChange();
+      });
+    }
+
+    // --- TAB 3: CHEATS ---
+    {
+      const c = tabPanes.cheats;
+      const secToggles = el("div", "debug-section", c);
+      el("div", "debug-sec-title", secToggles).textContent = "Battle & Player Cheats";
+
+      const makeToggle = (label: string, desc: string, get: () => boolean, set: (v: boolean) => void) => {
+        const row = el("div", "debug-toggle-row", secToggles);
+        const info = el("div", "debug-toggle-info", row);
+        el("div", "debug-toggle-name", info).textContent = label;
+        el("div", "debug-toggle-desc", info).textContent = desc;
+        const btn = el("button", `debug-toggle-btn ${get() ? "on" : ""}`, row) as HTMLButtonElement;
+        btn.textContent = get() ? "ON" : "OFF";
+        btn.addEventListener("click", () => {
+          set(!get());
+          btn.classList.toggle("on", get());
+          btn.textContent = get() ? "ON" : "OFF";
+        });
+      };
+
+      makeToggle("God Mode", "Immune to contact damage and defeat", () => g.godMode, (v) => { g.godMode = v; g.onChat("notice", `[DEBUG] God Mode: ${v ? "ENABLED" : "DISABLED"}`); });
+      makeToggle("Infinite MP", "Cast skills and movement without spending MP", () => g.infiniteMp, (v) => { g.infiniteMp = v; g.onChat("notice", `[DEBUG] Infinite MP: ${v ? "ENABLED" : "DISABLED"}`); });
+
+      const secSpeed = el("div", "debug-section", c);
+      el("div", "debug-sec-title", secSpeed).textContent = "Movement Speed Multiplier";
+      const spdRow = el("div", "debug-row gap-1", secSpeed);
+      for (const mul of [1, 1.5, 2, 2.5, 3]) {
+        const b = el("button", `debug-btn small ${g.speedMultiplier === mul ? "active-speed" : ""}`, spdRow);
+        b.textContent = `${mul}x`;
+        b.addEventListener("click", () => {
+          g.speedMultiplier = mul;
+          for (const sibling of Array.from(spdRow.children)) sibling.classList.remove("active-speed");
+          b.classList.add("active-speed");
+          g.onChat("notice", `[DEBUG] Speed multiplier set to ${mul}x.`);
+        });
+      }
+
+      const secInstant = el("div", "debug-section", c);
+      el("div", "debug-sec-title", secInstant).textContent = "Instant Actions";
+      const instRow = el("div", "debug-row wrap gap-2", secInstant);
+
+      const healBtn = el("button", "debug-btn green flex-1", instRow);
+      healBtn.textContent = "Full Heal (HP & MP)";
+      healBtn.addEventListener("click", () => g.fullHeal());
+
+      const maxHpBtn = el("button", "debug-btn flex-1", instRow);
+      maxHpBtn.textContent = "+5,000 Base HP";
+      maxHpBtn.addEventListener("click", () => { g.stats.baseHp += 5000; g.recalc(); g.stats.hp = g.stats.maxHp; g.onChange(); });
+
+      const maxSkillsBtn = el("button", "debug-btn gold flex-1", instRow);
+      maxSkillsBtn.textContent = "Max Out All Class Skills";
+      maxSkillsBtn.addEventListener("click", () => g.maxAllSkills());
+    }
+
+    // --- TAB 4: ITEMS ---
+    {
+      const it = tabPanes.items;
+      const secPots = el("div", "debug-section", it);
+      el("div", "debug-sec-title", secPots).textContent = "Give Consumables & Potions";
+      const potRow = el("div", "debug-row wrap gap-2", secPots);
+
+      const giveAllPots = el("button", "debug-btn green flex-1", potRow);
+      giveAllPots.textContent = "+100x All Potions";
+      giveAllPots.addEventListener("click", () => {
+        g.giveItem(2000000, 100);
+        g.giveItem(2000001, 100);
+        g.giveItem(2000002, 100);
+        g.giveItem(2000003, 100);
+        g.giveItem(2000006, 100);
+      });
+
+      const giveElixir = el("button", "debug-btn flex-1", potRow);
+      giveElixir.textContent = "+50x White Potion";
+      giveElixir.addEventListener("click", () => g.giveItem(2000002, 50));
+
+      const secMats = el("div", "debug-section", it);
+      el("div", "debug-sec-title", secMats).textContent = "Give Crafting Materials";
+      const matRow = el("div", "debug-row wrap gap-2", secMats);
+
+      const giveMatsBtn = el("button", "debug-btn gold flex-1", matRow);
+      giveMatsBtn.textContent = "+50x Crafting Ores";
+      giveMatsBtn.addEventListener("click", () => {
+        for (const id of [4010000, 4010001, 4010002, 4010003, 4010006]) g.giveMat(id, 50);
+      });
+
+      const giveCubesBtn = el("button", "debug-btn flex-1", matRow);
+      giveCubesBtn.textContent = "+50x Occult Cubes";
+      giveCubesBtn.addEventListener("click", () => g.giveMat(4000010, 50));
+
+      const secInv = el("div", "debug-section", it);
+      el("div", "debug-sec-title", secInv).textContent = "Inventory Management";
+      const invRow = el("div", "debug-row gap-2", secInv);
+      const clearEquipsBtn = el("button", "debug-btn red flex-1", invRow);
+      clearEquipsBtn.textContent = "Clear Equip Bag";
+      clearEquipsBtn.addEventListener("click", () => {
+        if (confirm("Clear all unequipped gear in bag?")) {
+          g.bag = [];
+          g.onChange();
+          g.onChat("notice", "[DEBUG] Equip bag cleared.");
+        }
+      });
+      const itemBrowserBtn = el("button", "debug-btn flex-1", invRow);
+      itemBrowserBtn.textContent = "Open All-Items Browser";
+      itemBrowserBtn.addEventListener("click", () => this.ext.items.open());
+
+      const secCosmetics = el("div", "debug-section", it);
+      el("div", "debug-sec-title", secCosmetics).textContent = "NX Cosmetics & Transmogs";
+      const cosRow = el("div", "debug-row wrap gap-2", secCosmetics);
+      const giveCosPackBtn = el("button", "debug-btn gold flex-1", cosRow);
+      giveCosPackBtn.textContent = "+1x NX Cosmetics Pack";
+      giveCosPackBtn.addEventListener("click", () => {
+        for (const cid of [1703214, 1003112, 1002419, 1002140, 1102041, 1102039, 1050018, 1442011, 1302016]) {
+          g.addGear(makeGear(cid, 0));
+        }
+        g.onChange();
+        g.onChat("notice", "[DEBUG] Received NX Cosmetics Starter Pack. Equip in Cash/Visual tab!");
+      });
+    }
+
+    // --- TAB 5: WORLD ---
+    {
+      const wd = tabPanes.world;
+      const secWarp = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secWarp).textContent = "Map Teleport / Warp";
+      const warpRow = el("div", "debug-row", secWarp);
+      const selMap = el("select", "debug-select flex-1", warpRow) as HTMLSelectElement;
+      const mapOptions = [
+        { id: 100010000, name: "Henesys" },
+        { id: 100020000, name: "Henesys Market" },
+        { id: 101010000, name: "Ellinia" },
+        { id: 100000000, name: "Henesys Town" },
+        { id: 910000000, name: "Free Market Entrance" },
+      ];
+      for (const m of mapOptions) {
+        const opt = el("option", "", selMap) as HTMLOptionElement;
+        opt.value = String(m.id); opt.textContent = `${m.name} (${m.id})`;
+        if (m.id === g.map?.id) opt.selected = true;
+      }
+      const warpBtn = el("button", "debug-btn green", warpRow) as HTMLButtonElement;
+      warpBtn.textContent = "Warp Now";
+      warpBtn.addEventListener("click", () => {
+        const targetId = parseInt(selMap.value);
+        if (targetId) {
+          g.loadMap(targetId, "spawn");
+          g.onChat("notice", `[DEBUG] Teleported to map ${targetId}.`);
+        }
+      });
+
+      const secSync = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secSync).textContent = "Multiplayer & Network Sync";
+      const syncRow = el("div", "debug-row gap-2", secSync);
+      const syncNowBtn = el("button", "debug-btn green flex-1", syncRow);
+      syncNowBtn.textContent = "Force Sync Now (/sync)";
+      syncNowBtn.addEventListener("click", () => {
+        g.syncAll(true);
+        g.onChat("system", "[Sync] WebSocket connection and player state synchronized with server.");
+      });
+      const reconnectBtn = el("button", "debug-btn flex-1", syncRow);
+      reconnectBtn.textContent = "Reconnect WebSocket";
+      reconnectBtn.addEventListener("click", () => {
+        g.initWs();
+        g.onChat("system", "[Sync] Reconnecting WebSocket...");
+      });
+
+      const secCombat = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secCombat).textContent = "Combat & Stage Progression";
+      const combatRow1 = el("div", "debug-row wrap gap-2", secCombat);
+
+      const killAllBtn = el("button", "debug-btn red flex-1", combatRow1);
+      killAllBtn.textContent = "Kill All Monsters on Map";
+      killAllBtn.addEventListener("click", () => g.killAllMobs());
+
+      const readyBossBtn = el("button", "debug-btn gold flex-1", combatRow1);
+      readyBossBtn.textContent = "Ready Stage Boss (25 Kills)";
+      readyBossBtn.addEventListener("click", () => g.readyBossImmediate());
+
+      const combatRow2 = el("div", "debug-row wrap gap-2 mt-1", secCombat);
+      const spawnBossBtn = el("button", "debug-btn red flex-1", combatRow2);
+      spawnBossBtn.textContent = "Spawn Boss Immediately";
+      spawnBossBtn.addEventListener("click", () => g.spawnBossImmediate());
+
+      const advanceStageBtn = el("button", "debug-btn green flex-1", combatRow2);
+      advanceStageBtn.textContent = "Advance to Next Stage / Area";
+      advanceStageBtn.addEventListener("click", () => g.advanceStageImmediate());
+    }
+  }
+
   // ------------------------------------------------------------- transient logs (bottom right, no background)
   buildLogs() {
     const box = el("div", "logs hidden", this.hudRoot);
@@ -870,20 +1277,6 @@ export class Windows {
       (c.querySelector(".buff-time") as HTMLElement).textContent = b.left >= 60 ? `${Math.ceil(b.left / 60)}m` : `${Math.ceil(b.left)}`;
       (c.querySelector(".buff-shade") as HTMLElement).style.height = `${(1 - b.left / b.dur) * 100}%`;
     }
-  }
-
-  // ------------------------------------------------------------- chat balloon
-  buildBalloon() {
-    const b = this.balloon;
-    b.innerHTML = `<div class="balloon-body"><span class="balloon-text"></span><div class="balloon-beak"></div></div>`;
-    this.balloonText = b.querySelector(".balloon-text") as HTMLElement;
-  }
-  renderBalloon(px: number, py: number) {
-    const g = this.game;
-    if (g.balloon.t <= 0) { this.balloon.classList.add("hidden"); return; }
-    if (this.balloonText.textContent !== g.balloon.text) this.balloonText.textContent = g.balloon.text;
-    this.balloon.classList.remove("hidden");
-    this.balloon.style.transform = `translate(${px}px, ${py - 32}px) translate(-50%, -100%)`;
   }
 
   update(dt: number) {

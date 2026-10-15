@@ -1,4 +1,6 @@
-// Modern MapleStory NEXT Bottom HUD Controller (exact 1:1 match to reference using Tailwind CSS)
+// Modern MapleStory NEXT Bottom HUD Controller — Orillusion Component architecture (https://www.orillusion.com/en/guide/core/component.html)
+// Exact 1:1 match to reference using Tailwind CSS and Orillusion ComponentBase
+import { ComponentBase } from "@orillusion/core";
 import { el } from "../util.ts";
 
 export interface StatusUpdateData {
@@ -12,17 +14,48 @@ export interface StatusUpdateData {
   expNeed: number;
 }
 
-export class StatusCapsule {
-  root: HTMLElement;
-  hpFill: HTMLElement;
-  hpText: HTMLElement;
-  mpFill: HTMLElement;
-  mpText: HTMLElement;
-  expText: HTMLElement;
-  expBottomFill: HTMLElement;
+export class StatusCapsule extends ComponentBase {
+  root!: HTMLElement;
+  hpFill!: HTMLElement;
+  hpText!: HTMLElement;
+  mpFill!: HTMLElement;
+  mpText!: HTMLElement;
+  expText!: HTMLElement;
+  expBottomFill!: HTMLElement;
 
-  constructor(parent: HTMLElement) {
-    this.root = el("div", "ms-hud-center flex flex-col justify-center items-center gap-[2px] pointer-events-auto", parent);
+  private parentEl!: HTMLElement;
+
+  constructor(parent?: HTMLElement) {
+    super();
+    if (parent) {
+      this.parentEl = parent;
+      this.initComponent();
+    }
+  }
+
+  public override init(param?: { parent: HTMLElement }): void {
+    super.init(param);
+    if (param?.parent && !this.root) {
+      this.parentEl = param.parent;
+      this.initComponent();
+    }
+  }
+
+  public override start(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public override onUpdate(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public override destroy(force?: boolean): void {
+    super.destroy(force);
+    this.root?.remove();
+  }
+
+  private initComponent() {
+    this.root = el("div", "ms-hud-center flex flex-col justify-center items-center gap-[2px] pointer-events-auto", this.parentEl);
 
     // HP Bar Row (Thick, wide bar matching modern MapleStory UI)
     const hpRow = el("div", "ms-bar-row flex items-center w-[280px] h-[20px]", this.root);
@@ -96,16 +129,47 @@ export class StatusCapsule {
   }
 }
 
-export class PlayerStatusTag {
-  root: HTMLElement;
-  levelVal: HTMLElement;
-  nameVal: HTMLElement;
+export class PlayerStatusTag extends ComponentBase {
+  root!: HTMLElement;
+  levelVal!: HTMLElement;
+  nameVal!: HTMLElement;
 
-  constructor(parent: HTMLElement) {
+  private parentEl!: HTMLElement;
+
+  constructor(parent?: HTMLElement) {
+    super();
+    if (parent) {
+      this.parentEl = parent;
+      this.initComponent();
+    }
+  }
+
+  public override init(param?: { parent: HTMLElement }): void {
+    super.init(param);
+    if (param?.parent && !this.root) {
+      this.parentEl = param.parent;
+      this.initComponent();
+    }
+  }
+
+  public override start(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public override onUpdate(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public override destroy(force?: boolean): void {
+    super.destroy(force);
+    this.root?.remove();
+  }
+
+  private initComponent() {
     this.root = el(
       "div",
       "ms-player-bar flex items-center h-[26px] bg-[#3a4454]/85 border border-[#9ca8b8]/40 rounded-[4px] px-2.5 gap-2 backdrop-blur-[4px] shadow-[0_2px_4px_rgba(0,0,0,0.5)] pointer-events-auto select-none",
-      parent
+      this.parentEl
     );
     const lvBadge = el("div", "ms-player-lv flex items-baseline gap-0.5", this.root);
     el("span", "text-slate-400 font-bold text-[11px] leading-none", lvBadge).textContent = "Lv.";
@@ -119,17 +183,6 @@ export class PlayerStatusTag {
   }
 }
 
-export class MapleWorldProgress {
-  root: HTMLElement;
-  constructor(parent: HTMLElement) {
-    this.root = el(
-      "div",
-      "ms-maple-world-widget flex items-center gap-[3px] font-bold text-[10px] text-slate-400 mb-[2px] drop-shadow-[0_1px_2px_#000]",
-      parent
-    );
-    this.root.innerHTML = `<span class="mw-label text-[#e2ef17] tracking-[0.3px]">MAPLE WORLD</span><span class="mw-bracket text-slate-400">[</span><span class="mw-count text-white">0/5000</span><span class="mw-bracket text-slate-400">]</span>`;
-  }
-}
 
 export interface MenuItem {
   iconSvg: string;
@@ -138,17 +191,51 @@ export interface MenuItem {
   badge?: boolean;
 }
 
-export class MenuButtons {
-  root: HTMLElement;
+export class MenuButtons extends ComponentBase {
+  root!: HTMLElement;
   badges: Record<string, HTMLElement> = {};
 
-  constructor(parent: HTMLElement, items: Record<string, MenuItem>) {
+  private parentEl!: HTMLElement;
+  private items!: Record<string, MenuItem>;
+
+  constructor(parent?: HTMLElement, items?: Record<string, MenuItem>) {
+    super();
+    if (parent && items) {
+      this.parentEl = parent;
+      this.items = items;
+      this.initComponent();
+    }
+  }
+
+  public override init(param?: { parent: HTMLElement; items: Record<string, MenuItem> }): void {
+    super.init(param);
+    if (param?.parent && param?.items && !this.root) {
+      this.parentEl = param.parent;
+      this.items = param.items;
+      this.initComponent();
+    }
+  }
+
+  public override start(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public override onUpdate(): void {
+    // Orillusion lifecycle hook
+  }
+
+  public override destroy(force?: boolean): void {
+    super.destroy(force);
+    this.root?.remove();
+  }
+
+  private initComponent() {
     this.root = el(
       "div",
       "dock-menu flex items-center gap-[3px] p-0 bg-transparent border-0 shadow-none",
-      parent
+      this.parentEl
     );
-    for (const [key, item] of Object.entries(items)) {
+    for (const [key, item] of Object.entries(this.items)) {
       const b = el(
         "button",
         "ms-menu-btn relative w-[27px] h-[27px] bg-[#3a4454]/80 hover:bg-[#4f5e77] active:translate-y-[1px] border border-[#9ca8b8]/40 hover:border-[#9ca8b8] rounded-[4px] flex items-center justify-center text-slate-200 hover:text-white cursor-pointer p-0 backdrop-blur-[3px] shadow-[0_1px_3px_rgba(0,0,0,0.4)] transition-all duration-100",

@@ -1,12 +1,11 @@
 // "All Items" browser panel — lists every gear/material/use item in the game.
-// Icons and other maplestory.io assets are cached to /assets/ on the server the
+// Icons are hotlinked from the running server's sprite endpoints.
 // first time they appear in the UI, so the game keeps working offline.
 import { GEAR, MATS, makeGear, type GearBase } from "./items.ts";
 import { ITEMS, itemIcon } from "./skills.ts";
 import { renderBaseGearTooltip, renderUseTooltip, renderMatTooltip } from "./tooltip.ts";
-import { esc, fmt, cacheAsset, warmCache } from "./util.ts";
+import { esc, fmt } from "./util.ts";
 import { clampWindow } from "./windows.ts";
-export { cacheAsset, warmCache };
 
 /** Categories shown in the All Items browser. */
 export type ItemCat = "all" | "cosmetic" | "weapon" | "armor" | "accessory" | "material" | "use" | "etc";
@@ -203,10 +202,6 @@ export class ItemBrowser {
       n.focus();
       n.setSelectionRange(pos, pos);
     });
-    // Kick off caching for any icons rendered in this page.
-    for (const cell of this.body.querySelectorAll<HTMLElement>("[data-cache]")) {
-      cacheAsset(cell.style.backgroundImage.replace(/^url\(['"]?|['"]?\)$/g, ""));
-    }
   }
 }
 

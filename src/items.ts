@@ -25,7 +25,7 @@ export const SLOT_CATEGORY: Partial<Record<Slot, "ring">> = {
 };
 export const slotCategory = (s: Slot) => SLOT_CATEGORY[s] ?? (s as string);
 
-export interface GearBase { id: number; name: string; slot: string; req: number; watk: number; str: number; dex: number; int: number; luk: number; hp: number; def: number; price: number; cosmetic?: boolean }
+export interface GearBase { id: number; name: string; slot: string; req: number; watk: number; str: number; dex: number; int: number; luk: number; hp: number; def: number; price: number; cosmetic?: boolean; cash?: boolean }
 
 export interface Potential { stat: "att" | "str" | "dex" | "int" | "luk" | "hp" | "boss" | "meso" | "drop" | "exp"; pct: number }
 export interface Gear { uid: string; id: number; rarity: number; star: number; pot: Potential[] }
@@ -36,7 +36,7 @@ export const RARITY_COLOR = ["#ffffff", "#66d9ff", "#c77dff", "#ffcc33", "#5cff7
 export const RARITY_INK = ["#333333", "#0f7fb3", "#7a32c2", "#a87400", "#12893a"];
 export const MAX_STAR = 15;
 
-// Starter look (also real equips) plus everything gathered from maplestory.io.
+// Starter look (also real equips) plus everything gathered from the client data.
 const STARTER: GearBase[] = [
   { id: 1302000, name: "Sword", slot: "weapon", req: 0, watk: 17, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 50 },
   { id: 1040002, name: "White Undershirt", slot: "top", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 3, price: 30 },
@@ -60,7 +60,7 @@ export const COSMETICS: GearBase[] = [
   { id: 1002064, name: "Red Bandana", slot: "hat", req: 0, watk: 0, str: 2, dex: 0, int: 0, luk: 0, hp: 10, def: 3, price: 500, cosmetic: true },
   { id: 1002186, name: "Red Beret", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 1, luk: 1, hp: 20, def: 8, price: 1200, cosmetic: true },
   { id: 1002274, name: "Chief Stan Hat", slot: "hat", req: 0, watk: 0, str: 3, dex: 3, int: 0, luk: 0, hp: 30, def: 12, price: 2000, cosmetic: true },
-  { id: 1003112, name: "Bunny Ears", slot: "hat", req: 0, watk: 0, str: 2, dex: 2, int: 2, luk: 2, hp: 50, def: 10, price: 3000, cosmetic: true },
+  { id: 1003112, name: "Chaos Zakum Helmet", slot: "hat", req: 100, watk: 25, str: 21, dex: 21, int: 21, luk: 21, hp: 250, def: 180, price: 120000, cosmetic: true },
   { id: 1002798, name: "Fox Ears", slot: "hat", req: 0, watk: 0, str: 3, dex: 3, int: 3, luk: 3, hp: 45, def: 12, price: 3500, cosmetic: true },
   { id: 1002419, name: "Angelic Halo", slot: "hat", req: 0, watk: 2, str: 4, dex: 4, int: 4, luk: 4, hp: 80, def: 15, price: 5000, cosmetic: true },
   { id: 1002067, name: "Skull Cap", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 15, def: 5, price: 600, cosmetic: true },
@@ -137,7 +137,7 @@ export const MATS = new Map<number, string>();
 
 export function loadItemData(d: { gear: (GearBase & { slot: string })[]; mats: { id: number; name: string }[] }) {
   for (const g of [...STARTER, ...COSMETICS, ...d.gear]) {
-    const b = { ...g } as GearBase;
+    const b = { ...g, cash: Boolean((g as any).cash), cosmetic: Boolean((g as any).cosmetic || (g as any).cash) } as GearBase;
     // Some accessories only carry magic defence in the data; give them level-scaled stats.
     if (!b.watk && !b.str && !b.dex && !b.hp && !b.def) { b.def = 2 + Math.round(b.req / 4); b.hp = b.req * 2; if (b.slot === "earrings") b.str = Math.round(b.req / 10); }
     if (b.slot === "weapon" && !b.watk) b.watk = 17 + b.req;
@@ -147,7 +147,7 @@ export function loadItemData(d: { gear: (GearBase & { slot: string })[]; mats: {
   for (const m of d.mats) MATS.set(m.id, m.name);
 }
 
-export const gearIcon = (id: number) => `https://maplestory.io/api/GMS/240/item/${id}/icon`;
+export const gearIcon = (id: number) => `/wz/item/${id}/icon`;
 let uidN = Date.now() % 100000;
 export const newUid = () => `g${(uidN++).toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
 
@@ -229,7 +229,7 @@ export const MAT_PRICE: Record<number, number> = {
   4010000: 60, 4010001: 110, 4010002: 180, 4011000: 700, 4011001: 1300, 4011002: 2100,
   4020000: 260, 4020007: 900, 4021000: 2800, 4021007: 9500, 4001126: 50,
 };
-export const matIcon = (id: number) => `https://maplestory.io/api/GMS/240/item/${id}/icon`;
+export const matIcon = (id: number) => `/wz/item/${id}/icon`;
 
 export interface Recipe {
   id: string; name: string; kind: "refine" | "potion" | "gear";

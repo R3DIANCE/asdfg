@@ -1,23 +1,60 @@
-// Modular Minimap Component — parchment header, minimap scale, player dot & portal indicators
+// Modular Minimap Component — Orillusion Component architecture (https://www.orillusion.com/en/guide/core/component.html)
+// Parchment header, minimap scale, player dot & portal indicators
+import { ComponentBase } from "@orillusion/core";
 import type { MapData } from "../game.ts";
 import { el, bg } from "../util.ts";
 
 export type MinimapMode = "full" | "compact" | "hidden";
 
-export class MinimapComponent {
-  root: HTMLElement;
-  streetText: HTMLElement;
-  nameText: HTMLElement;
-  body: HTMLElement;
+export class MinimapComponent extends ComponentBase {
+  root!: HTMLElement;
+  streetText!: HTMLElement;
+  nameText!: HTMLElement;
+  body!: HTMLElement;
   img: HTMLElement | null = null;
   dot: HTMLElement | null = null;
+  remoteDots = new Map<string, HTMLElement>();
   portals: HTMLElement[] = [];
   mode: MinimapMode = "full";
   scale = 1;
   info: MapData["miniMap"] | null = null;
 
-  constructor(parent: HTMLElement, private onModeChange?: (mode: MinimapMode) => void) {
-    this.root = el("div", "minimap", parent);
+  private parentEl!: HTMLElement;
+  private onModeChange?: (mode: MinimapMode) => void;
+
+  constructor(parent?: HTMLElement, onModeChange?: (mode: MinimapMode) => void) {
+    super();
+    if (parent) {
+      this.parentEl = parent;
+      this.onModeChange = onModeChange;
+      this.initComponent();
+    }
+  }
+
+  public override init(param?: { parent: HTMLElement; onModeChange?: (mode: MinimapMode) => void }): void {
+    super.init(param);
+    if (param?.parent && !this.root) {
+      this.parentEl = param.parent;
+      this.onModeChange = param.onModeChange;
+      this.initComponent();
+    }
+  }
+
+  public override start(): void {
+    // Orillusion lifecycle start hook
+  }
+
+  public override onUpdate(): void {
+    // Orillusion lifecycle per-frame update hook
+  }
+
+  public override destroy(force?: boolean): void {
+    super.destroy(force);
+    this.root?.remove();
+  }
+
+  private initComponent() {
+    this.root = el("div", "minimap", this.parentEl);
 
     // Top control bar: [-][+]
     const topBar = el("div", "mini-top-bar", this.root);
@@ -53,11 +90,6 @@ export class MinimapComponent {
     foldTab.innerHTML = `<svg viewBox="0 0 12 12" width="8" height="8"><path d="M2 4l4 4 4-4" fill="currentColor"/></svg>`;
     foldTab.addEventListener("click", () => this.toggle());
 
-    // Quick Move button under minimap
-    const qm = el("button", "mini-quick-move", parent) as HTMLButtonElement;
-    qm.type = "button";
-    qm.innerHTML = `<span>Quick Move</span><svg viewBox="0 0 12 12" width="9" height="9"><path d="M2 4l4 4 4-4" fill="currentColor"/></svg>`;
-    qm.title = "Quick Move to Portals & Towns";
   }
 
   setMode(mode: MinimapMode) {
@@ -79,6 +111,8 @@ export class MinimapComponent {
 
     this.body.textContent = "";
     this.portals = [];
+    for (const d of this.remoteDots.values()) d.remove();
+    this.remoteDots.clear();
     const info = m.miniMap;
     this.info = info;
 
@@ -87,11 +121,11 @@ export class MinimapComponent {
       return;
     }
 
-    const imgW = info.width / info.mag;
-    const imgH = info.height / info.mag;
-    this.scale = Math.min(1, 220 / imgW);
-    const cw = Math.round(imgW * this.scale);
-    const chh = Math.round(imgH * this.scale);
+    const maxW = 220;
+    const aspect = info.width / (info.height || 1);
+    const cw = Math.min(maxW, Math.max(80, Math.round(info.width / 16)));
+    const chh = Math.round(cw / aspect);
+    this.scale = cw / (info.width || 1);
 
     this.img = el("div", "mini-img", this.body);
     Object.assign(this.img.style, { width: `${cw}px`, height: `${chh}px` });
@@ -113,16 +147,41 @@ export class MinimapComponent {
   toMiniCoords(wx: number, wy: number): [number, number] {
     if (!this.info) return [0, 0];
     const mm = this.info;
+    const cw = parseFloat(this.body.style.width) || 220;
+    const chh = parseFloat(this.body.style.height) || 120;
+    const normX = (wx + mm.centerX) / (mm.width || 1);
+    const normY = (wy + mm.centerY) / (mm.height || 1);
     return [
-      ((wx + mm.centerX) / mm.mag) * this.scale,
-      ((wy + mm.centerY) / mm.mag) * this.scale,
+      Math.max(0, Math.min(cw, normX * cw)),
+      Math.max(0, Math.min(chh, normY * chh)),
     ];
   }
 
-  updatePlayer(px: number, py: number) {
+  updatePlayer(px: number, py: number, remotes?: Map<string, { x: number; y: number; name: string }>) {
     if (this.info && this.dot) {
       const [x, y] = this.toMiniCoords(px, py);
       this.dot.style.transform = `translate(${x}px, ${y}px)`;
+    }
+
+    if (this.info && this.img && remotes) {
+      const activeIds = new Set<string>();
+      for (const [id, rp] of remotes) {
+        activeIds.add(id);
+        let d = this.remoteDots.get(id);
+        if (!d) {
+          d = el("div", "mini-dot other-player", this.img);
+          d.title = rp.name || "Player";
+          this.remoteDots.set(id, d);
+        }
+        const [rx, ry] = this.toMiniCoords(rp.x, rp.y);
+        d.style.transform = `translate(${rx}px, ${ry}px)`;
+      }
+      for (const [id, d] of this.remoteDots) {
+        if (!activeIds.has(id)) {
+          d.remove();
+          this.remoteDots.delete(id);
+        }
+      }
     }
   }
 }
