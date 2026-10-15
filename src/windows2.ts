@@ -11,6 +11,9 @@ import { renderGearTooltip, renderUseTooltip, renderMatTooltip } from "./tooltip
 import { clampWindow, type Windows } from "./windows.ts";
 import { el, esc, fmt, icon, stars, dur } from "./util.ts";
 import { lucideIcon } from "./lucide.ts";
+import { InventoryComponent } from "./components/inventory.ts";
+import { EquipPanelComponent } from "./components/equip-panel.ts";
+import { createUIEntity } from "./ui.ts";
 
 type Tab<T extends string> = { cur: T };
 
@@ -18,6 +21,8 @@ export class ExtWindows {
   equipWin: HTMLElement; invWin: HTMLElement; craftWin: HTMLElement; ahWin: HTMLElement; menuPop: HTMLElement;
   stageHud: HTMLElement; bossBar: HTMLElement; offline: HTMLElement | null = null;
   items: ItemBrowser;
+  invComp!: InventoryComponent;
+  equipComp!: EquipPanelComponent;
   tips = new Map<string, () => string>();
   sig: Record<string, string> = {};
   equipTab: "equip" | "visual" | "pet" = "equip";
@@ -38,6 +43,20 @@ export class ExtWindows {
     this.invWin = w.makeWindow("inv-win", 412, 478, "INVENTORY", 584, 176);
     this.craftWin = w.makeWindow("craft-win", 340, 380, "CRAFTING", innerWidth / 2 - 170, 80);
     this.ahWin = w.makeWindow("ah-win", 440, 400, "AUCTION HOUSE", innerWidth / 2 - 220, 70);
+
+    this.invComp = createUIEntity("InventoryComponent", InventoryComponent, {
+      windowEl: this.invWin,
+      game: w.game,
+      windows: w,
+      ext: this,
+    });
+
+    this.equipComp = createUIEntity("EquipPanelComponent", EquipPanelComponent, {
+      windowEl: this.equipWin,
+      game: w.game,
+      windows: w,
+      ext: this,
+    });
 
     // Windows start closed by default; toggled with dedicated menu buttons or hotkeys
     for (const win of [this.equipWin, this.invWin, this.craftWin, this.ahWin]) {
@@ -228,182 +247,12 @@ export class ExtWindows {
 
   // ------------------------------------------------------------- equipment
   renderEquip() {
-    const g = this.w.game;
-    const body = this.equipWin.querySelector(".x-body") as HTMLElement;
-    if (!body) return;
-
-    const isVisual = this.equipTab === "visual";
-    const isPet = this.equipTab === "pet";
-
-    // Modern MapleStory Equipment Layout (exact 1:1 match to reference)
-    const leftCol1: Slot[] = ["ring1", "ring2", "ring3", "ring4", "pocket"];
-    const leftCol2: Slot[] = ["pendant", "face", "eye", "earrings", "belt"];
-    const rightCol1: Slot[] = ["hat", "top", "bottom", "shoes", "gloves"];
-    const rightCol2: Slot[] = ["cape", "weapon", "shield", "shoulder", "emblem"];
-
-    const cellFor = (s: Slot) => {
-      const it = isVisual ? g.visualEq[s] : g.eq[s];
-      if (!it) {
-        const title = isVisual ? `Visual ${SLOT_NAME[s]}` : SLOT_NAME[s];
-        const emptyLabel = isVisual ? "Empty Visual Slot (Replaces Outfit)" : "Empty Slot";
-        return `<div class="eslot empty ${isVisual ? "visual-slot" : ""}" data-slot="${s}" ${this.tip("eslot-" + (isVisual ? "v-" : "") + s, () => `<div class="ms-tooltip-card p-2 min-w-[140px] text-center"><div class="tt-title text-[12px] ${isVisual ? "text-purple-300" : "text-slate-200"}">${title}</div><div class="text-[9.5px] text-slate-400 mt-1">${emptyLabel}</div></div>`)}></div>`;
-      }
-      const act = isVisual ? "unequip-visual" : "unequip";
-      const note = isVisual ? "Click to unequip visual cosmetic" : "Click to unequip";
-      return `<div class="eslot filled ${isVisual ? "visual-slot" : ""}" data-slot="${s}" data-act="${act}" data-uid="${it.uid}" ${this.tip("g" + it.uid, () => this.gearTip(it, note))}>${this.gearCell(it, act, note, `data-slot="${s}"`)}</div>`;
-    };
-
-    let cells = `<div class="e-sub-col">${leftCol1.map(cellFor).join("")}</div>`;
-    cells += `<div class="e-sub-col">${leftCol2.map(cellFor).join("")}</div>`;
-    cells += `
-      <div class="eprev">
-        <div class="eprev-pedestal"></div>
-        <div class="eprev-char-wrap">
-          <img alt="Character preview" class="eprev-char" src="${charUrlFor(g.look, "stand1", this.equipAnimFrame)}" />
-        </div>
-        <div class="eprev-aura"></div>
-      </div>
-    `;
-    cells += `<div class="e-sub-col">${rightCol1.map(cellFor).join("")}</div>`;
-    cells += `<div class="e-sub-col">${rightCol2.map(cellFor).join("")}</div>`;
-
-    body.innerHTML = `
-      <div class="equip-head-tabs">
-        <button type="button" data-act="equiptab" data-v="equip" class="equip-tab ${this.equipTab === "equip" ? "on" : ""}">Equipment</button>
-        <button type="button" data-act="equiptab" data-v="visual" class="equip-tab ${this.equipTab === "visual" ? "on" : ""}">Cash / Visual</button>
-        <button type="button" data-act="equiptab" data-v="pet" class="equip-tab ${this.equipTab === "pet" ? "on" : ""}">Pet</button>
-      </div>
-      <div class="equip-sub-bar">
-        <span class="equip-title-label">${isVisual ? "VISUAL COSMETICS (NX)" : isPet ? "PET EQUIPMENT" : "EQUIPMENT"}</span>
-        <button type="button" data-act="equiptab" data-v="${isVisual ? "equip" : "visual"}" class="equip-decor-btn">${isVisual ? "&lt; Regular Gear" : "Decorations (NX) &gt;"}</button>
-      </div>
-      <div class="egrid-container">${cells}</div>
-      <div class="equip-presets-bar">
-        <span class="preset-label">PRESETS</span>
-        <div class="preset-btns">
-          <button type="button" class="preset-btn on">1</button>
-          <button type="button" class="preset-btn">2</button>
-          <button type="button" class="preset-btn">3</button>
-          <button type="button" class="preset-apply-btn">Apply</button>
-        </div>
-      </div>
-      <div class="equip-bottom-actions">
-        <button type="button" class="equip-act-pill lime">TITLE · MEDAL</button>
-        <button type="button" class="equip-act-pill slate">VALUABLE</button>
-        <button type="button" class="equip-act-pill cyan">SYMBOL &gt;</button>
-      </div>
-    `;
+    this.equipComp?.render();
   }
 
   // ------------------------------------------------------------- inventory
   renderInv() {
-    const g = this.w.game, tab = this.invTab.cur;
-    const body = this.invWin.querySelector(".x-body") as HTMLElement;
-    if (!body) return;
-    const q = this.invSearch.trim().toLowerCase();
-    const tabs = (["equip", "use", "etc", "setup", "cash", "dec"] as const).map((t) => {
-      const label = t === "equip" ? "Equip" : t === "use" ? "Use" : t === "etc" ? "Etc." : t === "setup" ? "Set-up" : t === "cash" ? "Cash" : "Dec.";
-      return `<button type="button" data-act="invtab" data-v="${t}" class="inv-tab-pill ${t === tab ? "on" : ""}">${label}</button>`;
-    }).join("");
-
-    let grid = "";
-    let curCount = 0;
-    if (tab === "equip") {
-      let bag = [...g.bag].sort((a, b) => b.rarity - a.rarity || (GEAR.get(b.id)?.req ?? 0) - (GEAR.get(a.id)?.req ?? 0));
-      if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
-      curCount = bag.length;
-      for (const it of bag) grid += this.gearCell(it, "equip", `Click to equip · right-click to sell (${fmt(npcSellPrice(it))} mesos)`);
-      const targetPad = Math.max(32, Math.ceil(bag.length / 4) * 4 + 8);
-      for (let i = bag.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
-    } else if (tab === "use") {
-      let ids = Object.keys(ITEMS).map(Number).filter((id) => (g.inv[id] ?? 0) > 0);
-      if (q) ids = ids.filter((id) => (ITEMS[id]?.name ?? "").toLowerCase().includes(q));
-      curCount = ids.length;
-      for (const id of ids) {
-        const it = ITEMS[id];
-        const isThrowable = it?.type === "star" || it?.type === "arrow" || it?.type === "bullet";
-        const countHtml = isThrowable ? `<span class="cnt">∞</span>` : `<span class="cnt">${g.inv[id]}</span>`;
-        grid += `<div class="gcell" data-use="${id}" ${this.tip("u" + id, () => renderUseTooltip(id, g.inv[id] ?? 0))}>${icon(itemIcon(id), "ic grab")}${countHtml}</div>`;
-      }
-      const targetPad = Math.max(32, Math.ceil(ids.length / 4) * 4 + 8);
-      for (let i = ids.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
-    } else if (tab === "etc") {
-      let entries = Object.entries(g.mats).filter(([_, n]) => n > 0);
-      if (q) entries = entries.filter(([id]) => (MATS.get(+id) ?? "").toLowerCase().includes(q));
-      curCount = entries.length;
-      for (const [id, n] of entries) {
-        grid += `<div class="gcell" ${this.tip("m" + id, () => renderMatTooltip(+id, n))}>${icon(matIcon(+id))}<span class="cnt">${n}</span></div>`;
-      }
-      const targetPad = Math.max(32, Math.ceil(entries.length / 4) * 4 + 8);
-      for (let i = entries.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
-    } else if (tab === "cash" || tab === "dec") {
-      let bag = g.bag.filter((it) => {
-        const b = GEAR.get(it.id);
-        return Boolean(b?.cosmetic || b?.cash);
-      });
-      if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
-      curCount = bag.length;
-      for (const it of bag) grid += this.gearCell(it, "equip-visual", `Click to equip as visual outfit · right-click to sell (${fmt(npcSellPrice(it))} mesos)`);
-      const targetPad = Math.max(32, Math.ceil(bag.length / 4) * 4 + 8);
-      for (let i = bag.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
-    } else {
-      for (let i = 0; i < 32; i++) grid += `<div class="gcell blank"></div>`;
-    }
-
-    body.innerHTML = `
-      <div class="inv-header-bar">
-        <div class="inv-tabs">${tabs}</div>
-        <div class="inv-slot-top-badge">SLOT <span class="slot-active">${curCount}</span> / ∞</div>
-      </div>
-      <div class="inv-sub-bar">
-        <div class="inv-sub-actions">
-          <button type="button" class="inv-pill-btn cyan" data-act="sort"><span class="inv-ico">${lucideIcon("sort", 12)}</span> Sort</button>
-          <button type="button" class="inv-pill-btn slate" data-act="lock"><span class="inv-ico">${lucideIcon("lock", 12)}</span> Lock</button>
-        </div>
-        <button type="button" class="inv-plus-slot" title="Infinite Bag Storage Enabled">∞ SLOTS</button>
-      </div>
-      <div class="inv-grid-wrap">
-        <div class="inv-grid">${grid}</div>
-      </div>
-      <div class="inv-finance-row">
-        <div class="inv-meso-badge"><span class="coin-dot gold">${lucideIcon("coins", 13)}</span> ${fmt(g.stats.meso || 164852491)}</div>
-        <div class="inv-points-badge"><span class="coin-dot silver">${lucideIcon("star", 12)}</span> 5,100</div>
-        <div class="inv-actions-right">
-          <button type="button" class="inv-action-btn slate" data-act="selljunk">Extract/Fuse</button>
-          <button type="button" class="inv-action-btn cyan" data-act="crafttab" data-v="star">Transfer</button>
-          <button type="button" class="inv-action-btn cyan" data-act="crafttab" data-v="star">Enhance</button>
-        </div>
-      </div>
-      <div class="inv-quick-footer">
-        <div class="inv-search-box">
-          <input type="text" placeholder="Enter a search term..." class="inv-search-input" value="${esc(this.invSearch)}" />
-          <span class="inv-search-icon">${lucideIcon("search", 13)}</span>
-        </div>
-        <div class="inv-footer-buttons">
-          <button type="button" class="inv-foot-btn" data-act="open-equip">${lucideIcon("equip", 13)} Equip</button>
-          <button type="button" class="inv-foot-btn" data-act="open-shop">${lucideIcon("shop", 13)} Shop</button>
-          <button type="button" class="inv-foot-btn" data-act="open-storage">${lucideIcon("storage", 13)} Storage Room</button>
-          <button type="button" class="inv-foot-btn" data-act="open-boss">${lucideIcon("boss", 13)} Boss Rewards</button>
-          <button type="button" class="inv-foot-btn" data-act="open-bag">${lucideIcon("bag", 13)} Bag</button>
-        </div>
-      </div>
-    `;
-
-    const searchInp = body.querySelector(".inv-search-input") as HTMLInputElement;
-    if (searchInp) {
-      searchInp.addEventListener("input", () => {
-        this.invSearch = searchInp.value;
-        const pos = searchInp.selectionStart ?? this.invSearch.length;
-        this.renderInv();
-        const nextInp = body.querySelector(".inv-search-input") as HTMLInputElement;
-        if (nextInp) { nextInp.focus(); nextInp.setSelectionRange(pos, pos); }
-      });
-    }
-
-    for (const c of body.querySelectorAll<HTMLElement>("[data-use]")) {
-      const id = Number(c.dataset.use);
-      this.w.draggable(c, () => ({ t: "item", id }), undefined, () => g.useAction({ t: "item", id }));
-    }
+    this.invComp?.render();
   }
 
   // ------------------------------------------------------------- crafting

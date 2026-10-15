@@ -1965,7 +1965,7 @@ const server = Bun.serve<{ id: string }>({
           mp: Number(r[8] || 20),
           maxMp: Number(r[9] || 20),
           meso: Number(r[10] || 0),
-          mapId: Number(r[11] || 100000000),
+          mapId: (!r[11] || Number(r[11]) === 0) ? 910000000 : Number(r[11]),
           x: Number(r[12] || 0),
           y: Number(r[13] || 0),
           look: typeof r[14] === "string" ? JSON.parse(r[14] || "[]") : (r[14] || []),
@@ -2021,9 +2021,35 @@ const server = Bun.serve<{ id: string }>({
           JSON.stringify(stats),
           JSON.stringify(equipment),
         ]);
+        try {
+          await spacetimeSql(`UPDATE character SET map_id = 910000000 WHERE name = '${name}';`);
+        } catch {}
         return Response.json({ ok: true, name });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to create character" }, { status: 500 });
+      }
+    },
+    "/api/characters/rename": async (req: any) => {
+      try {
+        const body = await req.json();
+        const oldName = String(body.oldName || "").trim();
+        const newName = String(body.newName || "").trim();
+        if (!oldName || !newName) {
+          return Response.json({ ok: false, error: "Old and new name required" }, { status: 400 });
+        }
+        if (!/^[a-zA-Z0-9_\-]{2,16}$/.test(newName)) {
+          return Response.json({ ok: false, error: "New name must be 2-16 alphanumeric characters" }, { status: 400 });
+        }
+        if (oldName !== newName) {
+          const existing = await spacetimeSql(`SELECT name FROM character WHERE name = '${newName}';`);
+          if (existing.length > 0) {
+            return Response.json({ ok: false, error: "Character name already taken" }, { status: 409 });
+          }
+          await spacetimeSql(`UPDATE character SET name = '${newName}' WHERE name = '${oldName}';`);
+        }
+        return Response.json({ ok: true, name: newName });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to rename character" }, { status: 500 });
       }
     },
     "/api/characters/delete": async (req: any) => {
@@ -2055,7 +2081,7 @@ const server = Bun.serve<{ id: string }>({
           Number(body.mp || 20),
           Number(body.maxMp || 20),
           Number(body.meso || 0),
-          Number(body.mapId || 100000000),
+          Number(body.mapId || 910000000),
           Number(body.x || 0),
           Number(body.y || 0),
           JSON.stringify(body.look || []),

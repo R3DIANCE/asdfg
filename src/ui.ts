@@ -12,7 +12,7 @@ import { el, esc } from "./util.ts";
 
 export type UiData = Record<string, any>;
 
-function createUIEntity<T extends ComponentBase>(
+export function createUIEntity<T extends ComponentBase>(
   name: string,
   comp: new (...args: any[]) => T,
   param: any,
@@ -80,6 +80,18 @@ export class Hud extends ComponentBase {
 
     // Windows Manager initialized before slots & menus
     this.wins = new Windows(game, win, this.root);
+    if (this.wins.ext?.invComp?.object3D) {
+      this.childEntities.push(this.wins.ext.invComp.object3D);
+    }
+    if (this.wins.ext?.equipComp?.object3D) {
+      this.childEntities.push(this.wins.ext.equipComp.object3D);
+    }
+    if (this.wins.statComp?.object3D) {
+      this.childEntities.push(this.wins.statComp.object3D);
+    }
+    if (this.wins.skillComp?.object3D) {
+      this.childEntities.push(this.wins.skillComp.object3D);
+    }
 
     // Left: Player level, IGN
     this.playerTag = createUIEntity("PlayerStatusTag", PlayerStatusTag, { parent: this.dockLeft }, this.childEntities);

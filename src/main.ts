@@ -232,8 +232,17 @@ async function start(char?: SpacetimeCharacter) {
   game.onGain = (k, t) => { hud?.showGain(k, t); hud?.wins.pushLog(k as ChatKind, t); };
   game.onLog = (k, t) => hud?.wins.pushLog(k, t);
 
+  let localSaved: any = null;
+  const charName = char?.name || (nameInput?.value?.trim() || "Wayfarer").slice(0, 12);
+  try {
+    localSaved = JSON.parse(localStorage.getItem(`maple-wayfarer-save-${charName}`) ?? "null")
+      ?? JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null");
+  } catch {}
+
+  let targetMap = FREE_MARKET_MAP;
+
   if (char) {
-    const fullSave = char.stats?.fullSave;
+    const fullSave = char.stats?.fullSave || (localSaved?.stats?.name === char.name ? localSaved : null);
     if (fullSave) {
       game.restore(fullSave);
     } else {
@@ -248,6 +257,9 @@ async function start(char?: SpacetimeCharacter) {
       if (Array.isArray(char.look) && char.look.length) {
         game.look = [...char.look];
       }
+      if (localSaved) {
+        game.restore(localSaved);
+      }
     }
     // Strictly enforce character name from database
     game.stats.name = char.name;
@@ -255,21 +267,25 @@ async function start(char?: SpacetimeCharacter) {
       localStorage.setItem("ms_player_name", char.name);
       localStorage.setItem("ms_current_character", char.name);
     } catch {}
+
+    // Resolve last map from SpacetimeDB or fullSave
+    const savedMap = char.mapId || fullSave?.map || localSaved?.map;
+    targetMap = savedMap ? Number(savedMap) : FREE_MARKET_MAP;
   } else {
-    let saved: any = null;
-    try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null"); } catch {}
-    const name = (nameInput?.value?.trim() || "Wayfarer").slice(0, 12);
-    game.stats.name = name;
-    if (saved?.stats?.name === name) game.restore(saved);
-    else game.applyClassDefaults("beginner");
+    game.stats.name = charName;
+    if (localSaved?.stats?.name === charName || localSaved) {
+      game.restore(localSaved);
+    } else {
+      game.applyClassDefaults("beginner");
+    }
+    targetMap = localSaved?.map ? Number(localSaved.map) : FREE_MARKET_MAP;
   }
 
-  // Enable auto combat by default
-  game.auto.battle = true;
-  game.auto.boss = true;
+  // Ensure default fallback if not in saved state
+  if (typeof game.auto.battle !== "boolean") game.auto.battle = true;
+  if (typeof game.auto.boss !== "boolean") game.auto.boss = true;
 
   setLoading("Loading Maple World Map & Footholds…", 72, "Buffering map background, tiles & collision vectors");
-  const targetMap = char?.mapId && char.mapId !== FREE_MARKET_MAP ? char.mapId : FREE_MARKET_MAP;
   await game.init(targetMap);
   if (char?.name) {
     game.stats.name = char.name;
@@ -303,7 +319,7 @@ async function start(char?: SpacetimeCharacter) {
   if (game.map.id === FREE_MARKET_MAP) {
     hud.addChat("notice", "Welcome to Free Market! This is a peaceful social hub. Enter portals to visit hunting zones.");
   } else {
-    hud.addChat("notice", `Auto Combat is ON. Hunting monsters in ${game.map.name}. Stage boss ready every 25 kills.`);
+    hud.addChat("notice", `${game.auto.battle ? "Auto Combat is ON" : "Auto Combat is OFF"}. Hunting monsters in ${game.map.name}. Stage boss ready every 25 kills.`);
   }
 
   game.ah.refresh(Date.now());
@@ -322,7 +338,7 @@ async function start(char?: SpacetimeCharacter) {
         mp: game.stats.mp,
         maxMp: game.stats.maxMp,
         meso: game.stats.meso,
-        mapId: game.map?.id || 100000000,
+        mapId: game.map?.id || FREE_MARKET_MAP,
         x: Math.round(game.p.x),
         y: Math.round(game.p.y),
         look: game.look,

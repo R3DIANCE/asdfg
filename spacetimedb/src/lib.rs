@@ -112,7 +112,7 @@ pub fn create_char(
         mp: 20,
         max_mp: 20,
         meso: 1000,
-        map_id: 100000000,
+        map_id: 910000000,
         x: 0,
         y: 0,
         look,

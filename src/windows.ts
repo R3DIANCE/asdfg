@@ -42,10 +42,15 @@ function button(parent: HTMLElement, b: Btn, onClick: () => void, title = "") {
 }
 
 import { clampWindow, makeWindow as createWin } from "./components/window.ts";
+import { StatPanelComponent } from "./components/stat-panel.ts";
+import { SkillPanelComponent } from "./components/skill-panel.ts";
+import { createUIEntity } from "./ui.ts";
 export { clampWindow };
 
 // ---------------------------------------------------------------------------
 export class Windows {
+  statComp!: StatPanelComponent;
+  skillComp!: SkillPanelComponent;
   layer: HTMLElement;
   tip: HTMLElement;
   ghost: HTMLElement | null = null;
@@ -298,208 +303,18 @@ export class Windows {
 
   // ------------------------------------------------------------- 2. Main Stat window
   buildStat() {
-    this.statWin = this.makeWindow("stat-win", 465, 710, "STAT", 151, 100);
+    this.statWin = this.makeWindow("stat-win", 360, 560, "CHARACTER STATS", 151, 100);
     this.stat = this.statWin;
-    el("div", "stat-body", this.statWin);
-    this.statWin.addEventListener("click", (e) => {
-      const t = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
-      if (!t) return;
-      const act = t.dataset.act;
-      if (act === "toggle-hyper") this.toggle(this.hyperStatWin);
-      else if (act === "toggle-ability") this.toggle(this.abilityWin);
-      else if (act === "toggle-detail") {
-        this.statWin.classList.toggle("collapsed");
-        const arrow = this.statWin.querySelector(".detail-arrow");
-        if (arrow) arrow.textContent = this.statWin.classList.contains("collapsed") ? "▼" : "▲";
-      } else if (act === "add-stat") {
-        const stat = t.dataset.stat as "str" | "dex" | "int" | "luk" | "hp" | "mp";
-        const s = this.game.stats;
-        if (s.ap > 0 && stat) {
-          s.ap--;
-          if (stat === "hp") s.baseHp += 20;
-          else if (stat === "mp") s.baseMp += 10;
-          else s[stat]++;
-          this.game.recalc();
-          this.game.onChange();
-          this.lastStat = "";
-          this.renderStat();
-        }
-      } else if (act === "auto-ap") {
-        this.game.autoAssign();
-        this.game.onChange();
-        this.lastStat = "";
-        this.renderStat();
-      } else if (act === "fame-up") {
-        this.game.stats.fame++;
-        this.game.onChat("notice", "Fame increased by 1!");
-        this.game.onChange();
-        this.lastStat = "";
-        this.renderStat();
-      } else if (act === "open-job-adv") {
-        this.openJobAdvancement(this.game.stats.classId === "beginner" ? 1 : this.game.stats.level >= 60 ? 3 : 2);
-      }
+    this.statComp = createUIEntity("StatPanelComponent", StatPanelComponent, {
+      windowEl: this.statWin,
+      game: this.game,
+      windows: this,
     });
   }
 
   renderStat() {
     if (this.statWin.classList.contains("hidden")) return;
-    const g = this.game, s = g.stats, gt = g.gt;
-    const body = this.statWin.querySelector(".stat-body") as HTMLElement;
-    if (!body) return;
-    const [lo, hi] = g.damageRange();
-    const cp = g.combatPower();
-    const isCollapsed = this.statWin.classList.contains("collapsed");
-    const sig = `${s.hp}|${s.maxHp}|${s.mp}|${s.maxMp}|${s.str}|${s.dex}|${s.int}|${s.luk}|${s.ap}|${s.fame}|${s.level}|${s.job}|${lo}|${hi}|${cp}|${g.look}|${isCollapsed}`;
-    if (sig === this.lastStat) return;
-    this.lastStat = sig;
-
-    const canAdv = g.canAdvanceJob();
-
-    body.innerHTML = `
-      <div class="ci-card">
-        <div class="ci-header-row">
-          <span class="ci-job-badge">${s.job || "Beginner"}</span>
-          <span class="ci-lv-badge">Lv. ${s.level}</span>
-        </div>
-        <div class="ci-tri-grid">
-          <div class="ci-col-left">
-            <div class="ci-pill"><small>Legion</small><b>—</b></div>
-            <div class="ci-pill"><small>Mu Lung Dojo</small><b>—</b></div>
-            <div class="ci-pill"><small>Fame</small><div class="flex items-center gap-1"><b>${s.fame}</b><button type="button" class="ci-fame-up" data-act="fame-up" title="Raise Fame">+</button></div></div>
-          </div>
-          <div class="ci-col-center">
-            <div class="ci-avatar-frame">
-              <img src="${charUrlFor(g.look, "stand1", 0)}" alt="" class="ci-avatar-img" />
-            </div>
-            <div class="ci-name-tag">${s.name}</div>
-          </div>
-          <div class="ci-col-right">
-            ${canAdv ? `<button type="button" class="ci-action-btn cyan animate-pulse" data-act="open-job-adv">★ ADVANCE</button>` : `<button type="button" class="ci-action-btn cyan">GO TO MY HOME</button>`}
-            <button type="button" class="ci-action-btn cyan">Guild: Maple</button>
-            <button type="button" class="ci-action-btn slate">Alliance: —</button>
-          </div>
-        </div>
-        <button type="button" class="ci-detail-toggle" data-act="toggle-detail">
-          <span>DETAIL</span><span class="detail-arrow">${isCollapsed ? "▼" : "▲"}</span>
-        </button>
-      </div>
-
-      <div class="stat-cp-banner">
-        <div class="stat-cp-left">
-          <span class="stat-cp-title">Combat Power</span>
-          <b class="stat-cp-value">${fmt(cp)}</b>
-        </div>
-        <span class="stat-cp-help" title="Combat Power reflects your character's overall battle prowess.">?</span>
-      </div>
-
-      <div class="stat-core-card">
-        <div class="stat-ap-bar">
-          <span class="stat-ap-label">Ability Points (AP): <b>${s.ap}</b></span>
-          <button type="button" class="stat-auto-btn" data-act="auto-ap" ${s.ap > 0 ? "" : "disabled"}>AUTO-ASSIGN</button>
-        </div>
-        <div class="stat-core-grid">
-          <div class="stat-core-item">
-            <span class="lbl">HP</span>
-            <div class="val-grp">
-              <span class="val">${s.hp.toLocaleString()} / ${s.maxHp.toLocaleString()}</span>
-              <button type="button" class="stat-add-btn" data-act="add-stat" data-stat="hp" ${s.ap > 0 ? "" : "disabled"} title="Add 20 HP">+</button>
-            </div>
-          </div>
-          <div class="stat-core-item">
-            <span class="lbl">MP</span>
-            <div class="val-grp">
-              <span class="val">${s.mp.toLocaleString()} / ${s.maxMp.toLocaleString()}</span>
-              <button type="button" class="stat-add-btn" data-act="add-stat" data-stat="mp" ${s.ap > 0 ? "" : "disabled"} title="Add 10 MP">+</button>
-            </div>
-          </div>
-          <div class="stat-core-item">
-            <span class="lbl">STR</span>
-            <div class="val-grp">
-              <span class="val">${s.str.toLocaleString()}</span>
-              ${gt?.str ? `<span class="bonus">(+${gt.str})</span>` : ""}
-              <button type="button" class="stat-add-btn" data-act="add-stat" data-stat="str" ${s.ap > 0 ? "" : "disabled"} title="Add 1 STR">+</button>
-            </div>
-          </div>
-          <div class="stat-core-item">
-            <span class="lbl">DEX</span>
-            <div class="val-grp">
-              <span class="val">${s.dex.toLocaleString()}</span>
-              ${gt?.dex ? `<span class="bonus">(+${gt.dex})</span>` : ""}
-              <button type="button" class="stat-add-btn" data-act="add-stat" data-stat="dex" ${s.ap > 0 ? "" : "disabled"} title="Add 1 DEX">+</button>
-            </div>
-          </div>
-          <div class="stat-core-item">
-            <span class="lbl">INT</span>
-            <div class="val-grp">
-              <span class="val">${s.int.toLocaleString()}</span>
-              ${gt?.int ? `<span class="bonus">(+${gt.int})</span>` : ""}
-              <button type="button" class="stat-add-btn" data-act="add-stat" data-stat="int" ${s.ap > 0 ? "" : "disabled"} title="Add 1 INT">+</button>
-            </div>
-          </div>
-          <div class="stat-core-item">
-            <span class="lbl">LUK</span>
-            <div class="val-grp">
-              <span class="val">${s.luk.toLocaleString()}</span>
-              ${gt?.luk ? `<span class="bonus">(+${gt.luk})</span>` : ""}
-              <button type="button" class="stat-add-btn" data-act="add-stat" data-stat="luk" ${s.ap > 0 ? "" : "disabled"} title="Add 1 LUK">+</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="stat-detailed-box">
-        <div class="stat-det-row">
-          <span class="lbl">DAMAGE RANGE</span><b class="val">${fmt(lo)} ~ ${fmt(hi)}</b>
-          <span class="lbl">DAMAGE</span><b class="val hl-gold">69.00%</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">FINAL DAMAGE</span><b class="val">188.53%</b>
-          <span class="lbl">BOSS DAMAGE</span><b class="val">140.00%</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">IGNORE DEFENSE</span><b class="val">84.28%</b>
-          <span class="lbl">NORMAL ENEMY DAMAGE</span><b class="val">125.00%</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">ATTACK POWER</span><b class="val">${g.watk()}</b>
-          <span class="lbl">CRITICAL RATE</span><b class="val">100%</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">MAGIC ATT</span><b class="val">${Math.round(s.int * 2.2 + (gt?.int ?? 0))}</b>
-          <span class="lbl">CRITICAL DAMAGE</span><b class="val">74.00%</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">COOLDOWN REDUCTION</span><b class="val">0 sec / 5%</b>
-          <span class="lbl">BUFF DURATION</span><b class="val">30%</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">COOLDOWN NOT APPLIED</span><b class="val">0.00%</b>
-          <span class="lbl">IGNORE ELEM RESIST</span><b class="val">0.00%</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">STATUS DAMAGE</span><b class="val">0.00%</b>
-          <span class="lbl">SUMMONS DURATION</span><b class="val">10%</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">MESOS OBTAINED</span><b class="val">500%</b>
-          <span class="lbl">STAR FORCE</span><b class="val">135</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">ITEM DROP RATE</span><b class="val">10%</b>
-          <span class="lbl">ARCANE POWER</span><b class="val">1,010</b>
-        </div>
-        <div class="stat-det-row">
-          <span class="lbl">ADDITIONAL EXP</span><b class="val">120.00%</b>
-          <span class="lbl">SACRED POWER</span><b class="val">100</b>
-        </div>
-        <div class="stat-dots"><span class="dot on"></span><span class="dot"></span></div>
-      </div>
-
-      <div class="stat-foot-buttons">
-        <button type="button" class="stat-foot-btn" data-act="toggle-hyper">Hyper Stats</button>
-        <button type="button" class="stat-foot-btn" data-act="toggle-ability">Ability</button>
-      </div>
-    `;
+    this.statComp?.render();
   }
 
   // ------------------------------------------------------------- 2b. Job Advancement Modal
@@ -701,69 +516,18 @@ export class Windows {
 
   // ------------------------------------------------------------- skill window
   buildSkill() {
-    const w = this.makeWindow("skill-win", 420, 520, "SKILLS", 400, 110);
+    const w = this.makeWindow("skill-win", 420, 520, "SKILL", 400, 110);
     this.skill = w;
-    const body = el("div", "skill-win-body", w);
-    const tabs = el("div", "skill-tabs", body);
-    // Tabs come from the player's class (Beginner + 3 job tiers).
-    this.buildSkillTabs(tabs);
-    const banner = el("div", "skill-banner-card", body);
-    el("div", "skill-banner-icon", banner);
-    el("div", "skill-banner-text", banner);
-    el("div", "skill-list", body);
-    el("div", "skill-sp-bar", body);
-  }
-  buildSkillTabs(tabs: HTMLElement) {
-    const c = this.game.class;
-    tabs.textContent = "";
-    c.tabs.forEach((name, i) => {
-      const t = el("button", "skill-tab", tabs) as HTMLButtonElement;
-      t.type = "button";
-      t.textContent = i === 0 ? "Beginner" : `${i}${["", "st", "nd", "rd"][i]} · ${name}`;
-      t.addEventListener("click", () => { this.skillTab = i as 0 | 1 | 2 | 3; this.lastSkill = ""; });
+    this.skillComp = createUIEntity("SkillPanelComponent", SkillPanelComponent, {
+      windowEl: this.skill,
+      game: this.game,
+      windows: this,
     });
   }
+
   renderSkill() {
     if (this.skill.classList.contains("hidden")) return;
-    const g = this.game, W = this.win.skill;
-    const sig = JSON.stringify([this.skillTab, g.skillLv, g.stats.sp, g.stats.level, g.stats.classId]);
-    if (sig === this.lastSkill) return;
-    this.lastSkill = sig;
-    const w = this.skill;
-    const c = g.class;
-    w.querySelectorAll<HTMLElement>(".skill-tab").forEach((t, i) => {
-      t.classList.toggle("on", i === this.skillTab);
-      t.classList.toggle("locked", g.stats.level < c.tabLevel[i]);
-    });
-    const tab = this.skillTab;
-    const banner = w.querySelector(".skill-banner-text") as HTMLElement;
-    banner.innerHTML = `<b>${c.tabs[tab]}</b><span>${g.stats.level >= c.tabLevel[tab] ? "Skills available" : `Unlocks at Lv. ${c.tabLevel[tab]}`}</span>`;
-    const bi = w.querySelector(".skill-banner-icon") as HTMLElement;
-    const first = c.skillsByTab[tab]?.[0];
-    if (first) bg(bi, g.skillArt[first]?.icon?.url ?? "");
-    const list = w.querySelector(".skill-list") as HTMLElement;
-    list.textContent = "";
-    const defs = (c.skillsByTab[tab] ?? []).map((id) => SKILL[id]).filter(Boolean);
-    defs.forEach((d) => {
-      const lv = g.lv(d.id), art = g.skillArt[d.id];
-      const usable = g.stats.level >= d.reqLevel;
-      const row = el("div", `skill-row ${usable ? "" : "locked"}`, list);
-      const ic = el("div", "skill-icon", row);
-      bg(ic, (lv > 0 ? art?.icon?.url : art?.iconDisabled?.url) ?? art?.icon?.url ?? "");
-      if (lv > 0 && d.kind !== "passive") {
-        ic.classList.add("grab");
-        this.draggable(ic, () => ({ t: "skill", id: d.id }));
-      }
-      this.bindTip(ic, () => this.skillTip(d.id));
-      const meta = el("div", "skill-meta", row);
-      const nm = el("div", "skill-name", meta); nm.textContent = art?.name ?? d.id;
-      const lvT = el("div", "skill-lv", meta); lvT.textContent = `${lv} / ${d.maxLevel}${d.kind === "passive" ? " · Passive" : ""}`;
-      const up = el("div", "skill-up", row);
-      const b = button(up, W.BtSpUp, () => { if (g.learn(d.id)) this.lastSkill = ""; }, `Learn ${art?.name ?? ""}`);
-      b.setDisabled(!g.canLearn(d.id));
-    });
-    const sp = w.querySelector(".skill-sp-bar") as HTMLElement;
-    sp.innerHTML = `<span class="sp-label">SKILL POINT</span> <b class="sp-val">${g.stats.sp}</b>`;
+    this.skillComp?.render();
   }
 
 
@@ -871,6 +635,50 @@ export class Windows {
     // --- TAB 1: PLAYER ---
     {
       const p = tabPanes.player;
+
+      // Character Name Modifier
+      const secName = el("div", "debug-section", p);
+      el("div", "debug-sec-title", secName).textContent = "Character Name Modifier";
+      const nameRow = el("div", "debug-row gap-1", secName);
+      el("span", "debug-label", nameRow).textContent = "Name:";
+      const nameInp = el("input", "debug-input flex-1", nameRow) as HTMLInputElement;
+      nameInp.type = "text";
+      nameInp.maxLength = 16;
+      nameInp.value = g.stats.name;
+      nameInp.placeholder = "Enter new character name...";
+      const setNameBtn = el("button", "debug-btn gold", nameRow) as HTMLButtonElement;
+      setNameBtn.textContent = "Change Name";
+      setNameBtn.addEventListener("click", () => {
+        const newName = nameInp.value.trim();
+        if (newName && newName !== g.stats.name) {
+          g.setName(newName);
+          nameInp.value = g.stats.name;
+          const ribbonName = w.querySelector(".debug-gm-ribbon b");
+          if (ribbonName) ribbonName.textContent = g.stats.name;
+        } else if (!newName) {
+          g.onChat("system", "[GM] Name cannot be blank.");
+        }
+      });
+      const quickNamesRow = el("div", "debug-row wrap gap-1 mt-1", secName);
+      el("span", "debug-label", quickNamesRow).textContent = "Presets:";
+      for (const preset of ["GM-Master", "GM-Hero", "MapleHero", "MapleGM", "Admin"]) {
+        const b = el("button", "debug-btn small", quickNamesRow);
+        b.textContent = preset;
+        b.addEventListener("click", () => {
+          nameInp.value = preset;
+          g.setName(preset);
+          const ribbonName = w.querySelector(".debug-gm-ribbon b");
+          if (ribbonName) ribbonName.textContent = preset;
+        });
+      }
+      addEventListener("character-renamed", (e: any) => {
+        if (e.detail?.newName) {
+          nameInp.value = e.detail.newName;
+          const ribbonName = w.querySelector(".debug-gm-ribbon b");
+          if (ribbonName) ribbonName.textContent = e.detail.newName;
+        }
+      });
+
       const secLv = el("div", "debug-section", p);
       el("div", "debug-sec-title", secLv).textContent = "Character Level & EXP";
       const lvRow = el("div", "debug-row", secLv);

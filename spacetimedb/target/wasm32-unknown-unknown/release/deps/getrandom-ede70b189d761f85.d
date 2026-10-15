@@ -1,0 +1,11 @@
+C:\Users\r3dia\Documents\GitHub\asdfg\spacetimedb\target\wasm32-unknown-unknown\release\deps\getrandom-ede70b189d761f85.d: C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\lib.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\error.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\util.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\custom.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\error_impls.rs
+
+C:\Users\r3dia\Documents\GitHub\asdfg\spacetimedb\target\wasm32-unknown-unknown\release\deps\libgetrandom-ede70b189d761f85.rlib: C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\lib.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\error.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\util.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\custom.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\error_impls.rs
+
+C:\Users\r3dia\Documents\GitHub\asdfg\spacetimedb\target\wasm32-unknown-unknown\release\deps\libgetrandom-ede70b189d761f85.rmeta: C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\lib.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\error.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\util.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\custom.rs C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\error_impls.rs
+
+C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\lib.rs:
+C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\error.rs:
+C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\util.rs:
+C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\custom.rs:
+C:\Users\r3dia\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\getrandom-0.2.17\src\error_impls.rs:

@@ -431,16 +431,28 @@ button, a, select, [role="button"],
 .ms-bar-row {
   display: flex;
   align-items: center;
-  width: 280px;
+  width: 290px;
   height: 20px;
+  background: rgba(58, 68, 84, 0.75);
+  border: 1px solid rgba(156, 168, 184, 0.35);
+  border-radius: 3px;
+  padding: 2px;
+  gap: 4px;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ms-bar-row:hover {
+  border-color: #9ca8b8;
 }
 .ms-bar-track {
   position: relative;
-  width: 100%;
-  height: 20px;
-  background: #1e2733;
-  border: 1.5px solid #10151c;
-  border-radius: 3px;
+  flex: 1;
+  height: 16px;
+  background: #1a222d;
+  border: 1px solid #10151c;
+  border-radius: 2px;
   overflow: hidden;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
 }
@@ -467,11 +479,11 @@ button, a, select, [role="button"],
   align-items: center;
   justify-content: center;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  font-size: 11.5px;
+  font-size: 10.5px;
   font-weight: 700;
   color: #ffffff;
   text-shadow: 0 1px 2px #000000, 0 0 2px #000000;
-  line-height: 20px;
+  line-height: 16px;
   letter-spacing: 0.2px;
   pointer-events: none;
   z-index: 2;
@@ -546,27 +558,35 @@ button, a, select, [role="button"],
 .badge-blue { background: #0369a1; color: #bae6fd; }
 .badge-orange { background: #c2410c; color: #fed7aa; }
 .badge-yellow { background: #a16207; color: #fef08a; }
+.badge-red { background: #e11d48; color: #ffe4e6; }
+.badge-cyan { background: #0284c7; color: #e0f2fe; }
+.badge-purple { background: #7c3aed; color: #ede9fe; }
 .slot-count {
   position: absolute; right: 2px; bottom: 1px;
   font: 700 8.5px/10px "Segoe UI", system-ui, sans-serif;
   color: #ffffff; text-shadow: 0 1px 2px #000; pointer-events: none; z-index: 4;
 }
 
-/* Full-width Screen Bottom EXP Bar (12px authentic bar with text inside) */
+/* Full-width Screen Bottom EXP Bar (matching QuickBar glass style & badges) */
 .ms-screen-exp-bar {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   width: 100vw;
-  height: 12px;
-  background: #1a222d;
-  border-top: 1px solid var(--ms-window-border, #3a4454);
+  height: 14px;
+  background: rgba(26, 34, 45, 0.95);
+  border-top: 1px solid rgba(156, 168, 184, 0.35);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.6);
   z-index: 100;
   pointer-events: none;
   overflow: hidden;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
 }
 .ms-screen-exp-fill {
   position: absolute;
@@ -585,16 +605,16 @@ button, a, select, [role="button"],
   align-items: center;
   justify-content: center;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  font-size: 8px;
+  font-size: 8.5px;
   font-weight: 700;
   color: #ffffff;
   text-shadow: 0 1px 2px #000000, 0 0 2px #000000;
   letter-spacing: 0.2px;
-  line-height: 12px;
+  line-height: 14px;
   pointer-events: none;
   user-select: none;
   text-align: center;
-  z-index: 2;
+  z-index: 3;
 }
 
 /* ---------- 3) Chat Box (Smart Collapsed/Idle & Expanded) ---------- */
@@ -2735,8 +2755,12 @@ button, a, select, [role="button"],
   background: rgba(56, 189, 248, 0.15);
 }
 .eslot.empty {
-  background: rgba(15, 23, 42, 0.45);
-  border-style: dashed;
+  background-color: rgba(18, 24, 34, 0.55);
+  background-image: 
+    linear-gradient(45deg, transparent 48%, rgba(255, 255, 255, 0.05) 49%, rgba(255, 255, 255, 0.05) 51%, transparent 52%),
+    linear-gradient(-45deg, transparent 48%, rgba(255, 255, 255, 0.05) 49%, rgba(255, 255, 255, 0.05) 51%, transparent 52%);
+  border: 1px solid rgba(156, 168, 184, 0.18);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 .eslot.filled {
   background: rgba(30, 41, 59, 0.85);
@@ -2897,15 +2921,29 @@ button, a, select, [role="button"],
   display: flex; justify-content: space-between; align-items: center;
   border-bottom: 2px solid #00bcd4; padding-bottom: 2px;
 }
-.inv-tabs { display: flex; gap: 2px; }
+.inv-tabs { display: flex; gap: 3px; }
 .inv-tab-pill {
-  padding: 2.5px 9px; font: 700 9.5px -apple-system, BlinkMacSystemFont, sans-serif;
-  background: rgba(30, 41, 59, 0.7); border: 0; border-radius: 4px 4px 0 0;
-  color: #94a3b8; cursor: pointer; transition: all 0.12s;
+  padding: 3px 10px; font: 700 10px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: rgba(58, 68, 84, 0.75);
+  border: 1px solid rgba(156, 168, 184, 0.35);
+  border-radius: 3px;
+  color: #cbd5e1; cursor: pointer;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: all 0.12s ease;
 }
-.inv-tab-pill.on { background: #00bcd4; color: #ffffff; }
+.inv-tab-pill:hover {
+  border-color: #9ca8b8; color: #ffffff; background: rgba(79, 94, 119, 0.9);
+}
+.inv-tab-pill.on {
+  background: rgba(14, 165, 233, 0.25);
+  border-color: #38bdf8;
+  color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+}
 .inv-slot-top-badge {
-  font: 700 9px -apple-system, BlinkMacSystemFont, sans-serif; color: #94a3b8;
+  font: 700 9px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #94a3b8;
 }
 .inv-slot-top-badge .slot-active { color: #38bdf8; }
 .inv-sub-bar {
@@ -2914,21 +2952,25 @@ button, a, select, [role="button"],
 }
 .inv-sub-actions { display: flex; gap: 3px; }
 .inv-pill-btn {
-  padding: 2px 7px; border-radius: 12px; font: 700 8.5px -apple-system, BlinkMacSystemFont, sans-serif;
-  cursor: pointer; display: flex; align-items: center; gap: 2px; border: 0;
+  padding: 2px 7px; border-radius: 3px; font: 700 8.5px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer; display: flex; align-items: center; gap: 2px;
+  background: rgba(58, 68, 84, 0.75); border: 1px solid rgba(156, 168, 184, 0.35);
+  color: #cbd5e1; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: all 0.12s ease;
 }
-.inv-pill-btn.cyan { background: #00bcd4; color: #ffffff; }
-.inv-pill-btn.slate { background: rgba(51, 65, 85, 0.85); color: #cbd5e1; }
+.inv-pill-btn:hover { border-color: #9ca8b8; color: #ffffff; }
+.inv-pill-btn.cyan { background: rgba(2, 132, 199, 0.8); border-color: rgba(56, 189, 248, 0.5); color: #ffffff; }
 .inv-plus-slot {
-  height: 18px; padding: 0 6px; border-radius: 3px; border: 0;
-  background: #00bcd4; color: #fff; font: 800 8.5px sans-serif; cursor: pointer;
+  height: 18px; padding: 0 6px; border-radius: 3px; border: 1px solid rgba(56, 189, 248, 0.5);
+  background: rgba(2, 132, 199, 0.8); color: #fff; font: 800 8.5px sans-serif; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 .inv-grid-wrap {
   flex: 1; min-height: 0;
-  background: rgba(14, 20, 28, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(24, 32, 44, 0.9);
+  border: 1px solid rgba(156, 168, 184, 0.3);
   border-radius: 4px; padding: 4px;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   display: flex; flex-direction: column;
 }
@@ -2937,13 +2979,29 @@ button, a, select, [role="button"],
   width: 100%; height: 100%; max-height: none; flex: 1; overflow-y: auto; align-content: start;
 }
 .inv-grid-wrap .gcell {
+  position: relative;
   width: 100%; aspect-ratio: 1 / 1; min-height: 38px;
-  background: rgba(26, 36, 48, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 3px;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  background: rgba(58, 68, 84, 0.75);
+  border: 1px solid rgba(156, 168, 184, 0.35);
+  border-radius: 3px;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: all 0.1s ease;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.inv-grid-wrap .gcell:hover {
+  border-color: #9ca8b8; background: rgba(79, 94, 119, 0.9);
 }
 .inv-grid-wrap .gcell.blank {
-  background: rgba(20, 28, 38, 0.45); border-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(18, 24, 34, 0.55);
+  background-image: 
+    linear-gradient(45deg, transparent 48%, rgba(255, 255, 255, 0.05) 49%, rgba(255, 255, 255, 0.05) 51%, transparent 52%),
+    linear-gradient(-45deg, transparent 48%, rgba(255, 255, 255, 0.05) 49%, rgba(255, 255, 255, 0.05) 51%, transparent 52%);
+  border: 1px solid rgba(156, 168, 184, 0.15);
+  cursor: default;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 .inv-finance-row {
   display: flex; align-items: center; justify-content: space-between;
@@ -2992,42 +3050,6 @@ button, a, select, [role="button"],
   border-radius: 4px; padding: 2px 7px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 .ms-player-badge { font: 800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #f1f5f9; letter-spacing: -0.2px; }
-
-/* ---------- Bottom HUD: Center HP / MP Stacked Bars + Centered EXP ---------- */
-.ms-hud-center {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; pointer-events: auto;
-}
-.ms-bar-row {
-  position: relative; width: 175px; height: 14px;
-}
-.ms-bar-track {
-  position: relative; width: 100%; height: 100%; border-radius: 3px; overflow: hidden;
-  background: #2b333d; border: 1px solid #14181f;
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.65);
-}
-.ms-bar-fill.hp {
-  position: absolute; left: 0; top: 0; bottom: 0;
-  background: linear-gradient(180deg, #ff3b69 0%, #e82c5a 100%);
-  border-radius: 2px; transition: width 0.18s cubic-bezier(0.2, 0.8, 0.4, 1);
-  box-shadow: 0 0 6px rgba(255, 59, 105, 0.2);
-}
-.ms-bar-fill.mp {
-  position: absolute; left: 0; top: 0; bottom: 0;
-  background: linear-gradient(180deg, #14bbf3 0%, #009fe3 100%);
-  border-radius: 2px; transition: width 0.18s cubic-bezier(0.2, 0.8, 0.4, 1);
-  box-shadow: 0 0 6px rgba(20, 187, 243, 0.5);
-}
-.ms-bar-text {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font: 600 8.5px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  color: #ffffff; text-shadow: 0 1px 1px #000, 0 0 3px #000; letter-spacing: 0.2px;
-  font-variant-numeric: tabular-nums; z-index: 2; pointer-events: none;
-}
-.ms-exp-text {
-  font: 700 9px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  color: #ffffff; text-shadow: 0 1px 2px #000, 0 0 3px #000; letter-spacing: 0.2px;
-  font-variant-numeric: tabular-nums; margin-top: 1px;
-}
 
 /* ---------- Bottom HUD: Right Maple World Widget ---------- */
 .ms-maple-world-widget {
@@ -3407,32 +3429,64 @@ button, a, select, [role="button"],
   box-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
 }
 
-/* ---------- Authentic MapleStory Auth & Character Selection / Creation UI ---------- */
+/* ---------- Authentic MapleStory New Age / NEXT Auth & Character Creation UI ---------- */
 .ms-auth-card {
-  width: min(620px, calc(100vw - 32px));
+  width: min(880px, calc(100vw - 32px));
+  max-width: 100%;
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
   color: #f8fafc;
   border: 1px solid rgba(56, 189, 248, 0.35);
   border-radius: 12px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 24px 64px rgba(0, 0, 0, 0.75);
-  padding: 24px 28px;
+  padding: 22px 26px;
   font-family: inherit;
   z-index: 50;
+  transition: width 0.2s ease;
+}
+
+.ms-auth-card.ms-mode-login,
+.ms-auth-card.ms-mode-register {
+  width: min(440px, calc(100vw - 32px));
 }
 
 .ms-auth-header {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 16px;
+  padding-bottom: 14px;
   margin-bottom: 16px;
 }
 
+.ms-version-tag {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  padding: 2px 7px;
+  border-radius: 4px;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
+
 .ms-auth-alert {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 8px 14px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 14px;
 }
+.ms-alert-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0.75;
+}
+.ms-alert-close:hover { opacity: 1; }
 .ms-alert-info { background: rgba(14, 165, 233, 0.15); border: 1px solid rgba(14, 165, 233, 0.4); color: #7dd3fc; }
 .ms-alert-success { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; }
 .ms-alert-error { background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.4); color: #fda4af; }
@@ -3490,8 +3544,8 @@ button, a, select, [role="button"],
 }
 
 .ms-btn-primary {
-  padding: 10px 20px;
-  font-size: 13px;
+  padding: 9px 18px;
+  font-size: 12px;
   font-weight: 800;
   color: #042f2e;
   background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
@@ -3513,8 +3567,8 @@ button, a, select, [role="button"],
 }
 
 .ms-btn-secondary {
-  padding: 8px 14px;
-  font-size: 12px;
+  padding: 7px 12px;
+  font-size: 11px;
   font-weight: 700;
   color: #e2e8f0;
   background: #334155;
@@ -3536,6 +3590,7 @@ button, a, select, [role="button"],
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 .ms-btn-subtle:hover {
   background: rgba(255, 255, 255, 0.1);
@@ -3543,14 +3598,15 @@ button, a, select, [role="button"],
 }
 
 .ms-btn-danger {
-  padding: 4px 8px;
+  padding: 6px 10px;
   font-size: 11px;
   font-weight: 800;
   color: #fda4af;
   background: rgba(225, 29, 72, 0.2);
   border: 1px solid rgba(225, 29, 72, 0.4);
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 .ms-btn-danger:hover {
   background: rgba(225, 29, 72, 0.4);
@@ -3579,189 +3635,615 @@ button, a, select, [role="button"],
   box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
 }
 
-/* Character Selection Grid */
-.ms-user-bar {
+/* ==========================================================================
+   LOBBY / CHARACTER SELECT (Hero Spotlight + Roster Carousel)
+   ========================================================================== */
+.ms-char-select-modern {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  padding: 6px 10px;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 6px;
+  gap: 20px;
+  min-height: 400px;
 }
 
-.ms-char-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 14px;
-  margin-bottom: 12px;
-}
-
-.ms-char-card {
+.ms-spotlight-col {
+  flex: 0 0 320px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  background: radial-gradient(circle at 50% 25%, #172554 0%, #090d16 85%);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 10px;
+  padding: 18px 14px;
+  position: relative;
+}
+
+.ms-spotlight-stage {
+  position: relative;
+  width: 220px;
+  height: 175px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ms-stage-light {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: 175px;
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.25) 0%, transparent 85%);
+  clip-path: polygon(30% 0%, 70% 0%, 100% 100%, 0% 100%);
+  pointer-events: none;
+}
+
+.ms-spotlight-sprite {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) scale(1.3);
+  transform-origin: 50% 256px;
+  bottom: -110px;
+  width: 384px;
+  height: 384px;
+  max-width: none;
+  max-height: none;
+  image-rendering: pixelated;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.ms-spotlight-pedestal {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 130px;
+  height: 18px;
+  background: radial-gradient(ellipse, rgba(56, 189, 248, 0.8) 0%, rgba(14, 165, 233, 0.3) 40%, transparent 75%);
+  border-radius: 50%;
+  z-index: 1;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+}
+
+.ms-spotlight-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px 10px;
+}
+
+.ms-pose-bar {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.ms-btn-pose {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid #334155;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ms-btn-pose:hover {
+  color: #ffffff;
+  border-color: #64748b;
+}
+.ms-btn-pose.active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.ms-hero-info-card {
+  width: 100%;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ms-hero-name {
+  font-size: 18px;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
+.ms-hero-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.ms-stat-pill {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 4px 6px;
+  text-align: center;
+}
+.ms-stat-pill .lbl {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+}
+.ms-stat-pill .val {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #f8fafc;
+  margin-top: 1px;
+}
+
+.ms-hero-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ms-btn-gamestart {
+  flex: 1;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid #059669;
+  background: linear-gradient(180deg, #10b981 0%, #047857 100%);
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: all 0.15s ease;
+  text-align: center;
+}
+.ms-btn-gamestart:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+}
+.ms-btn-gamestart .play-text {
+  display: block;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.ms-btn-gamestart .play-sub {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-top: 1px;
+}
+
+/* Character Roster Shelf */
+.ms-roster-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ms-roster-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ms-roster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  max-height: 380px;
+  padding-right: 4px;
+}
+
+.ms-roster-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   background: #090d16;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 14px 10px;
-  text-align: center;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
-.ms-char-card:hover {
+.ms-roster-card:hover {
+  border-color: #64748b;
+  background: #0f172a;
+}
+.ms-roster-card.selected {
   border-color: #38bdf8;
-  transform: translateY(-2px);
+  background: rgba(14, 165, 233, 0.12);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
 }
 
-.ms-char-avatar-box {
+.ms-roster-avatar-box {
+  width: 54px;
+  height: 54px;
+  border-radius: 6px;
+  background: radial-gradient(circle at 50% 88%, rgba(30, 58, 138, 0.4) 0%, rgba(15, 23, 42, 0.8) 85%);
+  border: 1px solid rgba(56, 189, 248, 0.25);
   position: relative;
-  width: 96px;
-  height: 96px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.ms-char-avatar-img {
-  width: 96px;
-  height: 96px;
-  image-rendering: pixelated;
-  z-index: 2;
-}
-.ms-char-pedestal {
-  position: absolute;
-  bottom: 6px;
-  width: 72px;
-  height: 12px;
-  background: radial-gradient(ellipse, rgba(56, 189, 248, 0.35) 0%, transparent 70%);
-  border-radius: 50%;
-  z-index: 1;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.ms-char-info {
-  margin-top: 6px;
-  width: 100%;
+.ms-roster-avatar-img {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) scale(0.9);
+  transform-origin: 50% 256px;
+  bottom: -130px;
+  width: 384px;
+  height: 384px;
+  max-width: none;
+  max-height: none;
+  image-rendering: pixelated;
+  pointer-events: none;
 }
-.ms-char-name {
-  font-size: 14px;
+
+.ms-roster-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ms-roster-name {
+  font-size: 13px;
   font-weight: 800;
   color: #ffffff;
 }
-.ms-char-badge-row {
-  display: flex;
-  gap: 4px;
-  justify-content: center;
-  margin-top: 4px;
-}
+
 .ms-badge-class {
   font-size: 9px;
   font-weight: 800;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
   background: #0284c7;
   color: #ffffff;
 }
 .ms-badge-level {
   font-size: 9px;
   font-weight: 800;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
   background: #334155;
   color: #cbd5e1;
 }
-.ms-char-meso {
-  font-size: 11px;
-  font-weight: 700;
-  color: #fbbf24;
-  margin-top: 4px;
-}
 
-.ms-char-actions {
-  display: flex;
-  gap: 6px;
-  width: 100%;
-  margin-top: 10px;
-}
-.ms-char-actions .ms-btn-play {
-  flex: 1;
-  padding: 6px 8px;
-  font-size: 11px;
-}
-
-.ms-char-card-new {
-  cursor: pointer;
+.ms-roster-card-new {
   border: 1px dashed #475569;
-  justify-content: center;
-  min-height: 180px;
+  background: transparent;
+  justify-content: flex-start;
+  padding: 12px;
 }
-.ms-char-card-new:hover {
+.ms-roster-card-new:hover {
   border-color: #38bdf8;
-  background: rgba(14, 165, 233, 0.05);
+  background: rgba(56, 189, 248, 0.05);
 }
+
 .ms-new-char-icon {
-  font-size: 32px;
+  font-size: 24px;
   font-weight: 300;
   color: #38bdf8;
-  width: 48px;
-  height: 48px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: rgba(56, 189, 248, 0.1);
   border: 1px solid rgba(56, 189, 248, 0.25);
+  flex-shrink: 0;
 }
 
-/* Character Creation Screen */
-.ms-char-create-wrap {
-  display: flex;
-  gap: 20px;
-}
-.ms-create-preview-col {
-  flex: 0 0 180px;
+/* ==========================================================================
+   CHARACTER CREATION WIZARD (New Age 3-Step Flow)
+   ========================================================================== */
+.ms-char-create-wizard {
   display: flex;
   flex-direction: column;
+}
+
+/* Wizard Stepper */
+.ms-wizard-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ms-step-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.ms-step-pill .num {
+  font-family: monospace;
+  font-size: 10px;
+  opacity: 0.8;
+}
+.ms-step-pill.active {
+  border-color: #38bdf8;
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+.ms-step-pill.completed {
+  border-color: #10b981;
+  color: #34d399;
+  cursor: pointer;
+}
+.ms-step-pill.completed:hover {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.ms-step-line {
+  width: 24px;
+  height: 2px;
+  background: #334155;
+  transition: background 0.15s ease;
+}
+.ms-step-line.active {
+  background: #10b981;
+}
+
+/* STEP 1: Archetype Grid */
+.ms-archetype-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.ms-archetype-card {
+  background: #090d16;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ms-archetype-card:hover {
+  border-color: var(--arch-color);
+  transform: translateY(-2px);
+}
+.ms-archetype-card.active {
+  border-color: var(--arch-color);
+  background: radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.06) 0%, #090d16 70%);
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.6), inset 0 0 0 1px var(--arch-color);
+}
+
+.ms-arch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.ms-arch-korean {
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+}
+.ms-arch-badge {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+.ms-arch-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: #ffffff;
+}
+.ms-arch-desc {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.4;
+  margin-top: 4px;
+  flex: 1;
+}
+.ms-arch-skills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.ms-skill-pill {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  color: #cbd5e1;
+}
+
+.ms-arch-summary-banner {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   background: #090d16;
   border: 1px solid #334155;
   border-radius: 8px;
+  padding: 12px 16px;
+}
+.ms-arch-icon-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+/* STEP 2: Appearance Salon */
+.ms-salon-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.ms-salon-preview-col {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: radial-gradient(circle at 50% 30%, #172554 0%, #090d16 85%);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 8px;
   padding: 16px 12px;
 }
-.ms-preview-title {
-  font-size: 11px;
-  font-weight: 700;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 12px;
-}
-.ms-create-avatar-stage {
+
+.ms-salon-stage {
   position: relative;
-  width: 128px;
-  height: 128px;
+  width: 180px;
+  height: 165px;
+  overflow: hidden;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
 }
-.ms-create-avatar-sprite {
-  width: 128px;
-  height: 128px;
+
+.ms-salon-sprite {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) scale(1.3);
+  transform-origin: 50% 256px;
+  bottom: -110px;
+  width: 384px;
+  height: 384px;
+  max-width: none;
+  max-height: none;
   image-rendering: pixelated;
   z-index: 2;
+  pointer-events: none;
 }
-.ms-create-avatar-pedestal {
+
+.ms-salon-pedestal {
   position: absolute;
-  bottom: 12px;
-  width: 90px;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 110px;
   height: 16px;
-  background: radial-gradient(ellipse, rgba(56, 189, 248, 0.5) 0%, transparent 70%);
+  background: radial-gradient(ellipse, rgba(56, 189, 248, 0.7) 0%, transparent 70%);
   border-radius: 50%;
   z-index: 1;
 }
 
-.ms-create-form-col {
+.ms-salon-controls-col {
   flex: 1;
   min-width: 0;
 }
-.ms-create-form-col input[type="text"] {
+
+.ms-skin-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ms-skin-swatch:hover {
+  border-color: #94a3b8;
+  transform: scale(1.1);
+}
+.ms-skin-swatch.active {
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+  transform: scale(1.15);
+}
+
+/* STEP 3: Identity & Passport */
+.ms-identity-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.ms-identity-preview-col {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: radial-gradient(circle at 50% 30%, #172554 0%, #090d16 85%);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 8px;
+  padding: 16px 12px;
+}
+
+.ms-identity-stage {
+  position: relative;
+  width: 180px;
+  height: 165px;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.ms-identity-sprite {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) scale(1.3);
+  transform-origin: 50% 256px;
+  bottom: -110px;
+  width: 384px;
+  height: 384px;
+  max-width: none;
+  max-height: none;
+  image-rendering: pixelated;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.ms-identity-pedestal {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 110px;
+  height: 16px;
+  background: radial-gradient(ellipse, rgba(56, 189, 248, 0.7) 0%, transparent 70%);
+  border-radius: 50%;
+  z-index: 1;
+}
+
+.ms-identity-form-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.ms-identity-form-col input[type="text"] {
   padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid #334155;
@@ -3770,8 +4252,47 @@ button, a, select, [role="button"],
   font-size: 13px;
   outline: none;
 }
-.ms-create-form-col input:focus {
+.ms-identity-form-col input:focus {
   border-color: #38bdf8;
 }
+
+.ms-passport-card {
+  background: #090d16;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 10px;
+}
+
+.ms-passport-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 8px;
+}
+
+.ms-passport-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.ms-passport-grid .row {
+  display: flex;
+  flex-direction: column;
+}
+.ms-passport-grid .k {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+}
+.ms-passport-grid .v {
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
 
 

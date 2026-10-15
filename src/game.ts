@@ -453,7 +453,7 @@ export class Game extends ComponentBase {
     }
   }
 
-  async initGame(startMap: number) {
+  async initGame(startMap = FREE_MARKET_MAP) {
     this.fxData = await json("/wz/data/fx");
     const sk = await json<Record<string, any>>("/wz/data/skills");
     this.snailShell = sk.snailShell ?? null;
@@ -825,6 +825,7 @@ export class Game extends ComponentBase {
     this.loadingMap = false;
     this.fade = 1;
     this.onMapChange(m);
+    this.onChange();
 
     // WebSocket map change broadcast (only when game is fully loaded and map assets/state are ready)
     if (this.fullyLoaded && this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -1152,14 +1153,29 @@ export class Game extends ComponentBase {
   setName(name: string) {
     const clean = name.trim().slice(0, 16);
     if (!clean) return;
+    const oldName = this.stats.name;
     this.stats.name = clean;
     try {
       localStorage.setItem("ms_player_name", clean);
+      localStorage.setItem("ms_current_character", clean);
+      if (oldName && oldName !== clean) {
+        const oldSave = localStorage.getItem(`maple-wayfarer-save-${oldName}`);
+        if (oldSave) {
+          localStorage.setItem(`maple-wayfarer-save-${clean}`, oldSave);
+          localStorage.removeItem(`maple-wayfarer-save-${oldName}`);
+        }
+      }
     } catch {}
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ t: "name", name: clean }));
+      this.ws.send(JSON.stringify({ t: "name", name: clean, oldName }));
     }
-    this.onChat("notice", `Your character name has been changed to "${clean}".`);
+    fetch("/api/characters/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ oldName, newName: clean }),
+    }).catch(() => null);
+    window.dispatchEvent(new CustomEvent("character-renamed", { detail: { oldName, newName: clean } }));
+    this.onChat("notice", `Character name has been changed to "${clean}".`);
     this.onChange();
   }
 
@@ -3027,7 +3043,11 @@ export class Game extends ComponentBase {
     if (d.inv) this.inv = d.inv;
     if (d.skillLv) this.skillLv = d.skillLv;
     if (d.quick) this.quick = d.quick;
-    if (d.auto) Object.assign(this.auto, d.auto, { battle: true });
+    if (d.auto) {
+      Object.assign(this.auto, d.auto);
+      if (typeof d.auto.battle === "boolean") this.auto.battle = d.auto.battle;
+      if (typeof d.auto.boss === "boolean") this.auto.boss = d.auto.boss;
+    }
     if (d.mats) this.mats = d.mats;
     if (d.bag) this.bag = d.bag.filter((g: Gear) => GEAR.has(g.id));
     if (d.eq) { this.eq = {}; for (const [k, g] of Object.entries(d.eq as Record<string, Gear>)) if (g && GEAR.has(g.id)) this.eq[k as Slot] = g; }
