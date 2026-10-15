@@ -31,12 +31,21 @@ fn fs(v: VOut) -> @location(0) vec4<f32> {
 }
 `;
 
-export interface Tex { tex: GPUTexture; bind: GPUBindGroup; w: number; h: number }
+export interface Tex {
+  tex?: GPUTexture;
+  bind?: GPUBindGroup;
+  glTex?: WebGLTexture;
+  w: number;
+  h: number;
+}
 
 const FLOATS = 12;
 const MAX = 16384;
 
 export class Renderer {
+  backend: "webgpu" | "webgl" = "webgpu";
+
+  // WebGPU pipeline
   device!: GPUDevice;
   ctx!: GPUCanvasContext;
   pipeline!: GPURenderPipeline;
@@ -44,6 +53,22 @@ export class Renderer {
   viewBind!: GPUBindGroup;
   sampler!: GPUSampler;
   inst!: GPUBuffer;
+
+  // WebGL fallback pipeline
+  gl: WebGLRenderingContext | WebGL2RenderingContext | null = null;
+  isWebGL2 = false;
+  angleExt: any = null;
+  glProgram: WebGLProgram | null = null;
+  glCornerBuf: WebGLBuffer | null = null;
+  glInstBuf: WebGLBuffer | null = null;
+  locCorner = -1;
+  locRect = -1;
+  locUv = -1;
+  locColor = -1;
+  locViewSize: WebGLUniformLocation | null = null;
+  locTex: WebGLUniformLocation | null = null;
+
+  // Shared state
   data = new Float32Array(MAX * FLOATS);
   count = 0;
   batches: { tex: Tex; start: number; n: number }[] = [];
@@ -53,17 +78,15 @@ export class Renderer {
   scale = 1;
   clear = { r: 0.6, g: 0.8, b: 1, a: 1 };
 
-  // Orillusion 3D Engine objects
-  scene!: Scene3D;
-  view!: View3D;
-  camera!: Camera3D;
+  // Orillusion 3D Engine objects (available in WebGPU mode)
+  scene?: Scene3D;
+  view?: View3D;
+  camera?: Camera3D;
 
   constructor(public canvas: HTMLCanvasElement) {}
 
   async init() {
-    if (!navigator.gpu) throw new Error("This browser does not support WebGPU.");
-
-    // Explicitly lock canvas style to full viewport before Orillusion init to prevent 300x150 fallback
+    // Explicitly lock canvas style to full viewport before engine init to prevent 300x150 fallback
     this.canvas.style.position = "fixed";
     this.canvas.style.top = "0";
     this.canvas.style.left = "0";
@@ -71,6 +94,40 @@ export class Renderer {
     this.canvas.style.height = "100vh";
     this.canvas.style.display = "block";
     this.resize();
+
+    window.addEventListener("resize", () => {
+      this.resize();
+      if (this.camera) {
+        this.camera.orthoOffCenter(0, this.width, this.height, 0, -1000, 1000);
+      }
+    });
+
+    // Check if WebGL is forced via URL parameter (e.g. ?gl=1 or ?webgl=1)
+    const forceWebGL = typeof location !== "undefined" && (location.search.includes("webgl") || location.search.includes("gl=1"));
+
+    let webgpuSuccess = false;
+    if (!forceWebGL && typeof navigator !== "undefined" && (navigator as any).gpu) {
+      try {
+        await this.initWebGPU();
+        webgpuSuccess = true;
+      } catch (err) {
+        console.warn("WebGPU / Orillusion initialization failed, falling back to WebGL:", err);
+      }
+    }
+
+    if (!webgpuSuccess) {
+      await this.initWebGL();
+    }
+
+    const px = new OffscreenCanvas(1, 1);
+    const c = px.getContext("2d")!;
+    c.fillStyle = "#fff";
+    c.fillRect(0, 0, 1, 1);
+    this.white = this.texture(await createImageBitmap(px));
+  }
+
+  private async initWebGPU() {
+    this.backend = "webgpu";
 
     // Initialize Orillusion WebGPU Engine per https://www.orillusion.com/en/guide/
     try {
@@ -102,17 +159,6 @@ export class Renderer {
       const format = navigator.gpu.getPreferredCanvasFormat();
       this.ctx.configure({ device: this.device, format, alphaMode: "opaque" });
     }
-
-    // Enforce full viewport dimensions
-    this.canvas.style.width = "100vw";
-    this.canvas.style.height = "100vh";
-    this.resize();
-    window.addEventListener("resize", () => {
-      this.resize();
-      if (this.camera) {
-        this.camera.orthoOffCenter(0, this.width, this.height, 0, -1000, 1000);
-      }
-    });
 
     if (!this.device) {
       const adapter = await navigator.gpu.requestAdapter();
@@ -156,24 +202,146 @@ export class Renderer {
     this.viewBind = this.device.createBindGroup({ layout: this.pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: this.viewBuf } }] });
     this.sampler = this.device.createSampler({ magFilter: "nearest", minFilter: "nearest" });
     this.inst = this.device.createBuffer({ size: this.data.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    const px = new OffscreenCanvas(1, 1);
-    const c = px.getContext("2d")!;
-    c.fillStyle = "#fff";
-    c.fillRect(0, 0, 1, 1);
-    this.white = this.texture(await createImageBitmap(px));
+  }
+
+  private async initWebGL() {
+    this.backend = "webgl";
+    console.info("Initializing WebGL fallback renderer...");
+
+    const glOpts: WebGLContextAttributes = {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      preserveDrawingBuffer: false,
+      powerPreference: "high-performance",
+    };
+
+    let gl: WebGLRenderingContext | WebGL2RenderingContext | null = this.canvas.getContext("webgl2", glOpts);
+    if (gl) {
+      this.isWebGL2 = true;
+    } else {
+      gl = (this.canvas.getContext("webgl", glOpts) || this.canvas.getContext("experimental-webgl", glOpts)) as WebGLRenderingContext | null;
+      this.isWebGL2 = false;
+      if (gl) {
+        this.angleExt = gl.getExtension("ANGLE_instanced_arrays");
+        if (!this.angleExt) {
+          throw new Error("WebGL ANGLE_instanced_arrays extension not supported.");
+        }
+      }
+    }
+
+    if (!gl) {
+      throw new Error("Neither WebGPU nor WebGL is supported by your browser or graphics hardware.");
+    }
+    this.gl = gl;
+
+    // GLSL Shaders compatible across WebGL 1 & WebGL 2
+    const vsSource = `
+      attribute vec2 a_corner;
+      attribute vec4 a_rect;
+      attribute vec4 a_uv;
+      attribute vec4 a_color;
+
+      uniform vec2 u_viewSize;
+
+      varying vec2 v_uv;
+      varying vec4 v_color;
+
+      void main() {
+        vec2 p = a_rect.xy + a_corner * a_rect.zw;
+        gl_Position = vec4(p.x / u_viewSize.x * 2.0 - 1.0, 1.0 - p.y / u_viewSize.y * 2.0, 0.0, 1.0);
+        v_uv = mix(a_uv.xy, a_uv.zw, a_corner);
+        v_color = a_color;
+      }
+    `;
+
+    const fsSource = `
+      precision mediump float;
+      uniform sampler2D u_tex;
+      varying vec2 v_uv;
+      varying vec4 v_color;
+
+      void main() {
+        gl_FragColor = texture2D(u_tex, v_uv) * v_color;
+      }
+    `;
+
+    const vs = this.compileGLShader(gl.VERTEX_SHADER, vsSource);
+    const fs = this.compileGLShader(gl.FRAGMENT_SHADER, fsSource);
+
+    const prog = gl.createProgram()!;
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      throw new Error(`WebGL program link error: ${gl.getProgramInfoLog(prog)}`);
+    }
+    this.glProgram = prog;
+
+    this.locCorner = gl.getAttribLocation(prog, "a_corner");
+    this.locRect = gl.getAttribLocation(prog, "a_rect");
+    this.locUv = gl.getAttribLocation(prog, "a_uv");
+    this.locColor = gl.getAttribLocation(prog, "a_color");
+    this.locViewSize = gl.getUniformLocation(prog, "u_viewSize");
+    this.locTex = gl.getUniformLocation(prog, "u_tex");
+
+    // Static 6-vertex quad corners buffer (2 triangles)
+    const corners = new Float32Array([
+      0, 0,
+      1, 0,
+      0, 1,
+      0, 1,
+      1, 0,
+      1, 1,
+    ]);
+    this.glCornerBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.glCornerBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, corners, gl.STATIC_DRAW);
+
+    // Dynamic instance buffer
+    this.glInstBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.glInstBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, this.data.byteLength, gl.DYNAMIC_DRAW);
+  }
+
+  private compileGLShader(type: number, source: string): WebGLShader {
+    const gl = this.gl!;
+    const shader = gl.createShader(type)!;
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      const err = gl.getShaderInfoLog(shader);
+      gl.deleteShader(shader);
+      throw new Error(`WebGL shader compile error: ${err}`);
+    }
+    return shader;
   }
 
   texture(bmp: ImageBitmap): Tex {
-    const tex = this.device.createTexture({
-      size: [bmp.width, bmp.height], format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    this.device.queue.copyExternalImageToTexture({ source: bmp }, { texture: tex, premultipliedAlpha: true }, [bmp.width, bmp.height]);
-    const bind = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(1),
-      entries: [{ binding: 0, resource: this.sampler }, { binding: 1, resource: tex.createView() }],
-    });
-    return { tex, bind, w: bmp.width, h: bmp.height };
+    if (this.backend === "webgpu") {
+      const tex = this.device.createTexture({
+        size: [bmp.width, bmp.height], format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this.device.queue.copyExternalImageToTexture({ source: bmp }, { texture: tex, premultipliedAlpha: true }, [bmp.width, bmp.height]);
+      const bind = this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(1),
+        entries: [{ binding: 0, resource: this.sampler }, { binding: 1, resource: tex.createView() }],
+      });
+      return { tex, bind, w: bmp.width, h: bmp.height };
+    } else {
+      const gl = this.gl!;
+      const glTex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, glTex);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return { glTex, w: bmp.width, h: bmp.height };
+    }
   }
 
   resize() {
@@ -216,21 +384,89 @@ export class Renderer {
   }
 
   end() {
-    const q = this.device.queue;
-    q.writeBuffer(this.viewBuf, 0, new Float32Array([this.canvas.width, this.canvas.height, 0, 0]));
-    q.writeBuffer(this.inst, 0, this.data, 0, this.count * FLOATS);
-    const enc = this.device.createCommandEncoder();
-    const pass = enc.beginRenderPass({
-      colorAttachments: [{ view: this.ctx.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: this.clear }],
-    });
-    pass.setPipeline(this.pipeline);
-    pass.setBindGroup(0, this.viewBind);
-    pass.setVertexBuffer(0, this.inst);
-    for (const b of this.batches) {
-      pass.setBindGroup(1, b.tex.bind);
-      pass.draw(6, b.n, 0, b.start);
+    if (this.backend === "webgpu") {
+      const q = this.device.queue;
+      q.writeBuffer(this.viewBuf, 0, new Float32Array([this.canvas.width, this.canvas.height, 0, 0]));
+      q.writeBuffer(this.inst, 0, this.data, 0, this.count * FLOATS);
+      const enc = this.device.createCommandEncoder();
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view: this.ctx.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: this.clear }],
+      });
+      pass.setPipeline(this.pipeline);
+      pass.setBindGroup(0, this.viewBind);
+      pass.setVertexBuffer(0, this.inst);
+      for (const b of this.batches) {
+        if (b.tex.bind) {
+          pass.setBindGroup(1, b.tex.bind);
+          pass.draw(6, b.n, 0, b.start);
+        }
+      }
+      pass.end();
+      q.submit([enc.finish()]);
+    } else {
+      const gl = this.gl;
+      if (!gl || !this.glProgram) return;
+
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      gl.clearColor(this.clear.r, this.clear.g, this.clear.b, this.clear.a);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      if (this.count === 0 || this.batches.length === 0) return;
+
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+      gl.useProgram(this.glProgram);
+      gl.uniform2f(this.locViewSize, this.canvas.width, this.canvas.height);
+
+      // Bind corner buffer for vertex 0..5
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.glCornerBuf);
+      gl.enableVertexAttribArray(this.locCorner);
+      gl.vertexAttribPointer(this.locCorner, 2, gl.FLOAT, false, 0, 0);
+      if (this.isWebGL2) {
+        (gl as WebGL2RenderingContext).vertexAttribDivisor(this.locCorner, 0);
+      } else if (this.angleExt) {
+        this.angleExt.vertexAttribDivisorANGLE(this.locCorner, 0);
+      }
+
+      // Update instance buffer with all batch data
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.glInstBuf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.data.subarray(0, this.count * FLOATS));
+
+      // Enable instanced vertex attributes
+      gl.enableVertexAttribArray(this.locRect);
+      gl.enableVertexAttribArray(this.locUv);
+      gl.enableVertexAttribArray(this.locColor);
+
+      if (this.isWebGL2) {
+        const gl2 = gl as WebGL2RenderingContext;
+        gl2.vertexAttribDivisor(this.locRect, 1);
+        gl2.vertexAttribDivisor(this.locUv, 1);
+        gl2.vertexAttribDivisor(this.locColor, 1);
+      } else if (this.angleExt) {
+        this.angleExt.vertexAttribDivisorANGLE(this.locRect, 1);
+        this.angleExt.vertexAttribDivisorANGLE(this.locUv, 1);
+        this.angleExt.vertexAttribDivisorANGLE(this.locColor, 1);
+      }
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.uniform1i(this.locTex, 0);
+
+      const stride = FLOATS * 4;
+      for (const b of this.batches) {
+        const byteOffset = b.start * stride;
+        gl.vertexAttribPointer(this.locRect, 4, gl.FLOAT, false, stride, byteOffset);
+        gl.vertexAttribPointer(this.locUv, 4, gl.FLOAT, false, stride, byteOffset + 16);
+        gl.vertexAttribPointer(this.locColor, 4, gl.FLOAT, false, stride, byteOffset + 32);
+
+        gl.bindTexture(gl.TEXTURE_2D, b.tex.glTex ?? null);
+
+        if (this.isWebGL2) {
+          (gl as WebGL2RenderingContext).drawArraysInstanced(gl.TRIANGLES, 0, 6, b.n);
+        } else if (this.angleExt) {
+          this.angleExt.drawArraysInstancedANGLE(gl.TRIANGLES, 0, 6, b.n);
+        }
+      }
     }
-    pass.end();
-    q.submit([enc.finish()]);
   }
 }

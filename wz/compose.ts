@@ -49,7 +49,8 @@ const FALLBACK_ZMAP = [
   "mailChestBelowPants", "pants", "shoes", "mailChest", "armBelowHead",
   "gloveBelowHead", "weaponOverBody", "shield", "weapon", "arm", "hand", "glove",
   "cape", "head", "face", "ear", "hairShade", "hair", "cap", "capAccessory",
-  "weaponOverHand", "capeOverHead", "hairOverHead", "characterEnd",
+  "weaponOverArm", "weaponOverHand", "weaponOverGlove", "weaponWristOverGlove",
+  "capeOverHead", "hairOverHead", "characterEnd",
 ];
 
 interface Placement {
@@ -180,7 +181,7 @@ export function composeCharacter(
 
   // Order parts so body is 0, head is 1, and gear is 2.
   // This guarantees navel and neck anchors are published first.
-  const ordered = [...ids].sort((a, b) => {
+  const ordered = Array.from(new Set(ids)).sort((a, b) => {
     const orderA = a < 10000 ? 0 : a < 20000 ? 1 : 2;
     const orderB = b < 10000 ? 0 : b < 20000 ? 1 : 2;
     return orderA - orderB;
@@ -208,11 +209,29 @@ export function composeCharacter(
     if (!act) {
       act = root.child(action);
       if (!(act instanceof WzSubProperty)) {
-        for (const c of root.children()) {
-          if (!(c instanceof WzSubProperty)) continue;
-          const cand = c.get(action);
-          if (cand instanceof WzSubProperty) { act = cand; break; }
+        // For cash weapons (0170...) with numeric weapon types (30=sword, 47=claw, 45=bow, etc.)
+        const isClaw = category === "Weapon" && (id >= 1470000 && id < 1480000);
+        const preferNum = isClaw ? "47" : "30";
+        const prefNode = root.child(preferNum);
+        if (prefNode instanceof WzSubProperty && prefNode.child(action) instanceof WzSubProperty) {
+          act = prefNode.child(action);
+        } else {
+          for (const c of root.children()) {
+            if (!(c instanceof WzSubProperty)) continue;
+            const cand = c.get(action);
+            if (cand instanceof WzSubProperty) { act = cand; break; }
+          }
         }
+      }
+      // Robust action fallbacks for weapons that don't have certain animations
+      if (!(act instanceof WzSubProperty)) {
+        if (action === "walk2") act = root.child("walk1") ?? root.get("47/walk1") ?? root.get("30/walk1");
+        else if (action === "stand2") act = root.child("stand1") ?? root.get("47/stand1") ?? root.get("30/stand1");
+        else if (action.startsWith("shoot")) act = root.child("swingO1") ?? root.child("stabO1") ?? root.get("47/swingO1");
+        else if (action.startsWith("swingT") || action.startsWith("swingP")) act = root.child("swingO1") ?? root.child("swingO2") ?? root.get("47/swingO1");
+        else if (action.startsWith("stabT")) act = root.child("stabO1") ?? root.child("stabO2") ?? root.get("47/stabO1");
+        else if (action === "fly") act = root.child("jump") ?? root.child("stand1");
+        else if (action === "rope" || action === "ladder") act = root.child("stand1");
       }
       // Hair/Face keep the frame under `default` for the static pose
       if (!(act instanceof WzSubProperty) && root.child("default")) act = root.child("default") as WzProperty;
@@ -220,9 +239,10 @@ export function composeCharacter(
     }
     if (!(act instanceof WzSubProperty)) continue;
 
+    const numericChildren = act.children().filter((c) => /^\d+$/.test(c.name));
     const fr = (isFace && expr && expr !== "default")
       ? (act.child(String(ef)) ?? act.child("0") ?? (act.child("face") ? act : null) ?? act)
-      : (act.child(String(frame)) ?? act.child("0") ?? (act.child("face") ? act : null) ?? act);
+      : (act.child(String(frame)) ?? (numericChildren.length ? numericChildren[frame % numericChildren.length] : null) ?? act.child("0") ?? (act.child("face") ? act : null) ?? act);
     const canvases = collectCanvases(fr);
     if (!canvases.length) continue;
 

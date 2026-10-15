@@ -91,6 +91,8 @@ export class QuickBarComponent extends ComponentBase {
       const k = el("span", "slot-key absolute left-[2px] top-[1px] font-bold text-[8px] leading-[9px] text-[#d2d8e1] drop-shadow-[0_1px_2px_#000] pointer-events-none z-[3]", slot);
       k.textContent = KEY_LABEL[key] ?? key;
 
+      el("div", "slot-cd absolute inset-0 bg-black/60 z-[5] hidden flex items-center justify-center font-bold text-[9px] text-[#ffdd55] drop-shadow-[0_1px_2px_#000] pointer-events-none rounded-[3px]", slot);
+
       const badgeInfo = KEY_BADGES[key];
       if (badgeInfo) {
         const b = el("span", `slot-badge badge-${badgeInfo.color} absolute left-[1px] right-[1px] bottom-[1px] font-black text-[6px] leading-[8px] rounded-[2px] text-center uppercase tracking-[-0.2px] pointer-events-none z-[2]`, slot);
@@ -119,6 +121,23 @@ export class QuickBarComponent extends ComponentBase {
 
   render() {
     const g = this.game;
+
+    // Update cooldown countdown overlays for all slots every frame
+    for (const k of QUICK_KEYS) {
+      const slot = this.slots[k];
+      if (!slot) continue;
+      const a = g.quick[k];
+      const cdEl = slot.querySelector(".slot-cd") as HTMLElement | null;
+      if (a?.t === "skill" && g.skillCd[a.id]?.left > 0) {
+        const left = g.skillCd[a.id].left;
+        if (cdEl) {
+          cdEl.classList.remove("hidden");
+          cdEl.textContent = left >= 10 ? Math.ceil(left).toString() : left.toFixed(1);
+        }
+      } else {
+        if (cdEl) cdEl.classList.add("hidden");
+      }
+    }
     const sig = QUICK_KEYS.map((k) => {
       const a = g.quick[k];
       if (!a) return "-";

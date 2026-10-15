@@ -61,6 +61,7 @@ export const COSMETICS: GearBase[] = [
   { id: 1002186, name: "Red Beret", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 1, luk: 1, hp: 20, def: 8, price: 1200, cosmetic: true },
   { id: 1002274, name: "Chief Stan Hat", slot: "hat", req: 0, watk: 0, str: 3, dex: 3, int: 0, luk: 0, hp: 30, def: 12, price: 2000, cosmetic: true },
   { id: 1003112, name: "Chaos Zakum Helmet", slot: "hat", req: 100, watk: 25, str: 21, dex: 21, int: 21, luk: 21, hp: 250, def: 180, price: 120000, cosmetic: true },
+  { id: 1004646, name: "Royal Azure Feather Turban", slot: "hat", req: 0, watk: 5, str: 5, dex: 5, int: 5, luk: 5, hp: 150, def: 30, price: 15000, cosmetic: true, cash: true },
   { id: 1002798, name: "Fox Ears", slot: "hat", req: 0, watk: 0, str: 3, dex: 3, int: 3, luk: 3, hp: 45, def: 12, price: 3500, cosmetic: true },
   { id: 1002419, name: "Angelic Halo", slot: "hat", req: 0, watk: 2, str: 4, dex: 4, int: 4, luk: 4, hp: 80, def: 15, price: 5000, cosmetic: true },
   { id: 1002067, name: "Skull Cap", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 15, def: 5, price: 600, cosmetic: true },
@@ -94,6 +95,7 @@ export const COSMETICS: GearBase[] = [
   { id: 1102041, name: "Black Seraph's Cape", slot: "cape", req: 0, watk: 2, str: 3, dex: 3, int: 0, luk: 0, hp: 50, def: 15, price: 8000, cosmetic: true },
   { id: 1102042, name: "White Seraph's Cape", slot: "cape", req: 0, watk: 2, str: 0, dex: 0, int: 3, luk: 3, hp: 50, def: 15, price: 8000, cosmetic: true },
   { id: 1102084, name: "Pink Adventurer Cape", slot: "cape", req: 0, watk: 3, str: 2, dex: 2, int: 2, luk: 2, hp: 40, def: 12, price: 10000, cosmetic: true },
+  { id: 1103305, name: "[BTS] Swan Serenade", slot: "cape", req: 0, watk: 5, str: 5, dex: 5, int: 5, luk: 5, hp: 150, def: 30, price: 20000, cosmetic: true, cash: true },
 
   // Iconic Weapons
   { id: 1302001, name: "Wooden Club", slot: "weapon", req: 0, watk: 19, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true },
@@ -210,6 +212,18 @@ export function gearStats(g: Gear): GearStats {
 export const POT_LABEL: Record<Potential["stat"], string> = {
   att: "ATT", str: "STR", dex: "DEX", int: "INT", luk: "LUK", hp: "Max HP", boss: "Boss Damage", meso: "Meso Obtained", drop: "Item Drop Rate", exp: "EXP Obtained",
 };
+
+/** Equips that confer a floating / hovering levitation effect */
+export const HOVER_ITEM_IDS = new Set<number>([
+  1004646, // Royal Azure Feather Turban
+  1004645, // Time Master Cloud
+  1002419, // Angelic Halo
+  1102041, // Black Seraph's Cape
+  1102042, // White Seraph's Cape
+  1102232, // Seraph Cape
+  1103305, // [BTS] Swan Serenade
+]);
+export const isHoverItem = (id: number) => HOVER_ITEM_IDS.has(id);
 
 // ------------------------------------------------------------- star force & cubes
 export const starRate = (star: number) => Math.max(0.3, 0.95 - star * 0.045);

@@ -1,7 +1,8 @@
 // Authentic 1:1 MapleStory Tooltip Generator (Image 2 standard)
-import { GEAR, MATS, RARITY, RARITY_COLOR, SLOT_NAME, gearIcon, gearStats, gearValue, type Gear, type GearBase, type Slot } from "./items.ts";
+import { GEAR, MATS, RARITY, RARITY_COLOR, SLOT_NAME, gearIcon, gearStats, gearValue, isHoverItem, type Gear, type GearBase, type Slot } from "./items.ts";
 import { ITEMS, itemIcon } from "./skills.ts";
 import { esc, fmt } from "./util.ts";
+import { lucideIcon } from "./lucide.ts";
 
 /** Renders a 25-star row with 5-star groups matching MapleStory */
 function renderStarsRow(stars: number, maxStars = 25): string {
@@ -74,6 +75,7 @@ export function renderGearTooltip(g: Gear, isEquipped = false, note = "", player
           <div class="tt-tags">
             <span class="tt-tag">${catLabel}</span>
             <span class="tt-tag">${slotName}</span>
+            ${isHoverItem(g.id) ? `<span class="tt-tag" style="background: rgba(14, 165, 233, 0.25); color: #38bdf8; border: 1px solid #0284c7;">Hovering Effect</span>` : ""}
           </div>
         </div>
       </div>
@@ -87,6 +89,7 @@ export function renderGearTooltip(g: Gear, isEquipped = false, note = "", player
       <div class="tt-divider"></div>
       <div class="tt-footer-meta">
         <div class="tt-value">Estimated Value ≈ ${fmt(gearValue(g))} mesos</div>
+        ${isHoverItem(g.id) ? `<div class="tt-note highlight">${lucideIcon("sparkles", 13)} Special: Grants graceful levitation & hovering effect when equipped.</div>` : ""}
         ${note ? `<div class="tt-note">${note}</div>` : ""}
       </div>
     </div>
@@ -124,6 +127,7 @@ export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into i
           <div class="tt-tags">
             <span class="tt-tag">${catLabel}</span>
             <span class="tt-tag">${slotName}</span>
+            ${isHoverItem(b.id) ? `<span class="tt-tag" style="background: rgba(14, 165, 233, 0.25); color: #38bdf8; border: 1px solid #0284c7;">Hovering Effect</span>` : ""}
           </div>
         </div>
       </div>
@@ -136,6 +140,7 @@ export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into i
       <div class="tt-divider"></div>
       <div class="tt-footer-meta">
         <div class="tt-value">Base Price: ${fmt(b.price)} mesos</div>
+        ${isHoverItem(b.id) ? `<div class="tt-note highlight">${lucideIcon("sparkles", 13)} Special: Grants graceful levitation & hovering effect when equipped.</div>` : ""}
         <div class="tt-note highlight">${note}</div>
       </div>
     </div>
@@ -143,10 +148,18 @@ export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into i
 }
 
 /** Tooltip for Use / Consumable items */
+/** Tooltip for Use / Consumable items & Throwables */
 export function renderUseTooltip(id: number, owned = 0, note = ""): string {
   const it = ITEMS[id];
-  const name = it?.name ?? `Potion #${id}`;
-  const recover = [it?.hp ? `Recovers ${it.hp} HP` : "", it?.mp ? `Recovers ${it.mp} MP` : ""].filter(Boolean).join(" · ");
+  const name = it?.name ?? `Item #${id}`;
+  const isThrowable = it?.type === "star" || it?.type === "arrow" || it?.type === "bullet";
+  const catLabel = isThrowable
+    ? (it.type === "star" ? "Throwing Star" : it.type === "arrow" ? "Bow / Crossbow Ammo" : "Gun Bullet")
+    : "Consumable Potion";
+  const tag2 = isThrowable ? "Infinite Ammo" : "Recovery";
+  const effect = isThrowable
+    ? `+${it.att ?? 15} Weapon Attack`
+    : ([it?.hp ? `Recovers ${it.hp} HP` : "", it?.mp ? `Recovers ${it.mp} MP` : ""].filter(Boolean).join(" · ") || "Restores vitality");
 
   return `
     <div class="ms-tooltip-card">
@@ -158,21 +171,21 @@ export function renderUseTooltip(id: number, owned = 0, note = ""): string {
           <img src="${itemIcon(id)}" alt="" class="tt-icon" />
         </div>
         <div class="tt-meta-info">
-          <div class="tt-combat-label">Consumable Potion</div>
+          <div class="tt-combat-label">${catLabel}</div>
           <div class="tt-tags">
             <span class="tt-tag">Use</span>
-            <span class="tt-tag">Recovery</span>
+            <span class="tt-tag">${tag2}</span>
           </div>
         </div>
       </div>
       <div class="tt-divider"></div>
       <div class="tt-stats">
-        <div class="tt-stat-line"><span>Effect</span> <b>${recover || "Restores vitality"}</b></div>
-        ${owned > 0 ? `<div class="tt-stat-line"><span>Owned Quantity</span> <b class="tt-good">${owned}</b></div>` : ""}
+        <div class="tt-stat-line"><span>Effect</span> <b>${effect}</b></div>
+        <div class="tt-stat-line"><span>Owned Quantity</span> <b class="tt-good">${isThrowable ? "∞ (Infinite)" : owned}</b></div>
       </div>
       <div class="tt-divider"></div>
       <div class="tt-footer-meta">
-        <div class="tt-note">${note || "Click to use · drag to quick slots"}</div>
+        <div class="tt-note">${note || (isThrowable ? "Unlimited supply · Never depletes when thrown" : "Click to use · drag to quick slots")}</div>
       </div>
     </div>
   `;

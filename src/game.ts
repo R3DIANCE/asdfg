@@ -5,7 +5,7 @@ import { FootholdTree, airMove, groundMove, type Foothold, type Ladder } from ".
 import { AH_TAX, AuctionHouse, goodsName, type Goods } from "./auction.ts";
 import {
   GEAR, MATS, MOB_MAT, ORES, cubeCost, gearStats, makeGear, randomGearFor, rollPotential, recipeGearId, starCost, starMat, starRate,
-  npcSellPrice, type Gear, type Recipe, type Slot, RARITY,
+  npcSellPrice, type Gear, type Recipe, type Slot, RARITY, isHoverItem,
 } from "./items.ts";
 import { DEFAULT_QUICK, ITEMS, SKILL, SKILL_DEFS, classFor, type ClassId, itemIconRaw, type Action, type SkillArt, type SkillDef } from "./skills.ts";
 
@@ -66,6 +66,8 @@ export interface RemotePlayer {
   look: number[];
   balloon?: { text: string; t: number };
   lastTex?: Tex | null;
+  attackTimer?: number;
+  animTimer?: number;
 }
 
 const textTexCache = new Map<string, Tex>();
@@ -273,7 +275,7 @@ interface Mob {
   lastTex?: Tex | null; lastFr?: Sprite | null;
 }
 interface Drop { x: number; y: number; vx: number; vy: number; fh: Foothold | null; amount: number; item?: number; mat?: number; gear?: Gear; t: number; picked: number; ignoreFh?: number }
-interface Projectile { x: number; y: number; target: Mob; dmg: number; miss: boolean; t: number; skillId?: string }
+interface Projectile { x: number; y: number; target: Mob; dmg: number; miss: boolean; t: number; skillId?: string; isShadow?: boolean; arcY?: number }
 interface Fx { frames: Sprite[]; x: number; y: number; flip: boolean; t: number; follow?: boolean }
 interface DmgText { value: number; miss: boolean; hurt: boolean; x: number; y: number; t: number }
 interface Portal { x: number; y: number; to: number; side: "left" | "right" }
@@ -347,7 +349,9 @@ export class Game extends ComponentBase {
   skillLv: Record<string, number> = { "1001005": 1, "0001000": 1 };
   skillArt: Record<string, SkillArt> = {};
   snailShell: Sprite | null = null;
+  throwingStarFrames: Sprite[] = [];
   buffs: Record<string, { left: number; dur: number }> = {};
+  skillCd: Record<string, { left: number; total: number }> = {};
   quick: Record<string, Action | null> = { ...DEFAULT_QUICK };
   auto: AutoSettings = { battle: true, hp: true, hpPct: 50, mp: true, mpPct: 30, buff: true, loot: true, ap: true, boss: true, magnet: true };
   balloon = { text: "", t: 0 };
@@ -362,8 +366,26 @@ export class Game extends ComponentBase {
   areaBossDefeated = false;
   godMode = false;
   infiniteMp = false;
+  oneHitKill = false;
+  gmHide = false;
   speedMultiplier = 1;
   projectiles: Projectile[] = [];
+  fullyLoaded = false;
+  shadowPartnerArt: Record<string, Sprite[]> = {};
+
+  isGm(): boolean {
+    const u = (localStorage.getItem("ms_current_user") || "").toLowerCase().trim();
+    const n = (this.stats.name || "").toLowerCase().trim();
+    const flag = localStorage.getItem("ms_is_gm") === "true";
+    return (
+      flag ||
+      u.startsWith("gm") ||
+      u.startsWith("admin") ||
+      u === "maplehero" ||
+      n.startsWith("gm") ||
+      n.startsWith("admin")
+    );
+  }
   potCd = 0;
   ahT = 0;
   timers = { regen: 0, recovery: 0, self: 0 };
@@ -378,6 +400,7 @@ export class Game extends ComponentBase {
     hold: 0,
     ban: new Map<Mob, number>(),
     jumpCooldown: 0,
+    ladderCooldown: 0,
     jumpLoopCount: 0,
     lastJumpX: 0,
     lastJumpY: 0,
@@ -434,10 +457,17 @@ export class Game extends ComponentBase {
     this.fxData = await json("/wz/data/fx");
     const sk = await json<Record<string, any>>("/wz/data/skills");
     this.snailShell = sk.snailShell ?? null;
+    const star0: Sprite = { url: "/wz/sprite/Item/0207/02070006/bullet/0", w: 27, h: 27, ox: 13, oy: 13 };
+    const star1: Sprite = { url: "/wz/sprite/Item/0207/02070006/bullet/1", w: 27, h: 27, ox: 13, oy: 13 };
+    this.throwingStarFrames = [star0, star1];
     for (const d of SKILL_DEFS) if (sk[d.id]) this.skillArt[d.id] = sk[d.id];
+    try {
+      const spData = await json<Record<string, Sprite[]>>("/wz/data/shadow-partner");
+      if (spData) this.shadowPartnerArt = spData;
+    } catch {}
     this.recalc();
     // Warm up character frames (rendered server-side, so they can be slow the first time).
-    const loads: Promise<unknown>[] = [];
+    const loads: Promise<unknown>[] = [this.assets.load(star0.url), this.assets.load(star1.url)];
     if (!Object.keys(this.eq).length) {
       const c = this.class;
       for (const id of [c.startingGear.weapon, c.startingGear.top, c.startingGear.bottom, c.startingGear.shoes]) {
@@ -456,12 +486,12 @@ export class Game extends ComponentBase {
     for (const a of Object.values(this.skillArt)) for (const f of [...a.effect, ...a.effect0, ...a.hit, ...(a.ball ?? [])]) this.assets.load(f.url);
     await this.loadMap(startMap, "spawn");
     this.updateActiveItemEffs();
-    this.initWs();
     await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 25000))]);
   }
 
   // ------------------------------------------------------------ websocket networking
   initWs() {
+    if (!this.fullyLoaded) return;
     if (this.wsPingTimer) {
       clearInterval(this.wsPingTimer);
       this.wsPingTimer = null;
@@ -517,7 +547,7 @@ export class Game extends ComponentBase {
   }
 
   sendJoin() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.fullyLoaded || this.loadingMap || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({
       t: "join",
       name: this.stats.name,
@@ -532,6 +562,7 @@ export class Game extends ComponentBase {
   }
 
   syncAll(forceReconnect = false) {
+    if (!this.fullyLoaded || this.loadingMap) return;
     if (forceReconnect || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.initWs();
       return;
@@ -549,8 +580,22 @@ export class Game extends ComponentBase {
     }));
   }
 
+  sendAction(kind: "attack" | "skill", skillId: string | null, anim: string) {
+    if (!this.fullyLoaded || this.loadingMap || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({
+      t: "action",
+      kind,
+      skillId,
+      anim,
+      face: this.p.face,
+      x: Math.round(this.p.x),
+      y: Math.round(this.p.y),
+      frame: this.p.frame,
+    }));
+  }
+
   syncMove() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.fullyLoaded || this.loadingMap || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const now = performance.now();
     const p = this.p;
     const dx = Math.abs(p.x - this.lastSyncedState.x);
@@ -578,15 +623,24 @@ export class Game extends ComponentBase {
     if (!msg || !msg.t) return;
     if (msg.t === "welcome") {
       this.wsId = msg.id;
-      let savedName = "";
-      try {
-        savedName = localStorage.getItem("ms_player_name") || "";
-      } catch {}
-      if (!savedName && msg.id) {
-        const shortName = msg.id.length > 8 ? `P-${msg.id.slice(0, 4).toUpperCase()}` : msg.id;
-        this.stats.name = shortName;
+      // Preserve character name from database / character selection
+      const current = (this.stats.name || "").trim();
+      const hasRealName = current && current !== "Player" && !current.startsWith("P-");
+      let activeName = hasRealName ? current : "";
+      if (!activeName) {
+        try {
+          const saved = (localStorage.getItem("ms_player_name") || "").trim();
+          if (saved && saved !== "Player" && !saved.startsWith("P-")) activeName = saved;
+        } catch {}
+      }
+      if (!activeName && msg.id) {
+        activeName = msg.id.length > 8 ? `P-${msg.id.slice(0, 4).toUpperCase()}` : msg.id;
+      }
+      if (activeName) {
+        this.stats.name = activeName;
+        try { localStorage.setItem("ms_player_name", activeName); } catch {}
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ t: "name", name: shortName }));
+          this.ws.send(JSON.stringify({ t: "name", name: activeName }));
         }
         this.onChange();
       }
@@ -628,11 +682,50 @@ export class Game extends ComponentBase {
         rp.targetX = msg.x;
         rp.targetY = msg.y;
         rp.face = msg.face;
-        rp.anim = msg.anim;
-        rp.frame = msg.frame;
+        if (!rp.attackTimer || rp.attackTimer <= 0) {
+          rp.anim = msg.anim;
+          rp.frame = msg.frame;
+        }
         this.assets.load(charUrlFor(rp.look, rp.anim, rp.frame));
       } else {
         this.syncAll(false);
+      }
+    } else if (msg.t === "player_action") {
+      if (msg.id === this.wsId) return;
+      const rp = this.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.anim = msg.anim || "swingO1";
+        rp.frame = 0;
+        rp.animTimer = 0;
+        rp.attackTimer = 0.65;
+        rp.face = msg.face ?? rp.face;
+        rp.targetX = msg.x ?? rp.targetX;
+        rp.targetY = msg.y ?? rp.targetY;
+        this.assets.load(charUrlFor(rp.look, rp.anim, rp.frame));
+        if (msg.skillId) {
+          const art = this.skillArt[msg.skillId];
+          if (art?.effect?.length) {
+            this.fx.push({ frames: art.effect, x: rp.x, y: rp.y, flip: rp.face === 1, t: 0 });
+          } else if (art?.effect0?.length) {
+            this.fx.push({ frames: art.effect0, x: rp.x, y: rp.y, flip: rp.face === 1, t: 0 });
+          }
+          const d = SKILL[msg.skillId];
+          if (d?.kind === "ranged" && this.throwingStarFrames.length > 0) {
+            const hits = d.hits ?? 1;
+            for (let h = 0; h < hits; h++) {
+              this.projectiles.push({
+                x: rp.x + rp.face * 20,
+                y: rp.y - 35,
+                target: { x: rp.x + rp.face * 220, y: rp.y - 20, state: "alive" } as any,
+                dmg: 0,
+                miss: false,
+                t: -h * 0.08,
+                skillId: msg.skillId,
+                arcY: (h - (hits - 1) / 2) * 12,
+              });
+            }
+          }
+        }
       }
     } else if (msg.t === "player_leave") {
       if (msg.id === this.wsId) return;
@@ -654,7 +747,10 @@ export class Game extends ComponentBase {
       if (rp) {
         rp.balloon = { text: msg.text, t: 5 };
       }
-      this.onChat((msg.kind as ChatKind) || "say", `${msg.name} : ${msg.text}`);
+      this.onChat((msg.kind as ChatKind) || "say", msg.kind === "say" ? `${msg.name} : ${msg.text}` : msg.text);
+      if (msg.kind === "notice") {
+        window.dispatchEvent(new CustomEvent("gm-broadcast-notice", { detail: { text: msg.text.replace(/^\[Notice\]\s*/, "") } }));
+      }
     } else if (msg.t === "pong") {
       if (typeof msg.sentAt === "number") {
         this.wsPing = Math.max(0, Math.round(performance.now() - msg.sentAt));
@@ -720,17 +816,6 @@ export class Game extends ComponentBase {
       this.areaBossDefeated = false;
     }
 
-    // WebSocket map change broadcast
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        t: "map_change",
-        mapId: id,
-        x: Math.round(p.x),
-        y: Math.round(p.y),
-      }));
-      this.remotePlayers.clear();
-    }
-
     // Monsters.
     this.mobs = id === FREE_MARKET_MAP ? [] : m.spawns.map((s) => this.makeMob(s)).filter(Boolean) as Mob[];
     this.boss = null;
@@ -740,6 +825,17 @@ export class Game extends ComponentBase {
     this.loadingMap = false;
     this.fade = 1;
     this.onMapChange(m);
+
+    // WebSocket map change broadcast (only when game is fully loaded and map assets/state are ready)
+    if (this.fullyLoaded && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        t: "map_change",
+        mapId: id,
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+      }));
+      this.remotePlayers.clear();
+    }
   }
 
   makeMob(s: MapData["spawns"][number]): Mob | null {
@@ -921,10 +1017,35 @@ export class Game extends ComponentBase {
     this.updateActiveItemEffs();
   }
 
-  async updateActiveItemEffs() {
-    const ids = Array.from(new Set([...Object.values(this.eq), ...Object.values(this.visualEq)].filter((g): g is Gear => !!g).map((g) => g.id)));
-    const effs: ItemEffData[] = [];
+  hasHoverEffect(look?: number[]): boolean {
+    const ids = look ?? this.look;
     for (const id of ids) {
+      if (isHoverItem(id)) return true;
+    }
+    return false;
+  }
+
+  async updateActiveItemEffs() {
+    const prioritySlots: Slot[] = ["weapon", "hat", "cape", "overall" as any, "top", "bottom", "ring1", "ring2", "ring3", "ring4"];
+    const orderedIds: number[] = [];
+    for (const slot of prioritySlots) {
+      const v = this.visualEq[slot]?.id;
+      if (v && !orderedIds.includes(v)) orderedIds.push(v);
+      const e = this.eq[slot]?.id;
+      if (e && !orderedIds.includes(e)) orderedIds.push(e);
+    }
+    for (const id of this.look) {
+      if (!orderedIds.includes(id)) orderedIds.push(id);
+    }
+    for (const g of Object.values(this.visualEq)) {
+      if (g && !orderedIds.includes(g.id)) orderedIds.push(g.id);
+    }
+    for (const g of Object.values(this.eq)) {
+      if (g && !orderedIds.includes(g.id)) orderedIds.push(g.id);
+    }
+
+    const effs: ItemEffData[] = [];
+    for (const id of orderedIds) {
       if (!this.itemEffCache.has(id)) {
         try {
           const res = await fetch(`/wz/data/item-eff/${id}`);
@@ -942,7 +1063,9 @@ export class Game extends ComponentBase {
         }
       }
       const cached = this.itemEffCache.get(id);
-      if (cached) effs.push(cached);
+      if (cached && !effs.some((e) => e.id === cached.id)) {
+        effs.push(cached);
+      }
     }
     this.activeItemEffs = effs;
   }
@@ -1068,6 +1191,21 @@ export class Game extends ComponentBase {
   }
 
   // ------------------------------------------------------------ actions (quick slots, keys, auto)
+  skillCooldown(id: string): number {
+    const d = SKILL[id];
+    if (d?.cooldown) return d.cooldown(this.lv(id));
+    const art = this.skillArt[id];
+    if (art?.cooltime && art.cooltime > 0) return art.cooltime;
+    return 0;
+  }
+
+  triggerCooldown(id: string) {
+    const total = this.skillCooldown(id);
+    if (total > 0) {
+      this.skillCd[id] = { left: total, total };
+    }
+  }
+
   useAction(a: Action | null | undefined, quiet = false): boolean {
     if (!a) return false;
     const p = this.p, s = this.stats;
@@ -1076,8 +1214,9 @@ export class Game extends ComponentBase {
       if (!it || n <= 0) { if (!quiet) this.onChat("system", `You don't have any ${it?.name ?? "of that item"}.`); return false; }
       if ((it.hp && s.hp >= s.maxHp && !it.mp) || (it.mp && s.mp >= s.maxMp && !it.hp)) return false;
       if (it.hpPct && s.hp >= s.maxHp && !it.mpPct) return false;
-      if (it.mpPct && s.mp >= s.maxMp && !it.hpPct) return false;
-      this.inv[a.id] = n - 1;
+      if (it.type !== "star" && it.type !== "arrow" && it.type !== "bullet") {
+        this.inv[a.id] = n - 1;
+      }
       if (it.hp) s.hp = Math.min(s.maxHp, s.hp + it.hp);
       if (it.mp) s.mp = Math.min(s.maxMp, s.mp + it.mp);
       if (it.hpPct) s.hp = Math.min(s.maxHp, Math.round(s.hp + s.maxHp * (it.hpPct / 100)));
@@ -1091,6 +1230,13 @@ export class Game extends ComponentBase {
     if (lv <= 0) { if (!quiet) this.onChat("system", "You haven't learned that skill yet."); return false; }
     if (!this.skillEligible(a.id)) { if (!quiet) this.onChat("system", "That skill doesn't belong to your class."); return false; }
     if (d.kind === "passive") return false;
+
+    const cd = this.skillCd[a.id];
+    if (cd && cd.left > 0) {
+      if (!quiet) this.onChat("system", `Skill is on cooldown (${cd.left.toFixed(1)}s remaining).`);
+      return false;
+    }
+
     const cost = this.infiniteMp ? 0 : d.mp(lv);
     if (d.kind === "buff") {
       if (p.attack > 0 || p.ladder) return false;
@@ -1099,20 +1245,30 @@ export class Game extends ComponentBase {
       this.buffs[a.id] = { left: d.duration!(lv), dur: d.duration!(lv) };
       const art = this.skillArt[a.id];
       if (art?.effect.length) this.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
-      if (art?.effect0?.length) this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
+      else if (art?.effect0?.length) this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
       p.alert = 2;
+      this.triggerCooldown(a.id);
+      this.sendAction("skill", a.id, p.anim);
       this.recalc(); this.onChange();
       return true;
     }
     if (d.kind === "move") {
       if (p.fh || p.ladder || p.leapt || (!this.infiniteMp && s.mp < cost)) return false;
       if (!this.infiniteMp) s.mp -= cost; p.leapt = true;
-      // War Leap / Flash Jump: launch horizontally with visual effects
-      p.vy = -JUMP * 0.55;
-      p.vx = p.face * this.speed() * (1.6 + lv * 0.12);
+      // War Leap / Flash Jump: launch horizontally with visual effects scaling with stats
+      const dexBoost = (s.dex || 0) * 0.003;
+      const lukBoost = (s.luk || 0) * 0.0015;
+      const spdBoost = (this.speed() / WALK - 1) * 0.35;
+      const lvBoost = (s.level || 1) * 0.004;
+      const boost = Math.min(2.5, 1.8 + dexBoost + lukBoost + spdBoost + lvBoost + lv * 0.05);
+      const vyFactor = 0.45 + Math.min(0.3, dexBoost * 0.3 + spdBoost * 0.2);
+      p.vy = -JUMP * vyFactor;
+      p.vx = p.face * this.speed() * boost;
       const art = this.skillArt[a.id];
       if (art?.effect?.length) this.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
-      if (art?.effect0?.length) this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
+      else if (art?.effect0?.length) this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
+      this.triggerCooldown(a.id);
+      this.sendAction("skill", a.id, "jump");
       return true;
     }
     return this.startAttack(a.id);
@@ -1121,19 +1277,25 @@ export class Game extends ComponentBase {
   startAttack(id: string | null): boolean {
     const p = this.p, s = this.stats;
     if (p.attack > 0 || p.ladder || this.loadingMap) return false;
+    if (id) {
+      const cd = this.skillCd[id];
+      if (cd && cd.left > 0) return false;
+    }
     const d = id ? SKILL[id] : null;
     if (d) {
       const cost = this.infiniteMp ? 0 : d.mp(this.lv(d.id));
       if (!this.infiniteMp && s.mp < cost) { this.onChat("system", "Not enough MP."); return false; }
       if (!this.infiniteMp) s.mp -= cost;
     }
+    if (id) this.triggerCooldown(id);
     p.skill = id;
     p.attack = d ? 0.75 : 0.6; p.hitDone = false; p.alert = 3;
     p.attackAnim = d && d.kind !== "ranged" ? "swingO2" : "swingO1";
     p.frame = 0; p.ft = 0;
     const art = id ? this.skillArt[id] : null;
     if (art?.effect.length) this.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
-    if (art?.effect0.length) this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
+    else if (art?.effect0.length) this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
+    this.sendAction(id ? "skill" : "attack", id, p.attackAnim);
     return true;
   }
 
@@ -1142,6 +1304,10 @@ export class Game extends ComponentBase {
     this.time += dt;
     if (this.loadingMap || !this.map) { this.pressed.clear(); return; }
     this.fade = Math.max(0, this.fade - dt * 2.5);
+    for (const [id, cd] of Object.entries(this.skillCd)) {
+      cd.left -= dt;
+      if (cd.left <= 0) delete this.skillCd[id];
+    }
     this.updateBuffs(dt);
     this.runAuto(dt);
     this.updatePlayer(dt);
@@ -1159,10 +1325,38 @@ export class Game extends ComponentBase {
     for (const d of this.dmg) d.t += dt;
     this.dmg = this.dmg.filter((d) => d.t < 1.5);
 
-    // Update remote players (smooth interpolation and balloon timers)
+    // Update remote players (smooth movement, animation frame advancement, attack timers, balloon timers)
     for (const rp of this.remotePlayers.values()) {
-      rp.x += (rp.targetX - rp.x) * Math.min(1, dt * 15);
-      rp.y += (rp.targetY - rp.y) * Math.min(1, dt * 15);
+      const dx = rp.targetX - rp.x;
+      const dy = rp.targetY - rp.y;
+      const dist = Math.hypot(dx, dy);
+      rp.x += dx * Math.min(1, dt * 15);
+      rp.y += dy * Math.min(1, dt * 15);
+
+      if (rp.attackTimer && rp.attackTimer > 0) {
+        rp.attackTimer -= dt;
+      }
+
+      // Smooth frame advancement
+      rp.animTimer = (rp.animTimer ?? 0) + dt * 1000;
+      let animKey = rp.anim || "stand1";
+      if ((!rp.attackTimer || rp.attackTimer <= 0) && !animKey.startsWith("jump") && !animKey.startsWith("ladder") && !animKey.startsWith("rope")) {
+        animKey = dist > 1.5 ? "walk1" : "stand1";
+        rp.anim = animKey;
+      }
+      const d = ANIMS[animKey] ?? ANIMS.stand1;
+      if (d?.length) {
+        while (rp.animTimer > (d[rp.frame] ?? 120)) {
+          rp.animTimer -= d[rp.frame] ?? 120;
+          rp.frame = (animKey.startsWith("swing") || animKey.startsWith("stab"))
+            ? Math.min(rp.frame + 1, d.length - 1)
+            : (rp.frame + 1) % d.length;
+        }
+      }
+      if (rp.attackTimer && rp.attackTimer <= 0 && (animKey.startsWith("swing") || animKey.startsWith("stab"))) {
+        rp.anim = dist > 1.5 ? "walk1" : "stand1";
+        rp.frame = 0;
+      }
       if (rp.balloon) {
         rp.balloon.t = Math.max(0, rp.balloon.t - dt);
       }
@@ -1210,10 +1404,19 @@ export class Game extends ComponentBase {
     for (const pr of this.projectiles) {
       pr.t += dt;
       if (pr.t < 0) continue;
-      const tx = pr.target.x, ty = pr.target.y - 25;
-      const dx = tx - pr.x, dy = ty - pr.y, dist = Math.hypot(dx, dy);
-      const step = 650 * dt;
-      if (dist <= step || pr.target.state === "dead") {
+      // Retarget to nearest live mob if current target is dead or dying
+      if (pr.target.state === "dead" || pr.target.state === "die1") {
+        const next = this.liveMobs().sort((a, b) => Math.hypot(a.x - pr.x, a.y - pr.y) - Math.hypot(b.x - pr.x, b.y - pr.y))[0];
+        if (next) pr.target = next;
+      }
+      const arcOffset = (pr.arcY ?? 0) * Math.sin(Math.min(1, pr.t * 3.5) * Math.PI);
+      const tx = pr.target.x;
+      const ty = pr.target.y - 25 + arcOffset;
+      const dx = tx - pr.x, dy = ty - pr.y;
+      const dist = Math.hypot(dx, dy);
+      const speed = 720;
+      const step = speed * dt;
+      if (dist <= step || (dist < 22 && (pr.target.state === "dead" || pr.target.state === "die1"))) {
         if (pr.target.state !== "dead" && pr.target.state !== "die1") {
           this.damageMob(pr.target, pr.dmg, pr.miss);
           if (pr.skillId) {
@@ -1222,7 +1425,10 @@ export class Game extends ComponentBase {
           }
         }
         pr.t = 99;
-      } else { pr.x += (dx / dist) * step; pr.y += (dy / dist) * step; }
+      } else {
+        pr.x += (dx / dist) * step;
+        pr.y += (dy / dist) * step;
+      }
     }
     this.projectiles = this.projectiles.filter((p) => p.t < 2);
   }
@@ -1253,6 +1459,7 @@ export class Game extends ComponentBase {
 
     for (const d of this.hotbarSkills()) {
       if (d.kind !== "attack" && d.kind !== "ranged") continue;
+      if (this.skillCd[d.id]?.left > 0) continue;
       const lv = this.lv(d.id);
       const mp = d.mp(lv);
       if (s.mp < mp) continue;
@@ -1357,6 +1564,7 @@ export class Game extends ComponentBase {
   autoBuffHotbar() {
     for (const d of this.hotbarSkills()) {
       if (d.kind !== "buff") continue;
+      if (this.skillCd[d.id]?.left > 0) continue;
       const b = this.buffs[d.id];
       if ((!b || b.left < 3) && this.stats.mp >= d.mp(this.lv(d.id)) + 10) {
         this.useAction({ t: "skill", id: d.id }, true);
@@ -1518,28 +1726,33 @@ export class Game extends ComponentBase {
       return;
     }
 
+    if (ai.ladderCooldown > 0) ai.ladderCooldown -= dt;
+
     // Ladders & ropes climbing
     if (p.ladder) {
       const L = p.ladder;
-      if (dy < -15) {
+      if (dy < -12) {
         // Target is higher up: climb upwards until we land on the top floor
         ai.keys.add("ArrowUp");
         // Near top of ladder: step or jump off towards horizontal goal
         if (p.y <= L.y1 + 4) {
           ai.keys.add(dx >= 0 ? "ArrowRight" : "ArrowLeft");
           ai.pressed.add(" ");
+          ai.ladderCooldown = 0.6;
         }
-      } else if (dy > 15) {
+      } else if (dy > 12) {
         // Target is lower down: climb downwards
         ai.keys.add("ArrowDown");
         // Near bottom of ladder: step or jump off
         if (p.y >= L.y2 - 6) {
           ai.keys.add(dx >= 0 ? "ArrowRight" : "ArrowLeft");
+          ai.ladderCooldown = 0.6;
         }
       } else {
         // At approximately target's vertical level: dismount horizontally towards target
         ai.keys.add(dx >= 0 ? "ArrowRight" : "ArrowLeft");
         ai.pressed.add(" ");
+        ai.ladderCooldown = 0.6;
       }
       return;
     }
@@ -1548,13 +1761,15 @@ export class Game extends ComponentBase {
     if (!p.fh) {
       if (Math.abs(dx) > 8) ai.keys.add(dir > 0 ? "ArrowRight" : "ArrowLeft");
 
-      // Mid-air ladder grab if intersecting a ladder leading toward goal
-      const airLadder = this.map.ladders.find(
-        (L) => Math.abs(L.x - p.x) < 25 && p.y > L.y1 - 15 && p.y < L.y2 + 15 && ((dy < -10 && L.y1 < p.y) || (dy > 10 && L.y2 > p.y))
-      );
-      if (airLadder) {
-        ai.keys.add(dy < 0 ? "ArrowUp" : "ArrowDown");
-        return;
+      // Mid-air ladder grab if intersecting a ladder leading toward goal (only if cooldown expired)
+      if (ai.ladderCooldown <= 0) {
+        const airLadder = this.map.ladders.find(
+          (L) => Math.abs(L.x - p.x) < 25 && p.y > L.y1 - 15 && p.y < L.y2 + 15 && ((dy < -10 && L.y1 < p.y) || (dy > 10 && L.y2 > p.y))
+        );
+        if (airLadder) {
+          ai.keys.add(dy < 0 ? "ArrowUp" : "ArrowDown");
+          return;
+        }
       }
 
       // Coyote jump if stepped 1px off platform edge
@@ -1604,7 +1819,7 @@ export class Game extends ComponentBase {
       const ladderDown = this.map.ladders
         .filter((L) => L.y2 > p.y + 20 && Math.abs(L.y1 - p.y) < 35 && L.x >= plat.minX - 35 && L.x <= plat.maxX + 35)
         .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
-      if (ladderDown) {
+      if (ladderDown && ai.ladderCooldown <= 0) {
         const dist = ladderDown.x - p.x;
         if (Math.abs(dist) > 12) {
           ai.keys.add(dist > 0 ? "ArrowRight" : "ArrowLeft");
@@ -1637,7 +1852,7 @@ export class Game extends ComponentBase {
         })
         .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
 
-      if (accessibleLadder) {
+      if (accessibleLadder && ai.ladderCooldown <= 0) {
         const dist = accessibleLadder.x - p.x;
         if (Math.abs(dist) > 12) {
           ai.keys.add(dist > 0 ? "ArrowRight" : "ArrowLeft");
@@ -1763,7 +1978,7 @@ export class Game extends ComponentBase {
     const right = this.down("ArrowRight", "Right", "d", "D");
     const up = this.down("ArrowUp", "Up", "w", "W");
     const downK = this.down("ArrowDown", "Down", "s", "S");
-    const jump = this.hit("Alt", "c", "C", " ", "Space");
+    const jump = this.hit("Alt", " ", "Space");
     const dir = (right ? 1 : 0) - (left ? 1 : 0);
 
     // Quick slots: attacks repeat while held, everything else fires once per press.
@@ -1916,7 +2131,12 @@ export class Game extends ComponentBase {
           p.ignoreFh = p.fh.id; p.fh = null; p.vy = -120; p.vx = 0; p.coyote = 0;
         }
       } else if (jump && p.attack <= 0) {
-        p.fh = null; p.vy = -JUMP; p.vx = dir !== 0 ? dir * this.speed() : 0; p.leapt = false; p.coyote = 0;
+        p.fh = null;
+        p.vy = -JUMP;
+        p.vx = dir !== 0 ? dir * this.speed() : 0;
+        p.leapt = false;
+        p.coyote = 0;
+        p.airTime = 0;
       }
     }
 
@@ -1937,23 +2157,47 @@ export class Game extends ComponentBase {
     } else {
       p.coyote = Math.max(0, p.coyote - dt);
       p.airTime += dt;
-      // Airborne: double jump if jump skill learned; otherwise single jump arc in place
+      // Airborne: double jump if jump skill learned or double-tapping jump; otherwise single jump arc in place
       if (jump && !downK && p.coyote > 0 && p.attack <= 0) {
         // Coyote jump right off the edge!
         p.vy = -JUMP;
         p.vx = dir !== 0 ? dir * this.speed() : 0;
         p.leapt = false;
         p.coyote = 0;
-      } else if (jump && !downK && !p.leapt && p.attack <= 0) {
-        const jumpSkills = ["1001008", "4001014", "4001011", "3000008", "3001007", "5001010", "2001009"];
+      } else if (jump && !downK && !p.leapt && p.attack <= 0 && p.airTime > 0.05) {
+        p.leapt = true;
+        const jumpSkills = ["4001014", "4001011", "1001008", "3001007", "3000008", "5001010", "2001009"];
         const learned = jumpSkills.find((sid) => this.lv(sid) > 0);
-        if (learned) {
-          if (dir !== 0) p.face = dir as -1 | 1;
-          this.useAction({ t: "skill", id: learned }, true);
+
+        const s = this.stats;
+        const dexBoost = (s.dex || 0) * 0.003;
+        const lukBoost = (s.luk || 0) * 0.0015;
+        const spdBoost = (this.speed() / WALK - 1) * 0.35;
+        const lvBoost = (s.level || 1) * 0.004;
+        const boost = Math.min(2.5, 1.8 + dexBoost + lukBoost + spdBoost + lvBoost);
+        const vyFactor = 0.45 + Math.min(0.3, dexBoost * 0.3 + spdBoost * 0.2);
+
+        const jumpDir = dir !== 0 ? dir : p.face;
+        p.face = jumpDir as -1 | 1;
+        p.vx = jumpDir * this.speed() * boost;
+        p.vy = -JUMP * vyFactor;
+
+        // Visual effect for Flash Jump / War Leap
+        const artId = learned ?? "4001014";
+        const art = this.skillArt[artId] ?? this.skillArt["1001008"];
+        if (art?.effect?.length) {
+          this.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
+        } else if (art?.effect0?.length) {
+          this.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
         }
+        this.sendAction("skill", artId, "jump");
       }
-      const vmax = p.leapt ? Math.max(Math.abs(p.vx), this.speed()) : this.speed();
-      if (dir !== 0) { p.vx += dir * 300 * dt; p.vx = Math.max(-vmax, Math.min(vmax, p.vx)); if (p.attack <= 0) p.face = dir as -1 | 1; }
+      const vmax = p.leapt ? Math.max(Math.abs(p.vx), this.speed() * 1.5) : this.speed();
+      if (dir !== 0) {
+        p.vx += dir * 750 * dt;
+        p.vx = Math.max(-vmax, Math.min(vmax, p.vx));
+        if (p.attack <= 0) p.face = dir as -1 | 1;
+      }
       if ((up || downK) && p.attack <= 0) {
         const L = nearLadder((L) => p.y >= L.y1 - 15 && p.y <= L.y2 + 15);
         if (L) {
@@ -2012,18 +2256,40 @@ export class Game extends ComponentBase {
       .slice(0, d?.targets ?? 1);
     const pct = d?.dmg ? d.dmg(lv) : 100;
     if (d?.kind === "ranged") {
-      // Ranged skills now spawn one projectile per target, with a per-hit damage roll.
+      const hits = d?.hits ?? 1;
       for (const m of targets) {
-        for (let h = 0; h < (d?.hits ?? 1); h++) {
+        for (let h = 0; h < hits; h++) {
           const r = this.rollDamage(pct, m);
-          this.projectiles.push({ x: p.x + p.face * 20, y: p.y - 35, target: m, dmg: r.dmg, miss: r.miss, t: 0, skillId: id ?? undefined });
+          const arcSpread = (h - (hits - 1) / 2) * 12;
+          this.projectiles.push({
+            x: p.x + p.face * 20,
+            y: p.y - 35,
+            target: m,
+            dmg: r.dmg,
+            miss: r.miss,
+            t: -h * 0.08,
+            skillId: id ?? undefined,
+            arcY: arcSpread,
+          });
         }
-        // Shadow Partner bonus ranged attack (50% damage)
+        // Shadow Partner bonus ranged attack (50% damage, less accurate)
         if (this.buffs["4111002"]) {
           const shadowPct = Math.round(pct * 0.5);
-          for (let h = 0; h < (d?.hits ?? 1); h++) {
+          for (let h = 0; h < hits; h++) {
             const r = this.rollDamage(shadowPct, m);
-            this.projectiles.push({ x: p.x + p.face * 20, y: p.y - 35, target: m, dmg: r.dmg, miss: r.miss, t: -0.09, skillId: id ?? undefined });
+            if (Math.random() < 0.18) r.miss = true;
+            const arcSpread = (h - (hits - 1) / 2) * 16 + (Math.sin(this.time * 8 + h) * 12);
+            this.projectiles.push({
+              x: p.x + (p.face === 1 ? 2 : -2) + p.face * 16,
+              y: p.y - 35 + (Math.cos(this.time * 7 + h) * 5),
+              target: m,
+              dmg: r.dmg,
+              miss: r.miss,
+              t: -h * 0.08,
+              skillId: id ?? undefined,
+              isShadow: true,
+              arcY: arcSpread,
+            });
           }
         }
       }
@@ -2036,12 +2302,13 @@ export class Game extends ComponentBase {
         const r = this.rollDamage(pct, m);
         this.damageMob(m, r.dmg, r.miss);
       }
-      // Shadow Partner bonus melee attack (50% damage)
+      // Shadow Partner bonus melee attack (50% damage, less accurate)
       if (this.buffs["4111002"]) {
         const shadowPct = Math.round(pct * 0.5);
         for (let h = 0; h < (d?.hits ?? 1); h++) {
           if (m.state === "die1" || m.state === "dead") break;
           const r = this.rollDamage(shadowPct, m);
+          if (Math.random() < 0.18) r.miss = true;
           this.damageMob(m, r.dmg, r.miss);
         }
       }
@@ -2050,6 +2317,10 @@ export class Game extends ComponentBase {
   }
 
   damageMob(m: Mob, dmg: number, miss: boolean) {
+    if (this.oneHitKill) {
+      dmg = 9999999;
+      miss = false;
+    }
     const box = this.mobBox(m);
     const stack = this.dmg.filter((d) => !d.hurt && Math.abs(d.x - m.x) < 30 && d.t < 0.4).length;
     this.dmg.push({ value: dmg, miss, hurt: false, x: m.x, y: box.y0 - 6 - stack * 30, t: 0 });
@@ -2123,7 +2394,7 @@ export class Game extends ComponentBase {
 
   checkMobContact() {
     const p = this.p;
-    if (p.invuln > 0 || this.godMode) return;
+    if (p.invuln > 0 || this.godMode || this.gmHide) return;
     for (const m of this.mobs) {
       if (m.state === "die1" || m.state === "dead" || m.alpha < 1) continue;
       const b = this.mobBox(m);
@@ -2205,6 +2476,88 @@ export class Game extends ComponentBase {
   giveMat(id: number, count = 1) {
     this.mats[id] = (this.mats[id] ?? 0) + count;
     this.onChat("item", `[DEBUG] Received ${count}x material (${MATS.get(id) ?? id}).`);
+    this.onChange();
+  }
+
+  giveAnyItem(id: number, count = 1) {
+    const c = Math.max(1, Math.min(999, count));
+    if (id < 2000000 || GEAR.has(id)) {
+      for (let i = 0; i < c; i++) {
+        this.addGear(makeGear(id, 0));
+      }
+      this.onChat("item", `[GM] Spawned ${c}x gear (${GEAR.get(id)?.name ?? id}).`);
+    } else if ((id >= 2000000 && id < 3000000) || ITEMS[id]) {
+      this.giveItem(id, c);
+    } else {
+      this.giveMat(id, c);
+    }
+    this.onChange();
+  }
+
+  async spawnCustomMob(mobId: number, count = 1) {
+    try {
+      if (!this.mobData.has(mobId)) {
+        this.mobData.set(mobId, await json(`/wz/data/mob/${mobId}`));
+      }
+      const data = this.mobData.get(mobId);
+      if (!data) {
+        this.onChat("notice", `[GM] Mob #${mobId} data not found.`);
+        return;
+      }
+      await Promise.all(
+        Object.values(data.books).flat().map((s) => Promise.resolve(this.assets.load(s.url)).catch(() => null))
+      );
+      const p = this.p;
+      const spawnedCount = Math.max(1, Math.min(50, count));
+      for (let i = 0; i < spawnedCount; i++) {
+        const offset = (i - Math.floor(spawnedCount / 2)) * 50;
+        const x = Math.max(this.tree.minX + 40, Math.min(this.tree.maxX - 40, p.x + offset));
+        const fh = this.tree.landing(x, p.y - 100, p.y + 100) ?? p.fh;
+        const y = fh ? FootholdTree.yAt(fh, x) : p.y;
+        const spawn = { id: mobId, x, y, fh: fh?.id ?? 0, rx0: this.bounds.l + 30, rx1: this.bounds.r - 30 };
+        const m = this.makeMob(spawn);
+        if (m) {
+          m.x = x;
+          m.y = y;
+          this.mobs.push(m);
+        }
+      }
+      this.onChat("notice", `[GM] Summoned ${spawnedCount}x ${data.name.trim()} (${mobId})!`);
+    } catch (e: any) {
+      this.onChat("notice", `[GM] Failed to spawn mob #${mobId}: ${e?.message ?? e}`);
+    }
+  }
+
+  magnetMobs() {
+    const p = this.p;
+    let count = 0;
+    for (const m of this.mobs) {
+      if (m.state !== "dead" && m.state !== "die1") {
+        m.x = p.x + (Math.random() - 0.5) * 60;
+        m.y = p.y;
+        m.vx = 0;
+        m.vy = 0;
+        m.fh = p.fh;
+        count++;
+      }
+    }
+    this.onChat("notice", `[GM] Magnetized ${count} monsters to your coordinates.`);
+  }
+
+  broadcastNotice(text: string) {
+    const clean = text.trim();
+    if (!clean) return;
+    const notice = `[Notice] ${clean}`;
+    this.onChat("notice", notice);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ t: "chat", text: notice, kind: "notice", broadcast: true }));
+    }
+    window.dispatchEvent(new CustomEvent("gm-broadcast-notice", { detail: { text: clean } }));
+  }
+
+  setFame(amt: number) {
+    this.stats.fame = Math.max(0, amt);
+    this.onChat("notice", `[GM] Fame set to ${this.stats.fame}.`);
     this.onChange();
   }
 
@@ -2312,6 +2665,7 @@ export class Game extends ComponentBase {
     }
     if (m.boss) { this.updateBoss(m, dt, play); return; }
     m.t -= dt;
+    if (this.gmHide) m.aggro = 0;
     if (m.aggro > 0) {
       m.state = "move";
       m.dir = this.p.x < m.x ? -1 : 1;
@@ -2373,17 +2727,15 @@ export class Game extends ComponentBase {
       d.t += dt;
       if (d.picked) {
         d.picked += dt;
-        d.x += (this.p.x - d.x) * Math.min(1, dt * 6);
-        d.y += (this.p.y - 25 - d.y) * Math.min(1, dt * 6);
+        d.x += (this.p.x - d.x) * Math.min(1, dt * 14);
+        d.y += (this.p.y - 25 - d.y) * Math.min(1, dt * 14);
         continue;
       }
-      // Meso magnet: while auto battle runs, resting drops are sucked toward
-      // the player (and collected on contact), starting slow and accelerating smoothly.
-      if (magnet && d.t > 0.6) {
+      // Meso magnet: resting drops and airborne drops are swiftly drawn toward the player
+      if (magnet && (d.t > 0.12 || d.fh)) {
         const dx = this.p.x - d.x, dy = (this.p.y - 20) - d.y, dist = Math.hypot(dx, dy) || 1;
-        const mt = Math.min(1.4, d.t - 0.6); // time spent being magnetized
-        const accel = mt * mt; // smooth quadratic acceleration curve
-        const baseSpeed = 65 + accel * 480; // starts slow (65 px/s), ramps smoothly up to 550+ px/s
+        const mt = Math.min(2.0, d.t);
+        const baseSpeed = 420 + mt * mt * 850; // starts fast at 420 px/s, quickly ramping to 1200+ px/s
         const speed = Math.min(dist, baseSpeed * dt);
         d.x += (dx / dist) * speed;
         d.y += (dy / dist) * speed;
@@ -2395,12 +2747,12 @@ export class Game extends ComponentBase {
         if (d.fh) d.vx = 0;
       }
     }
-    this.drops = this.drops.filter((d) => (d.picked ? d.picked < 0.45 : d.t < 60));
+    this.drops = this.drops.filter((d) => (d.picked ? d.picked < 0.22 : d.t < 60));
     // Magnet collects anything it has pulled onto the player.
     if (magnet) {
       for (const d of this.drops) {
         if (d.picked) continue;
-        if (Math.abs(d.x - this.p.x) < 26 && Math.abs(d.y - (this.p.y - 20)) < 26) d.picked = 0.001;
+        if (Math.abs(d.x - this.p.x) < 36 && Math.abs(d.y - (this.p.y - 20)) < 36) d.picked = 0.001;
       }
     }
   }
@@ -2428,7 +2780,6 @@ export class Game extends ComponentBase {
   unequip(slot: Slot) {
     const g = this.eq[slot];
     if (!g) return;
-    if (this.bag.length >= 48) { this.onChat("system", "Your Equip inventory is full."); return; }
     delete this.eq[slot];
     this.bag.push(g);
     this.recalc(); this.refreshLook(); this.onChange();
@@ -2455,7 +2806,6 @@ export class Game extends ComponentBase {
   unequipVisual(slot: Slot) {
     const g = this.visualEq[slot];
     if (!g) return;
-    if (this.bag.length >= 48) { this.onChat("system", "Your Equip inventory is full."); return; }
     delete this.visualEq[slot];
     this.bag.push(g);
     this.refreshLook(); this.onChange();
@@ -2484,8 +2834,8 @@ export class Game extends ComponentBase {
       null;
   }
   addGear(g: Gear) {
-    if (this.bag.length >= 48) { const p = npcSellPrice(g); this.stats.meso += p; this.onChat("meso", `Equip inventory full — auto-sold ${GEAR.get(g.id)?.name} for ${p} mesos.`); return; }
     this.bag.push(g);
+    this.onChange();
   }
 
   // ------------------------------------------------------------ crafting
@@ -2543,7 +2893,6 @@ export class Game extends ComponentBase {
     const L = this.ah.listings.find((l) => l.lid === lid);
     if (!L) return false;
     if (this.stats.meso < L.price) { this.onChat("system", "You don't have enough mesos."); return false; }
-    if (L.goods.t === "gear" && this.bag.length >= 48) { this.onChat("system", "Your Equip inventory is full."); return false; }
     this.stats.meso -= L.price;
     this.receive(L.goods);
     this.ah.listings = this.ah.listings.filter((l) => l !== L);
@@ -2763,9 +3112,14 @@ export class Game extends ComponentBase {
         const art = this.skillArt[pr.skillId];
         if (art?.ball?.length) {
           fr = art.ball[Math.floor(pr.t * 12) % art.ball.length];
+        } else if (this.throwingStarFrames.length > 0 && (pr.skillId.startsWith("4") || this.stats.classId === "thief")) {
+          fr = this.throwingStarFrames[Math.floor(this.time * 24) % this.throwingStarFrames.length];
         } else if (art?.effect?.length) {
           fr = art.effect[0];
         }
+      }
+      if (!fr && this.throwingStarFrames.length > 0 && (this.stats.classId === "thief" || this.p.skill?.startsWith("4"))) {
+        fr = this.throwingStarFrames[Math.floor(this.time * 24) % this.throwingStarFrames.length];
       }
       if (!fr) fr = this.snailShell;
       if (!fr) continue;
@@ -2774,9 +3128,10 @@ export class Game extends ComponentBase {
         const ox = fr.ox ?? Math.round(fr.w / 2);
         const oy = fr.oy ?? Math.round(fr.h / 2);
         const art = pr.skillId ? this.skillArt[pr.skillId] : null;
+        const isStar = this.throwingStarFrames.includes(fr);
         const movingRight = pr.target ? pr.target.x >= pr.x : this.p.face === 1;
-        const flip = (art?.ball && art.ball.length > 1) ? (Math.floor(pr.t * 12) % 2 === 0) : movingRight;
-        r.draw(st, Math.round(pr.x - ox - cx), Math.round(pr.y - oy - cy), fr.w, fr.h, { flip });
+        const flip = (art?.ball && art.ball.length > 1) ? (Math.floor(pr.t * 12) % 2 === 0) : (isStar ? (Math.floor(this.time * 20) % 2 === 0) : movingRight);
+        r.draw(st, Math.round(pr.x - ox - cx), Math.round(pr.y - oy - cy), fr.w, fr.h, { flip, alpha: 1.0 });
       } else {
         this.assets.load(fr.url);
       }
@@ -2792,6 +3147,8 @@ export class Game extends ComponentBase {
   drawBacks(front: boolean, cx: number, cy: number) {
     const r = this.r, W = r.width, H = r.height;
     const WO = W / 2, HO = H / 2;
+    const camCenterX = cx + WO;
+    const camCenterY = cy + HO;
     for (const b of this.map.backs) {
       if (b.front !== front) continue;
       const s = b.sprite, t = this.assets.get(s.url);
@@ -2799,13 +3156,15 @@ export class Game extends ComponentBase {
       const cxx = b.cx || s.w, cyy = b.cy || s.h;
       const hmove = b.type === 4 || b.type === 6, vmove = b.type === 5 || b.type === 7;
       const htile = [1, 3, 4, 6, 7].includes(b.type), vtile = [2, 3, 5, 6, 7].includes(b.type);
-      const baseX = (hmove ? b.x + this.time * b.rx * 5 - cx : b.x + WO + (b.rx * (cx + WO)) / 100) - (b.flip ? s.w - s.ox : s.ox);
-      const baseY = (vmove ? b.y + this.time * b.ry * 5 - cy : b.y + HO + (b.ry * (cy + HO)) / 100) - s.oy;
+      const ox = b.flip ? s.w - s.ox : s.ox;
+      const baseX = (hmove ? b.x + this.time * b.rx * 5 - cx : b.x + WO + (b.rx * cx) / 100) - ox;
+      const baseY = (vmove ? b.y + this.time * b.ry * 5 - cy : b.y + Math.min(HO, 300) + (b.ry * (camCenterY - 300)) / 100) - s.oy;
 
       const minI = htile ? Math.floor(-baseX / cxx) : 0;
       const maxI = htile ? Math.ceil((W - baseX) / cxx) : 0;
-      const minJ = vtile ? Math.floor(-baseY / cyy) : (baseY > 0 ? Math.floor(-baseY / cyy) : 0);
-      const maxJ = vtile ? Math.ceil((H - baseY) / cyy) : 0;
+      const allowVTile = vtile || (b.type === 1 && s.h >= 600);
+      const minJ = allowVTile ? Math.floor(-baseY / cyy) : 0;
+      const maxJ = allowVTile ? Math.ceil((H - baseY) / cyy) : 0;
 
       for (let i = minI; i <= maxI; i++) {
         for (let j = minJ; j <= maxJ; j++) {
@@ -2831,18 +3190,19 @@ export class Game extends ComponentBase {
 
   drawItemEffect(eff: ItemEffData, x: number, y: number, face: number, anim: string, cx: number, cy: number, layer: "back" | "front") {
     let actionFrames: ItemEffFrame[] | undefined;
-    if (layer === "back") {
-      if (anim === "ladder" && eff.actions.ladder) actionFrames = eff.actions.ladder;
-      else if (anim === "rope" && eff.actions.rope) actionFrames = eff.actions.rope;
-      else if (eff.actions.backDefault) actionFrames = eff.actions.backDefault;
-      else if (eff.actions[anim] && (eff.actions[anim][0]?.z ?? 0) < 0) actionFrames = eff.actions[anim];
-      else if (eff.actions.default && (eff.actions.default[0]?.z ?? 0) < 0) actionFrames = eff.actions.default;
-    } else {
-      if (anim === "ladder" || anim === "rope") {
-        if (eff.actions[anim + "2"]) actionFrames = eff.actions[anim + "2"];
+    if (anim === "ladder" || anim === "rope") {
+      if (layer === "back") {
+        actionFrames = eff.actions[anim] ?? eff.actions.backDefault ?? eff.actions.default;
       } else {
-        if (eff.actions[anim] && (eff.actions[anim][0]?.z ?? 0) >= 0) actionFrames = eff.actions[anim];
-        else if (eff.actions.default && (eff.actions.default[0]?.z ?? 0) >= 0) actionFrames = eff.actions.default;
+        actionFrames = eff.actions[anim + "2"];
+      }
+    } else {
+      const candidate = eff.actions[anim] ?? eff.actions.default;
+      if (candidate?.length) {
+        const isBack = (candidate[0]?.z ?? 0) < 0;
+        if ((layer === "back" && isBack) || (layer === "front" && !isBack)) {
+          actionFrames = candidate;
+        }
       }
     }
     if (!actionFrames?.length) return;
@@ -2868,6 +3228,18 @@ export class Game extends ComponentBase {
   }
 
   drawRemotePlayer(rp: RemotePlayer, cx: number, cy: number) {
+    const isFloating = this.hasHoverEffect(rp.look) && rp.anim !== "jump" && rp.anim !== "ladder" && rp.anim !== "rope";
+    const hoverY = isFloating ? Math.round(Math.sin(this.time * 3.2) * 5 - 10) : 0;
+    if (hoverY !== 0) {
+      const shadowW = Math.max(12, 28 + Math.round(hoverY * 0.4));
+      const shadowAlpha = Math.max(0.15, 0.35 + (hoverY / 30));
+      this.r.rect(Math.round(rp.x - shadowW / 2 - cx), Math.round(rp.y - 2 - cy), shadowW, 4, [0, 0, 0, shadowAlpha * 0.6]);
+      this.r.rect(Math.round(rp.x - (shadowW - 8) / 2 - cx), Math.round(rp.y - 1 - cy), Math.max(4, shadowW - 8), 2, [0, 0, 0, shadowAlpha]);
+    }
+
+    const drawPosY = rp.y + hoverY;
+
+    const remoteEffs: ItemEffData[] = [];
     for (const id of rp.look) {
       if (!this.itemEffCache.has(id)) {
         this.itemEffCache.set(id, null);
@@ -2880,8 +3252,11 @@ export class Game extends ComponentBase {
           }
         }).catch(() => {});
       }
-      const eff = this.itemEffCache.get(id);
-      if (eff) this.drawItemEffect(eff, rp.x, rp.y, rp.face, rp.anim, cx, cy, "back");
+      const cached = this.itemEffCache.get(id);
+      if (cached && !remoteEffs.some((e) => e.id === cached.id)) remoteEffs.push(cached);
+    }
+    for (const eff of remoteEffs) {
+      this.drawItemEffect(eff, rp.x, drawPosY, rp.face, rp.anim, cx, cy, "back");
     }
     let t = this.assets.get(charUrlFor(rp.look, rp.anim, rp.frame))
       ?? this.assets.get(charUrlFor(rp.look, "stand1", 0));
@@ -2893,23 +3268,33 @@ export class Game extends ComponentBase {
     if (t) {
       const ox = Math.round(t.w / 2);
       const oy = t.w === 96 && t.h === 96 ? 88 : t.h === 384 ? 256 : Math.round(t.h * (256 / 384));
-      this.r.draw(t, Math.round(rp.x - ox - cx), Math.round(rp.y - oy - cy), t.w, t.h, { flip: rp.face === 1 });
+      this.r.draw(t, Math.round(rp.x - ox - cx), Math.round(drawPosY - oy - cy), t.w, t.h, { flip: rp.face === 1 });
     }
-    for (const id of rp.look) {
-      const eff = this.itemEffCache.get(id);
-      if (eff) this.drawItemEffect(eff, rp.x, rp.y, rp.face, rp.anim, cx, cy, "front");
+    for (const eff of remoteEffs) {
+      this.drawItemEffect(eff, rp.x, drawPosY, rp.face, rp.anim, cx, cy, "front");
     }
-    this.drawNameTag(rp.name, rp.x, rp.y, cx, cy);
+    this.drawNameTag(rp.name, rp.x, drawPosY, cx, cy);
     if (rp.balloon && rp.balloon.t > 0 && rp.balloon.text) {
-      this.drawSpeechBalloon(rp.balloon.text, rp.x, rp.y, cx, cy);
+      this.drawSpeechBalloon(rp.balloon.text, rp.x, drawPosY, cx, cy);
     }
   }
 
   drawPlayer(cx: number, cy: number) {
     const p = this.p;
+    const isFloating = this.hasHoverEffect() && !!p.fh && !p.ladder;
+    const hoverY = isFloating ? Math.round(Math.sin(this.time * 3.2) * 5 - 10) : 0;
+    if (hoverY !== 0) {
+      const shadowW = Math.max(12, 28 + Math.round(hoverY * 0.4));
+      const shadowAlpha = Math.max(0.15, 0.35 + (hoverY / 30));
+      this.r.rect(Math.round(p.x - shadowW / 2 - cx), Math.round(p.y - 2 - cy), shadowW, 4, [0, 0, 0, shadowAlpha * 0.6]);
+      this.r.rect(Math.round(p.x - (shadowW - 8) / 2 - cx), Math.round(p.y - 1 - cy), Math.max(4, shadowW - 8), 2, [0, 0, 0, shadowAlpha]);
+    }
+
+    const drawPosY = p.y + hoverY;
+
     // 1. Back item effects (drawn before character sprite)
     for (const eff of this.activeItemEffs) {
-      this.drawItemEffect(eff, p.x, p.y, p.face, p.anim, cx, cy, "back");
+      this.drawItemEffect(eff, p.x, drawPosY, p.face, p.anim, cx, cy, "back");
     }
 
     // 2. Character sprite
@@ -2929,23 +3314,51 @@ export class Game extends ComponentBase {
     if (t) {
       const invulnBlink = p.invuln > 0 && Math.floor(this.time * 16) % 2 === 0;
       const isDarkSight = !!this.buffs["4001003"];
-      const baseAlpha = invulnBlink ? 0.35 : (isDarkSight ? 0.45 : 1);
+      const baseAlpha = invulnBlink ? 0.35 : (isDarkSight || this.gmHide ? 0.45 : 1);
 
       // Fixed anchor for character sprites: 96x96 has origin centered horizontally at 48, feet at 88; 384x384 has center at 192, feet at 256
       const ox = Math.round(t.w / 2);
       const oy = t.w === 96 && t.h === 96 ? 88 : t.h === 384 ? 256 : Math.round(t.h * (256 / 384));
 
-      // Shadow Partner clone: dark silhouette following behind player
+      // Shadow Partner clone: authentic .wz sprite from 411.img special, no delay, original opacity
       if (this.buffs["4111002"]) {
-        const shadowOffset = p.face === 1 ? -18 : 18;
-        this.r.draw(t, Math.round(p.x - ox - cx + shadowOffset), Math.round(p.y - oy - cy), t.w, t.h, {
-          flip: p.face === 1,
-          tint: [0.15, 0.12, 0.25],
-          alpha: baseAlpha * 0.65,
-        });
+        const shadowAnim = p.anim;
+        const shadowFrame = p.frame;
+        const shadowFace = p.face;
+        const shadowOffset = shadowFace === 1 ? -18 : 18;
+        const shadowDrawX = p.x + shadowOffset;
+        const shadowDrawY = drawPosY;
+
+        const actionFrames = this.shadowPartnerArt[shadowAnim] ?? this.shadowPartnerArt.stand1;
+        const fr = actionFrames?.[shadowFrame % (actionFrames?.length || 1)];
+        let drawn = false;
+
+        if (fr) {
+          const st = this.assets.get(fr.url);
+          if (st) {
+            const shOx = shadowFace === 1 ? (st.w - fr.ox) : fr.ox;
+            const shOy = fr.oy;
+            this.r.draw(st, Math.round(shadowDrawX - shOx - cx), Math.round(shadowDrawY - shOy - cy), st.w, st.h, {
+              flip: shadowFace === 1,
+              alpha: baseAlpha,
+            });
+            drawn = true;
+          } else {
+            this.assets.load(fr.url);
+          }
+        }
+        if (!drawn) {
+          let shadowTex = this.assets.get(charUrlFor(this.look, shadowAnim, shadowFrame, p.expr, p.exprFrame))
+            ?? this.assets.get(charUrlFor(this.look, shadowAnim, shadowFrame))
+            ?? t;
+          this.r.draw(shadowTex, Math.round(shadowDrawX - ox - cx), Math.round(shadowDrawY - oy - cy), shadowTex.w, shadowTex.h, {
+            flip: shadowFace === 1,
+            alpha: baseAlpha,
+          });
+        }
       }
 
-      this.r.draw(t, Math.round(p.x - ox - cx), Math.round(p.y - oy - cy), t.w, t.h, {
+      this.r.draw(t, Math.round(p.x - ox - cx), Math.round(drawPosY - oy - cy), t.w, t.h, {
         flip: p.face === 1,
         alpha: baseAlpha,
       });
@@ -2953,13 +3366,13 @@ export class Game extends ComponentBase {
 
     // 3. Front item effects (drawn after character sprite)
     for (const eff of this.activeItemEffs) {
-      this.drawItemEffect(eff, p.x, p.y, p.face, p.anim, cx, cy, "front");
+      this.drawItemEffect(eff, p.x, drawPosY, p.face, p.anim, cx, cy, "front");
     }
 
-    this.drawNameTag(this.stats.name, p.x, p.y, cx, cy);
+    this.drawNameTag(this.stats.name, p.x, drawPosY, cx, cy);
 
     if (this.balloon && this.balloon.t > 0 && this.balloon.text) {
-      this.drawSpeechBalloon(this.balloon.text, p.x, p.y, cx, cy);
+      this.drawSpeechBalloon(this.balloon.text, p.x, drawPosY, cx, cy);
     }
   }
 

@@ -10,6 +10,7 @@ import { ITEMS, itemIcon } from "./skills.ts";
 import { renderGearTooltip, renderUseTooltip, renderMatTooltip } from "./tooltip.ts";
 import { clampWindow, type Windows } from "./windows.ts";
 import { el, esc, fmt, icon, stars, dur } from "./util.ts";
+import { lucideIcon } from "./lucide.ts";
 
 type Tab<T extends string> = { cur: T };
 
@@ -55,18 +56,7 @@ export class ExtWindows {
 
     this.menuPop = el("div", "menu-pop hidden", document.body);
     this.items = new ItemBrowser(w);
-    const entries: [string, string, () => void][] = [
-      ["Character Stats", "S", () => w.toggle(w.stat)], ["Skills", "K", () => w.toggle(w.skill)], ["Equipment", "E", () => this.open("equip")],
-      ["Inventory", "I", () => this.open("inv")], ["Crafting", "J", () => this.open("craft")], ["Auction House", "H", () => this.open("ah")],
-      ["All Items", "L", () => this.items.open()],
-      ["Auto Settings", "B·RMB", () => w.toggle(w.autoWin)],
-      ["GM Debug Menu", "F1", () => w.toggle(w.debugWin)],
-    ];
-    for (const [label, key, fn] of entries) {
-      const b = el("button", "menu-pop-item", this.menuPop) as HTMLButtonElement;
-      b.type = "button"; b.innerHTML = `<span>${label}</span><kbd>${key}</kbd>`;
-      b.addEventListener("click", () => { this.menuPop.classList.add("hidden"); fn(); });
-    }
+    this.renderMenuPop();
     addEventListener("pointerdown", (e) => { if (!(e.target as HTMLElement).closest(".menu-pop, .menu-btn")) this.menuPop.classList.add("hidden"); });
 
     this.stageHud = el("div", "stage-hud", w.hudRoot);
@@ -101,7 +91,36 @@ export class ExtWindows {
     }
     this.sig = {};
   }
+  renderMenuPop() {
+    this.menuPop.innerHTML = "";
+    const w = this.w;
+    const isGm = w.game.isGm();
+    const entries: { label: string; key: string; fn: () => void; isGm?: boolean }[] = [
+      { label: "Character Stats", key: "S", fn: () => w.toggle(w.stat) },
+      { label: "Skills", key: "K", fn: () => w.toggle(w.skill) },
+      { label: "Equipment", key: "E", fn: () => this.open("equip") },
+      { label: "Inventory", key: "I", fn: () => this.open("inv") },
+      { label: "Crafting", key: "J", fn: () => this.open("craft") },
+      { label: "Auction House", key: "H", fn: () => this.open("ah") },
+      { label: "Auto Settings", key: "B·RMB", fn: () => w.toggle(w.autoWin) },
+    ];
+    if (isGm) {
+      entries.push({ label: "★ GM Control Panel", key: "F1", fn: () => w.toggle(w.debugWin), isGm: true });
+      entries.push({ label: "★ All Items Spawner", key: "L", fn: () => this.items.open(), isGm: true });
+    }
+    for (const item of entries) {
+      const b = el("button", `menu-pop-item ${item.isGm ? "menu-pop-gm" : ""}`, this.menuPop) as HTMLButtonElement;
+      b.type = "button";
+      b.innerHTML = `<span>${item.label}</span><kbd>${item.key}</kbd>`;
+      b.addEventListener("click", () => {
+        this.menuPop.classList.add("hidden");
+        item.fn();
+      });
+    }
+  }
+
   toggleMenu(anchor: HTMLElement) {
+    this.renderMenuPop();
     const r = anchor.getBoundingClientRect();
     this.menuPop.classList.toggle("hidden");
     this.menuPop.style.left = `${Math.min(innerWidth - 170, r.left - 60)}px`;
@@ -288,54 +307,67 @@ export class ExtWindows {
     }).join("");
 
     let grid = "";
+    let curCount = 0;
     if (tab === "equip") {
       let bag = [...g.bag].sort((a, b) => b.rarity - a.rarity || (GEAR.get(b.id)?.req ?? 0) - (GEAR.get(a.id)?.req ?? 0));
       if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
+      curCount = bag.length;
       for (const it of bag) grid += this.gearCell(it, "equip", `Click to equip · right-click to sell (${fmt(npcSellPrice(it))} mesos)`);
-      for (let i = bag.length; i < 64; i++) grid += `<div class="gcell blank"></div>`;
+      const targetPad = Math.max(32, Math.ceil(bag.length / 4) * 4 + 8);
+      for (let i = bag.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
     } else if (tab === "use") {
       let ids = Object.keys(ITEMS).map(Number).filter((id) => (g.inv[id] ?? 0) > 0);
       if (q) ids = ids.filter((id) => (ITEMS[id]?.name ?? "").toLowerCase().includes(q));
+      curCount = ids.length;
       for (const id of ids) {
-        grid += `<div class="gcell" data-use="${id}" ${this.tip("u" + id, () => renderUseTooltip(id, g.inv[id] ?? 0))}>${icon(itemIcon(id), "ic grab")}<span class="cnt">${g.inv[id]}</span></div>`;
+        const it = ITEMS[id];
+        const isThrowable = it?.type === "star" || it?.type === "arrow" || it?.type === "bullet";
+        const countHtml = isThrowable ? `<span class="cnt">∞</span>` : `<span class="cnt">${g.inv[id]}</span>`;
+        grid += `<div class="gcell" data-use="${id}" ${this.tip("u" + id, () => renderUseTooltip(id, g.inv[id] ?? 0))}>${icon(itemIcon(id), "ic grab")}${countHtml}</div>`;
       }
-      for (let i = ids.length; i < 64; i++) grid += `<div class="gcell blank"></div>`;
+      const targetPad = Math.max(32, Math.ceil(ids.length / 4) * 4 + 8);
+      for (let i = ids.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
     } else if (tab === "etc") {
       let entries = Object.entries(g.mats).filter(([_, n]) => n > 0);
       if (q) entries = entries.filter(([id]) => (MATS.get(+id) ?? "").toLowerCase().includes(q));
+      curCount = entries.length;
       for (const [id, n] of entries) {
         grid += `<div class="gcell" ${this.tip("m" + id, () => renderMatTooltip(+id, n))}>${icon(matIcon(+id))}<span class="cnt">${n}</span></div>`;
       }
+      const targetPad = Math.max(32, Math.ceil(entries.length / 4) * 4 + 8);
+      for (let i = entries.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
     } else if (tab === "cash" || tab === "dec") {
       let bag = g.bag.filter((it) => {
         const b = GEAR.get(it.id);
         return Boolean(b?.cosmetic || b?.cash);
       });
       if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
+      curCount = bag.length;
       for (const it of bag) grid += this.gearCell(it, "equip-visual", `Click to equip as visual outfit · right-click to sell (${fmt(npcSellPrice(it))} mesos)`);
-      for (let i = bag.length; i < 64; i++) grid += `<div class="gcell blank"></div>`;
+      const targetPad = Math.max(32, Math.ceil(bag.length / 4) * 4 + 8);
+      for (let i = bag.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
     } else {
-      for (let i = 0; i < 64; i++) grid += `<div class="gcell blank"></div>`;
+      for (let i = 0; i < 32; i++) grid += `<div class="gcell blank"></div>`;
     }
 
     body.innerHTML = `
       <div class="inv-header-bar">
         <div class="inv-tabs">${tabs}</div>
-        <div class="inv-slot-top-badge">SLOT <span class="slot-active">64</span> / 64</div>
+        <div class="inv-slot-top-badge">SLOT <span class="slot-active">${curCount}</span> / ∞</div>
       </div>
       <div class="inv-sub-bar">
         <div class="inv-sub-actions">
-          <button type="button" class="inv-pill-btn cyan" data-act="sort"><span class="inv-ico">🔀</span> Sort</button>
-          <button type="button" class="inv-pill-btn slate" data-act="lock"><span class="inv-ico">🔒</span> Lock</button>
+          <button type="button" class="inv-pill-btn cyan" data-act="sort"><span class="inv-ico">${lucideIcon("sort", 12)}</span> Sort</button>
+          <button type="button" class="inv-pill-btn slate" data-act="lock"><span class="inv-ico">${lucideIcon("lock", 12)}</span> Lock</button>
         </div>
-        <button type="button" class="inv-plus-slot" title="Expand Slots">+ SLOT</button>
+        <button type="button" class="inv-plus-slot" title="Infinite Bag Storage Enabled">∞ SLOTS</button>
       </div>
       <div class="inv-grid-wrap">
         <div class="inv-grid">${grid}</div>
       </div>
       <div class="inv-finance-row">
-        <div class="inv-meso-badge"><span class="coin-dot gold">🟡</span> ${fmt(g.stats.meso || 164852491)}</div>
-        <div class="inv-points-badge"><span class="coin-dot silver">⚪</span> 5,100</div>
+        <div class="inv-meso-badge"><span class="coin-dot gold">${lucideIcon("coins", 13)}</span> ${fmt(g.stats.meso || 164852491)}</div>
+        <div class="inv-points-badge"><span class="coin-dot silver">${lucideIcon("star", 12)}</span> 5,100</div>
         <div class="inv-actions-right">
           <button type="button" class="inv-action-btn slate" data-act="selljunk">Extract/Fuse</button>
           <button type="button" class="inv-action-btn cyan" data-act="crafttab" data-v="star">Transfer</button>
@@ -345,14 +377,14 @@ export class ExtWindows {
       <div class="inv-quick-footer">
         <div class="inv-search-box">
           <input type="text" placeholder="Enter a search term..." class="inv-search-input" value="${esc(this.invSearch)}" />
-          <span class="inv-search-icon">🔍</span>
+          <span class="inv-search-icon">${lucideIcon("search", 13)}</span>
         </div>
         <div class="inv-footer-buttons">
-          <button type="button" class="inv-foot-btn" data-act="open-equip">⚔ Equip</button>
-          <button type="button" class="inv-foot-btn" data-act="open-shop">🛒 Shop</button>
-          <button type="button" class="inv-foot-btn" data-act="open-storage">📦 Storage Room</button>
-          <button type="button" class="inv-foot-btn" data-act="open-boss">🎁 Boss Rewards</button>
-          <button type="button" class="inv-foot-btn" data-act="open-bag">🎒 Bag</button>
+          <button type="button" class="inv-foot-btn" data-act="open-equip">${lucideIcon("equip", 13)} Equip</button>
+          <button type="button" class="inv-foot-btn" data-act="open-shop">${lucideIcon("shop", 13)} Shop</button>
+          <button type="button" class="inv-foot-btn" data-act="open-storage">${lucideIcon("storage", 13)} Storage Room</button>
+          <button type="button" class="inv-foot-btn" data-act="open-boss">${lucideIcon("boss", 13)} Boss Rewards</button>
+          <button type="button" class="inv-foot-btn" data-act="open-bag">${lucideIcon("bag", 13)} Bag</button>
         </div>
       </div>
     `;

@@ -7,7 +7,8 @@ import {
   cleanDesc, itemIcon, classFor, type Action, type ClassId,
 } from "./skills.ts";
 
-import { el, bg, fmt } from "./util.ts";
+import { el, bg, fmt, esc } from "./util.ts";
+import { lucideIcon } from "./lucide.ts";
 import { makeGear } from "./items.ts";
 import type { Sprite } from "./assets.ts";
 export { el, bg };
@@ -105,7 +106,10 @@ export class Windows {
     this.ext = new ExtWindows(this);
 
     // All windows start closed by default; toggled via dedicated menu buttons or hotkeys
-    addEventListener("toggle-debug-win", () => this.toggle(this.debugWin));
+    addEventListener("toggle-debug-win", () => {
+      if (this.game.isGm()) this.toggle(this.debugWin);
+      else this.game.onChat("notice", "[GM] Access denied. GameMaster privileges required.");
+    });
 
     addEventListener("pointermove", (e) => { const pe = e as PointerEvent; if (this.ghost) this.moveGhost(pe.clientX, pe.clientY); });
     addEventListener("resize", () => {
@@ -128,6 +132,10 @@ export class Windows {
   }
 
   toggle(w: HTMLElement) {
+    if (w === this.debugWin && !this.game.isGm()) {
+      this.game.onChat("notice", "[GM] Access denied. GameMaster privileges required.");
+      return;
+    }
     w.classList.toggle("hidden");
     if (!w.classList.contains("hidden")) {
       w.style.zIndex = String(++this.z);
@@ -670,7 +678,7 @@ export class Windows {
 
     body.innerHTML = `
       <div class="ability-card epic">
-        <div class="ability-tier"><span class="ability-ribbon">🎖</span> Epic Ability</div>
+        <div class="ability-tier"><span class="ability-ribbon">${lucideIcon("medal", 14)}</span> Epic Ability</div>
         <div class="ability-line main">+5% damage to normal monsters</div>
         <div class="ability-line sub">STR: +10, DEX: +5</div>
         <div class="ability-line sub">INT: +6, DEX: +3</div>
@@ -817,12 +825,16 @@ export class Windows {
     };
   }
 
-  // ------------------------------------------------------------- debug GM menu
+  // ------------------------------------------------------------- GM Control Panel
   buildDebug() {
-    const w = this.makeWindow("debug-win", 400, 520, "GM DEBUG MENU (F1)", innerWidth / 2 - 200, 70);
+    const w = this.makeWindow("debug-win", 440, 560, "★ GM CONTROL PANEL (F1)", innerWidth / 2 - 220, 50);
     this.debugWin = w;
     const g = this.game;
     const body = el("div", "debug-body", w);
+
+    // Top GM Status Ribbon
+    const gmRibbon = el("div", "debug-gm-ribbon", body);
+    gmRibbon.innerHTML = `<span>★ GameMaster Authorized: <b>${esc(g.stats.name || "GM")}</b></span><span class="text-sky-400">Maple Wayfarer GM Toolkit</span>`;
 
     // Top Tabs
     const tabs = el("div", "debug-tabs", body);
@@ -832,8 +844,8 @@ export class Windows {
       { id: "player", label: "Player" },
       { id: "stats", label: "Stats" },
       { id: "cheats", label: "Cheats" },
-      { id: "items", label: "Items" },
-      { id: "world", label: "World" },
+      { id: "items", label: "Items & Spawner" },
+      { id: "world", label: "World & Mobs" },
     ];
     const tabPanes: Record<string, HTMLElement> = {};
 
@@ -872,7 +884,7 @@ export class Windows {
         if (!isNaN(val)) g.setLevel(val);
       });
       const quickLvRow = el("div", "debug-row wrap gap-1 mt-1", secLv);
-      for (const n of [1, 5, 10, 30, 60, 100, 200, 250]) {
+      for (const n of [1, 5, 10, 30, 60, 100, 200, 250, 275]) {
         const b = el("button", "debug-btn small", quickLvRow);
         b.textContent = n >= 30 ? `Lv. ${n}` : `+${n}`;
         b.addEventListener("click", () => {
@@ -884,7 +896,7 @@ export class Windows {
 
       const expRow = el("div", "debug-row wrap gap-1 mt-1", secLv);
       el("span", "debug-label", expRow).textContent = "Add EXP:";
-      for (const e of [1000, 10000, 100000, 1000000, 10000000]) {
+      for (const e of [1000, 10000, 100000, 1000000, 10000000, 100000000]) {
         const b = el("button", "debug-btn small green", expRow);
         b.textContent = `+${fmt(e)}`;
         b.addEventListener("click", () => g.addExp(e));
@@ -922,14 +934,17 @@ export class Windows {
           if (c.tabs[tier]) {
             g.stats.job = c.tabs[tier];
             g.recalc();
-            g.onChat("notice", `[DEBUG] Advanced to ${g.stats.job}!`);
+            g.onChat("notice", `[GM] Advanced to ${g.stats.job}!`);
             g.onChange();
           }
         });
       }
+      const maxSkillQuickBtn = el("button", "debug-btn small flex-1", advRow);
+      maxSkillQuickBtn.textContent = "Max All Skills";
+      maxSkillQuickBtn.addEventListener("click", () => g.maxAllSkills());
 
       const secMeso = el("div", "debug-section", p);
-      el("div", "debug-sec-title", secMeso).textContent = "Mesos";
+      el("div", "debug-sec-title", secMeso).textContent = "Mesos & Economy";
       const mesoRow = el("div", "debug-row", secMeso);
       const mesoInp = el("input", "debug-input flex-1", mesoRow) as HTMLInputElement;
       mesoInp.type = "number"; mesoInp.value = String(g.stats.meso);
@@ -939,10 +954,20 @@ export class Windows {
         const val = parseInt(mesoInp.value);
         if (!isNaN(val)) {
           g.stats.meso = Math.max(0, val);
-          g.onGain("meso", `[DEBUG] Mesos set to ${g.stats.meso.toLocaleString()}`);
+          g.onGain("meso", `[GM] Mesos set to ${g.stats.meso.toLocaleString()}`);
           g.onChange();
         }
       });
+      const maxMesoBtn = el("button", "debug-btn gold", mesoRow) as HTMLButtonElement;
+      maxMesoBtn.textContent = "Max Mesos";
+      maxMesoBtn.title = "Set to MapleStory cap: 2,147,483,647";
+      maxMesoBtn.addEventListener("click", () => {
+        g.stats.meso = 2147483647;
+        mesoInp.value = "2147483647";
+        g.onGain("meso", "[GM] Mesos set to maximum cap: 2,147,483,647!");
+        g.onChange();
+      });
+
       const quickMesoRow = el("div", "debug-row wrap gap-1 mt-1", secMeso);
       for (const amt of [100000, 1000000, 10000000, 100000000, 1000000000]) {
         const b = el("button", "debug-btn small gold", quickMesoRow);
@@ -950,6 +975,27 @@ export class Windows {
         b.addEventListener("click", () => {
           g.giveMesos(amt);
           mesoInp.value = String(g.stats.meso);
+        });
+      }
+
+      const secFame = el("div", "debug-section", p);
+      el("div", "debug-sec-title", secFame).textContent = "Character Fame";
+      const fameRow = el("div", "debug-row", secFame);
+      el("span", "debug-label", fameRow).textContent = "Fame:";
+      const fameInp = el("input", "debug-input flex-1", fameRow) as HTMLInputElement;
+      fameInp.type = "number"; fameInp.value = String(g.stats.fame);
+      const setFameBtn = el("button", "debug-btn", fameRow) as HTMLButtonElement;
+      setFameBtn.textContent = "Set Fame";
+      setFameBtn.addEventListener("click", () => {
+        const val = parseInt(fameInp.value);
+        if (!isNaN(val)) g.setFame(val);
+      });
+      for (const amt of [10, 100, 1000]) {
+        const b = el("button", "debug-btn small green", fameRow);
+        b.textContent = `+${amt}`;
+        b.addEventListener("click", () => {
+          g.setFame(g.stats.fame + amt);
+          fameInp.value = String(g.stats.fame);
         });
       }
     }
@@ -969,7 +1015,7 @@ export class Windows {
         const val = parseInt(apInp.value);
         if (!isNaN(val)) { g.stats.ap = Math.max(0, val); g.onChange(); }
       });
-      for (const n of [10, 50, 100, 500]) {
+      for (const n of [10, 50, 100, 500, 5000]) {
         const b = el("button", "debug-btn small", apRow);
         b.textContent = `+${n}`;
         b.addEventListener("click", () => { g.stats.ap += n; apInp.value = String(g.stats.ap); g.onChange(); });
@@ -985,7 +1031,7 @@ export class Windows {
         const val = parseInt(spInp.value);
         if (!isNaN(val)) { g.stats.sp = Math.max(0, val); g.onChange(); }
       });
-      for (const n of [10, 50, 100]) {
+      for (const n of [10, 50, 100, 500]) {
         const b = el("button", "debug-btn small", spRow);
         b.textContent = `+${n}`;
         b.addEventListener("click", () => { g.stats.sp += n; spInp.value = String(g.stats.sp); g.onChange(); });
@@ -1012,16 +1058,35 @@ export class Windows {
       }
       const allRow = el("div", "debug-row gap-2 mt-2", secAttr);
       const addAll50 = el("button", "debug-btn green flex-1", allRow);
-      addAll50.textContent = "+50 All Attributes";
+      addAll50.textContent = "+50 All";
       addAll50.addEventListener("click", () => {
         g.stats.str += 50; g.stats.dex += 50; g.stats.int += 50; g.stats.luk += 50;
         g.recalc(); g.onChange();
       });
       const addAll500 = el("button", "debug-btn gold flex-1", allRow);
-      addAll500.textContent = "+500 All Attributes";
+      addAll500.textContent = "+500 All";
       addAll500.addEventListener("click", () => {
         g.stats.str += 500; g.stats.dex += 500; g.stats.int += 500; g.stats.luk += 500;
         g.recalc(); g.onChange();
+      });
+      const addAll5000 = el("button", "debug-btn red flex-1", allRow);
+      addAll5000.textContent = "+5,000 God Mode";
+      addAll5000.title = "Hyper boost for GM testing";
+      addAll5000.addEventListener("click", () => {
+        g.stats.str += 5000; g.stats.dex += 5000; g.stats.int += 5000; g.stats.luk += 5000;
+        g.recalc(); g.onChange();
+        g.onChat("notice", "[GM] Added +5,000 to all core stats!");
+      });
+
+      const resetAttrRow = el("div", "debug-row mt-1", secAttr);
+      const resetAttrBtn = el("button", "debug-btn small flex-1", resetAttrRow);
+      resetAttrBtn.textContent = "Reset Base Attributes to 4";
+      resetAttrBtn.addEventListener("click", () => {
+        if (confirm("Reset STR, DEX, INT, LUK back to baseline 4?")) {
+          g.stats.str = 4; g.stats.dex = 4; g.stats.int = 4; g.stats.luk = 4;
+          g.recalc(); g.onChange();
+          g.onChat("notice", "[GM] Primary attributes reset to 4.");
+        }
       });
     }
 
@@ -1045,20 +1110,22 @@ export class Windows {
         });
       };
 
-      makeToggle("God Mode", "Immune to contact damage and defeat", () => g.godMode, (v) => { g.godMode = v; g.onChat("notice", `[DEBUG] God Mode: ${v ? "ENABLED" : "DISABLED"}`); });
-      makeToggle("Infinite MP", "Cast skills and movement without spending MP", () => g.infiniteMp, (v) => { g.infiniteMp = v; g.onChat("notice", `[DEBUG] Infinite MP: ${v ? "ENABLED" : "DISABLED"}`); });
+      makeToggle("God Mode", "Immune to monster contact and attack damage", () => g.godMode, (v) => { g.godMode = v; g.onChat("notice", `[GM] God Mode: ${v ? "ENABLED" : "DISABLED"}`); });
+      makeToggle("Infinite MP", "Cast skills and movement without spending MP", () => g.infiniteMp, (v) => { g.infiniteMp = v; g.onChat("notice", `[GM] Infinite MP: ${v ? "ENABLED" : "DISABLED"}`); });
+      makeToggle("1-Hit Kill", "Inflicts maximum damage (9,999,999) on every attack", () => g.oneHitKill, (v) => { g.oneHitKill = v; g.onChat("notice", `[GM] 1-Hit Kill: ${v ? "ENABLED" : "DISABLED"}`); });
+      makeToggle("GM Hide (Invisibility)", "Monsters ignore player; player appears translucent", () => g.gmHide, (v) => { g.gmHide = v; g.onChat("notice", `[GM] GM Hide / Invisibility: ${v ? "ENABLED" : "DISABLED"}`); });
 
       const secSpeed = el("div", "debug-section", c);
-      el("div", "debug-sec-title", secSpeed).textContent = "Movement Speed Multiplier";
+      el("div", "debug-sec-title", secSpeed).textContent = "Movement Speed Multiplier (Super Haste)";
       const spdRow = el("div", "debug-row gap-1", secSpeed);
-      for (const mul of [1, 1.5, 2, 2.5, 3]) {
+      for (const mul of [1, 1.5, 2, 2.5, 3, 4]) {
         const b = el("button", `debug-btn small ${g.speedMultiplier === mul ? "active-speed" : ""}`, spdRow);
-        b.textContent = `${mul}x`;
+        b.textContent = mul === 4 ? "4x (Haste)" : `${mul}x`;
         b.addEventListener("click", () => {
           g.speedMultiplier = mul;
           for (const sibling of Array.from(spdRow.children)) sibling.classList.remove("active-speed");
           b.classList.add("active-speed");
-          g.onChat("notice", `[DEBUG] Speed multiplier set to ${mul}x.`);
+          g.onChat("notice", `[GM] Movement speed multiplier set to ${mul}x.`);
         });
       }
 
@@ -1074,79 +1141,228 @@ export class Windows {
       maxHpBtn.textContent = "+5,000 Base HP";
       maxHpBtn.addEventListener("click", () => { g.stats.baseHp += 5000; g.recalc(); g.stats.hp = g.stats.maxHp; g.onChange(); });
 
+      const hyperBodyBtn = el("button", "debug-btn gold flex-1", instRow);
+      hyperBodyBtn.textContent = "+50,000 Super HP";
+      hyperBodyBtn.title = "Hyper Body boost";
+      hyperBodyBtn.addEventListener("click", () => { g.stats.baseHp += 50000; g.recalc(); g.stats.hp = g.stats.maxHp; g.onChange(); g.onChat("notice", "[GM] Added +50,000 Base HP!"); });
+
       const maxSkillsBtn = el("button", "debug-btn gold flex-1", instRow);
       maxSkillsBtn.textContent = "Max Out All Class Skills";
       maxSkillsBtn.addEventListener("click", () => g.maxAllSkills());
     }
 
-    // --- TAB 4: ITEMS ---
+    // --- TAB 4: ITEMS & SPAWNER ---
     {
       const it = tabPanes.items;
-      const secPots = el("div", "debug-section", it);
-      el("div", "debug-sec-title", secPots).textContent = "Give Consumables & Potions";
-      const potRow = el("div", "debug-row wrap gap-2", secPots);
 
-      const giveAllPots = el("button", "debug-btn green flex-1", potRow);
-      giveAllPots.textContent = "+100x All Potions";
-      giveAllPots.addEventListener("click", () => {
-        g.giveItem(2000000, 100);
-        g.giveItem(2000001, 100);
-        g.giveItem(2000002, 100);
-        g.giveItem(2000003, 100);
-        g.giveItem(2000006, 100);
-      });
-
-      const giveElixir = el("button", "debug-btn flex-1", potRow);
-      giveElixir.textContent = "+50x White Potion";
-      giveElixir.addEventListener("click", () => g.giveItem(2000002, 50));
-
-      const secMats = el("div", "debug-section", it);
-      el("div", "debug-sec-title", secMats).textContent = "Give Crafting Materials";
-      const matRow = el("div", "debug-row wrap gap-2", secMats);
-
-      const giveMatsBtn = el("button", "debug-btn gold flex-1", matRow);
-      giveMatsBtn.textContent = "+50x Crafting Ores";
-      giveMatsBtn.addEventListener("click", () => {
-        for (const id of [4010000, 4010001, 4010002, 4010003, 4010006]) g.giveMat(id, 50);
-      });
-
-      const giveCubesBtn = el("button", "debug-btn flex-1", matRow);
-      giveCubesBtn.textContent = "+50x Occult Cubes";
-      giveCubesBtn.addEventListener("click", () => g.giveMat(4000010, 50));
-
-      const secInv = el("div", "debug-section", it);
-      el("div", "debug-sec-title", secInv).textContent = "Inventory Management";
-      const invRow = el("div", "debug-row gap-2", secInv);
-      const clearEquipsBtn = el("button", "debug-btn red flex-1", invRow);
-      clearEquipsBtn.textContent = "Clear Equip Bag";
-      clearEquipsBtn.addEventListener("click", () => {
-        if (confirm("Clear all unequipped gear in bag?")) {
-          g.bag = [];
-          g.onChange();
-          g.onChat("notice", "[DEBUG] Equip bag cleared.");
+      // Custom Item Spawner Section
+      const secSpawn = el("div", "debug-section", it);
+      el("div", "debug-sec-title", secSpawn).textContent = "Spawn Item by ID";
+      const spawnRow = el("div", "debug-row gap-1", secSpawn);
+      const itemIdInp = el("input", "debug-input flex-1", spawnRow) as HTMLInputElement;
+      itemIdInp.placeholder = "Item ID (e.g. 1003797 or 2000002)";
+      itemIdInp.type = "number";
+      const itemQtyInp = el("input", "debug-input", spawnRow) as HTMLInputElement;
+      itemQtyInp.placeholder = "Qty";
+      itemQtyInp.type = "number";
+      itemQtyInp.style.width = "54px";
+      itemQtyInp.value = "1";
+      itemQtyInp.min = "1";
+      const spawnItemBtn = el("button", "debug-btn gold", spawnRow) as HTMLButtonElement;
+      spawnItemBtn.textContent = "Spawn Item";
+      spawnItemBtn.addEventListener("click", () => {
+        const id = parseInt(itemIdInp.value);
+        const qty = parseInt(itemQtyInp.value) || 1;
+        if (!isNaN(id) && id > 0) {
+          g.giveAnyItem(id, qty);
+          this.ext?.renderInv?.();
+          this.ext?.renderEquip?.();
+        } else {
+          g.onChat("system", "[GM] Please enter a valid Item ID.");
         }
       });
-      const itemBrowserBtn = el("button", "debug-btn flex-1", invRow);
-      itemBrowserBtn.textContent = "Open All-Items Browser";
-      itemBrowserBtn.addEventListener("click", () => this.ext.items.open());
 
-      const secCosmetics = el("div", "debug-section", it);
-      el("div", "debug-sec-title", secCosmetics).textContent = "NX Cosmetics & Transmogs";
-      const cosRow = el("div", "debug-row wrap gap-2", secCosmetics);
-      const giveCosPackBtn = el("button", "debug-btn gold flex-1", cosRow);
-      giveCosPackBtn.textContent = "+1x NX Cosmetics Pack";
-      giveCosPackBtn.addEventListener("click", () => {
+      // All Items Catalog Launcher
+      const secBrowser = el("div", "debug-section", it);
+      el("div", "debug-sec-title", secBrowser).textContent = "Visual Item Browser";
+      const browserRow = el("div", "debug-row", secBrowser);
+      const openBrowserBtn = el("button", "debug-btn gold flex-1 py-1", browserRow) as HTMLButtonElement;
+      openBrowserBtn.innerHTML = `<span>★ Open All-Items Catalog (Hotkey: L)</span>`;
+      openBrowserBtn.addEventListener("click", () => this.ext.items.open());
+
+      // Preset Item Bundles
+      const secBundles = el("div", "debug-section", it);
+      el("div", "debug-sec-title", secBundles).textContent = "Equipment & Item Bundles";
+      const bundleGrid = el("div", "debug-row wrap gap-2", secBundles);
+
+      const makeBundleBtn = (label: string, title: string, fn: () => void, cls = "gold") => {
+        const b = el("button", `debug-btn flex-1 ${cls}`, bundleGrid) as HTMLButtonElement;
+        b.textContent = label;
+        b.title = title;
+        b.addEventListener("click", () => {
+          fn();
+          this.ext?.renderInv?.();
+          this.ext?.renderEquip?.();
+        });
+      };
+
+      makeBundleBtn("+100x All Potions", "Pots pack", () => {
+        for (const pid of [2000000, 2000001, 2000002, 2000003, 2000006]) g.giveItem(pid, 100);
+      }, "green");
+
+      makeBundleBtn("+50x Ores & Cubes", "Materials & Cubes", () => {
+        for (const oid of [4010000, 4010001, 4010002, 4010003, 4010006]) g.giveMat(oid, 50);
+        g.giveMat(4000010, 50); // Occult Cubes
+      });
+
+      makeBundleBtn("+1x NX Cosmetics Pack", "Royal Azure Feather, Capes, Outfits", () => {
         for (const cid of [1703214, 1003112, 1002419, 1002140, 1102041, 1102039, 1050018, 1442011, 1302016]) {
           g.addGear(makeGear(cid, 0));
         }
         g.onChange();
-        g.onChat("notice", "[DEBUG] Received NX Cosmetics Starter Pack. Equip in Cash/Visual tab!");
+        g.onChat("notice", "[GM] Added NX Cosmetics Pack to inventory.");
+      });
+
+      makeBundleBtn("+1x Chaos Root Abyss (CRA) Set", "Royal Hat, Eagle Eye Top, Trixter Pants", () => {
+        for (const gid of [1003797, 1042254, 1062165]) {
+          g.addGear(makeGear(gid, 0));
+        }
+        g.onChange();
+        g.onChat("notice", "[GM] Added Chaos Root Abyss gear set!");
+      });
+
+      makeBundleBtn("+1x Arcane Umbra Weapons", "Arcane 2H Sword, Dagger, Bow, Claw, Wand", () => {
+        for (const wid of [1402259, 1332279, 1452257, 1472265, 1372228, 1482221]) {
+          g.addGear(makeGear(wid, 0));
+        }
+        g.onChange();
+        g.onChat("notice", "[GM] Added Arcane Umbra weapon collection!");
+      });
+
+      makeBundleBtn("+1x Boss Accessory Pack", "Horntail Pendant, Belt, Guardian Angel Ring, Face/Eye", () => {
+        for (const aid of [1122000, 1132246, 1113075, 1012000, 1022000, 1032224]) {
+          g.addGear(makeGear(aid, 0));
+        }
+        g.onChange();
+        g.onChat("notice", "[GM] Added Boss Accessories collection!");
+      });
+
+      // Bag Management
+      const secInv = el("div", "debug-section", it);
+      el("div", "debug-sec-title", secInv).textContent = "Inventory Management";
+      const invRow = el("div", "debug-row", secInv);
+      const clearEquipsBtn = el("button", "debug-btn red flex-1", invRow);
+      clearEquipsBtn.textContent = "Clear Equip Bag";
+      clearEquipsBtn.addEventListener("click", () => {
+        if (confirm("Clear all unequipped gear in bag? This cannot be undone.")) {
+          g.bag = [];
+          g.onChange();
+          this.ext?.renderInv?.();
+          g.onChat("notice", "[GM] Equip bag cleared.");
+        }
       });
     }
 
-    // --- TAB 5: WORLD ---
+    // --- TAB 5: WORLD & MOBS ---
     {
       const wd = tabPanes.world;
+
+      // Mob Wave Spawner
+      const secMob = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secMob).textContent = "Monster & Boss Wave Spawner";
+      const mobRow1 = el("div", "debug-row gap-1", secMob);
+      const selMob = el("select", "debug-select flex-1", mobRow1) as HTMLSelectElement;
+      const mobPresets = [
+        { id: 210100, name: "Snail (Lv. 1)" },
+        { id: 1110100, name: "Slime (Lv. 6)" },
+        { id: 1210102, name: "Orange Mushroom (Lv. 8)" },
+        { id: 2220000, name: "Blue Mushroom [Boss] (Lv. 20)" },
+        { id: 3220000, name: "Stumpy [Boss] (Lv. 35)" },
+        { id: 6130101, name: "Mushmom [Boss] (Lv. 60)" },
+        { id: 9300003, name: "Mano [Boss] (Lv. 20)" },
+        { id: 8220007, name: "Dyle [Boss] (Lv. 65)" },
+        { id: 5220000, name: "Faust [Boss] (Lv. 50)" },
+        { id: 6300005, name: "Zombie Mushmom [Boss] (Lv. 65)" },
+      ];
+      for (const mp of mobPresets) {
+        const opt = el("option", "", selMob) as HTMLOptionElement;
+        opt.value = String(mp.id);
+        opt.textContent = `${mp.name} (${mp.id})`;
+      }
+      const selCount = el("select", "debug-select", mobRow1) as HTMLSelectElement;
+      selCount.style.width = "75px";
+      for (const cnt of [1, 3, 5, 10, 20]) {
+        const opt = el("option", "", selCount) as HTMLOptionElement;
+        opt.value = String(cnt);
+        opt.textContent = `${cnt}x`;
+      }
+      const spawnMobBtn = el("button", "debug-btn red", mobRow1) as HTMLButtonElement;
+      spawnMobBtn.textContent = "Summon";
+      spawnMobBtn.addEventListener("click", () => {
+        const id = parseInt(selMob.value);
+        const count = parseInt(selCount.value) || 1;
+        if (id) g.spawnCustomMob(id, count);
+      });
+
+      const mobRow2 = el("div", "debug-row gap-1 mt-1", secMob);
+      const customMobInp = el("input", "debug-input flex-1", mobRow2) as HTMLInputElement;
+      customMobInp.placeholder = "Custom Mob ID (e.g. 100100)";
+      customMobInp.type = "number";
+      const spawnCustomBtn = el("button", "debug-btn", mobRow2) as HTMLButtonElement;
+      spawnCustomBtn.textContent = "Summon Custom";
+      spawnCustomBtn.addEventListener("click", () => {
+        const id = parseInt(customMobInp.value);
+        const count = parseInt(selCount.value) || 1;
+        if (!isNaN(id) && id > 0) g.spawnCustomMob(id, count);
+        else g.onChat("system", "[GM] Please enter a valid Mob ID.");
+      });
+
+      // Monster Management (Magnet & Purge)
+      const secMobMgmt = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secMobMgmt).textContent = "Monster Control (Magnet & Purge)";
+      const mgmtRow = el("div", "debug-row gap-2", secMobMgmt);
+      const magnetBtn = el("button", "debug-btn gold flex-1", mgmtRow);
+      magnetBtn.textContent = "Magnet Mobs (Pull to GM)";
+      magnetBtn.addEventListener("click", () => g.magnetMobs());
+      const killAllBtn = el("button", "debug-btn red flex-1", mgmtRow);
+      killAllBtn.textContent = "Kill All Monsters on Map";
+      killAllBtn.addEventListener("click", () => g.killAllMobs());
+
+      // Combat & Stage Progression
+      const secCombat = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secCombat).textContent = "Stage & Boss Progression";
+      const combatRow1 = el("div", "debug-row wrap gap-2", secCombat);
+      const readyBossBtn = el("button", "debug-btn gold flex-1", combatRow1);
+      readyBossBtn.textContent = "Ready Stage Boss (25 Kills)";
+      readyBossBtn.addEventListener("click", () => g.readyBossImmediate());
+
+      const spawnBossBtn = el("button", "debug-btn red flex-1", combatRow1);
+      spawnBossBtn.textContent = "Spawn Boss Immediately";
+      spawnBossBtn.addEventListener("click", () => g.spawnBossImmediate());
+
+      const combatRow2 = el("div", "debug-row wrap gap-2 mt-1", secCombat);
+      const advanceStageBtn = el("button", "debug-btn green flex-1", combatRow2);
+      advanceStageBtn.textContent = "Advance to Next Stage / Area";
+      advanceStageBtn.addEventListener("click", () => g.advanceStageImmediate());
+
+      // Server Broadcast / Notice Banner
+      const secNotice = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secNotice).textContent = "Server Announcement / Broadcast";
+      const noticeRow = el("div", "debug-row gap-1", secNotice);
+      const noticeInp = el("input", "debug-input flex-1", noticeRow) as HTMLInputElement;
+      noticeInp.placeholder = "GM announcement text...";
+      noticeInp.maxLength = 120;
+      const broadcastBtn = el("button", "debug-btn gold", noticeRow) as HTMLButtonElement;
+      broadcastBtn.textContent = "Broadcast";
+      broadcastBtn.addEventListener("click", () => {
+        const text = noticeInp.value.trim();
+        if (text) {
+          g.broadcastNotice(text);
+          noticeInp.value = "";
+        }
+      });
+
+      // Map Teleport / Warp
       const secWarp = el("div", "debug-section", wd);
       el("div", "debug-sec-title", secWarp).textContent = "Map Teleport / Warp";
       const warpRow = el("div", "debug-row", secWarp);
@@ -1169,10 +1385,11 @@ export class Windows {
         const targetId = parseInt(selMap.value);
         if (targetId) {
           g.loadMap(targetId, "spawn");
-          g.onChat("notice", `[DEBUG] Teleported to map ${targetId}.`);
+          g.onChat("notice", `[GM] Teleported to map ${targetId}.`);
         }
       });
 
+      // Multiplayer & Network Sync
       const secSync = el("div", "debug-section", wd);
       el("div", "debug-sec-title", secSync).textContent = "Multiplayer & Network Sync";
       const syncRow = el("div", "debug-row gap-2", secSync);
@@ -1188,27 +1405,6 @@ export class Windows {
         g.initWs();
         g.onChat("system", "[Sync] Reconnecting WebSocket...");
       });
-
-      const secCombat = el("div", "debug-section", wd);
-      el("div", "debug-sec-title", secCombat).textContent = "Combat & Stage Progression";
-      const combatRow1 = el("div", "debug-row wrap gap-2", secCombat);
-
-      const killAllBtn = el("button", "debug-btn red flex-1", combatRow1);
-      killAllBtn.textContent = "Kill All Monsters on Map";
-      killAllBtn.addEventListener("click", () => g.killAllMobs());
-
-      const readyBossBtn = el("button", "debug-btn gold flex-1", combatRow1);
-      readyBossBtn.textContent = "Ready Stage Boss (25 Kills)";
-      readyBossBtn.addEventListener("click", () => g.readyBossImmediate());
-
-      const combatRow2 = el("div", "debug-row wrap gap-2 mt-1", secCombat);
-      const spawnBossBtn = el("button", "debug-btn red flex-1", combatRow2);
-      spawnBossBtn.textContent = "Spawn Boss Immediately";
-      spawnBossBtn.addEventListener("click", () => g.spawnBossImmediate());
-
-      const advanceStageBtn = el("button", "debug-btn green flex-1", combatRow2);
-      advanceStageBtn.textContent = "Advance to Next Stage / Area";
-      advanceStageBtn.addEventListener("click", () => g.advanceStageImmediate());
     }
   }
 

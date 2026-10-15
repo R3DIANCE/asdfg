@@ -99,6 +99,10 @@ export class ItemBrowser {
   }
 
   open() {
+    if (this.parent?.game && !this.parent.game.isGm()) {
+      this.parent.game.onChat?.("notice", "[GM] Access denied. GameMaster privileges required.");
+      return;
+    }
     this.win.classList.remove("hidden");
     this.win.style.zIndex = String(++this.parent.z);
     clampWindow(this.win);

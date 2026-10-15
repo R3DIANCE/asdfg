@@ -1,0 +1,37 @@
+services:
+  spacetimedb:
+    image: clockworklabs/spacetime:latest
+    container_name: maple-spacetimedb
+    restart: unless-stopped
+    command: start
+    ports:
+      - "3001:3000"
+    volumes:
+      - spacetimedb-data:/home/spacetime
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/v1/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: maple-game
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - SPACETIMEDB_URL=http://spacetimedb:3000
+    depends_on:
+      spacetimedb:
+        condition: service_started
+    volumes:
+      - ./public:/app/public:ro
+      - ./wz:/app/wz:ro
+
+volumes:
+  spacetimedb-data:

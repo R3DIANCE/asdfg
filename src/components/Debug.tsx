@@ -73,25 +73,36 @@ export function DebugPanel() {
 
   return (
     <div
+      className="dock-perf-badge"
       style={{
         display: "flex",
-        alignItems: "center",
-        gap: "10px",
-        fontSize: "12px",
-        fontWeight: 700,
-        fontFamily: "'SF Mono', Menlo, Consolas, monospace",
-        textShadow: "0 1px 3px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 0.9)",
-        pointerEvents: "none",
-        userSelect: "none",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        gap: "1px",
+        height: "40px",
+        minWidth: "90px",
+        boxSizing: "border-box",
+        padding: "0 4px",
         background: "transparent",
         border: "none",
-        padding: 0,
-        margin: 0,
+        boxShadow: "none",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
+        fontFamily: "'SF Mono', Menlo, Consolas, monospace",
+        textShadow: "0 1px 3px rgba(0, 0, 0, 0.95), 0 0 4px rgba(0, 0, 0, 0.8)",
+        pointerEvents: "none",
+        userSelect: "none",
+        whiteSpace: "nowrap",
       }}
     >
-      <span style={{ color: fpsColor }}>{fps} FPS</span>
-      <span style={{ color: pingColor }}>{pingStr}</span>
-      {heap != null && <span style={{ color: "#cbd5e1" }}>{heap} MB JS</span>}
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 700, lineHeight: 1.25 }}>
+        <span style={{ color: fpsColor }}>{fps} FPS</span>
+        <span style={{ color: pingColor }}>{pingStr}</span>
+      </div>
+      <div style={{ fontSize: "9.5px", fontWeight: 600, color: "#94a3b8", lineHeight: 1.2 }}>
+        {heap != null ? <span>{heap} MB JS</span> : <span>JS HEAP</span>}
+      </div>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { MinimapComponent } from "./components/minimap.ts";
 import { StatusCapsule, MenuButtons, PlayerStatusTag } from "./components/hud.ts";
 import { QuickBarComponent } from "./components/quick-bar.ts";
 import type { Action } from "./skills.ts";
-import { el } from "./util.ts";
+import { el, esc } from "./util.ts";
 
 export type UiData = Record<string, any>;
 
@@ -39,12 +39,14 @@ export class Hud extends ComponentBase {
 
   playerTag!: PlayerStatusTag;
   status!: StatusCapsule;
+  perfContainer!: HTMLElement;
   menu!: MenuButtons;
   quick!: QuickBarComponent;
   chat!: ChatComponent;
   mini!: MinimapComponent;
   wins!: Windows;
   gain!: HTMLElement;
+  noticeBanner!: HTMLElement;
   lastSig = "";
 
   childEntities: Object3D[] = [];
@@ -136,6 +138,7 @@ export class Hud extends ComponentBase {
     );
 
     this.status = createUIEntity("StatusCapsule", StatusCapsule, { parent: this.dockCenter }, this.childEntities);
+    this.perfContainer = el("div", "dock-perf-container select-none pointer-events-none", this.status.root);
 
     // Right: Action Controls Header + Quick Slots Keyboard
     const ctrlRow = el("div", "dock-controls-row flex items-center justify-end w-full mb-1 px-0.5 gap-2", this.dockRight);
@@ -169,8 +172,28 @@ export class Hud extends ComponentBase {
     this.gain = el("div", "gains", this.root);
     this.gain.style.display = "none";
 
+    // 7. GM Notice Banner (MapleStory top banner)
+    this.noticeBanner = el("div", "gm-notice-banner hidden", document.body);
+    addEventListener("gm-broadcast-notice", (e: any) => {
+      this.showNoticeBanner(e.detail?.text ?? "");
+    });
+
     this.layout();
     addEventListener("resize", () => this.layout());
+  }
+
+  showNoticeBanner(text: string) {
+    if (!this.noticeBanner) return;
+    this.noticeBanner.innerHTML = `<span class="notice-prefix">[GM Notice]</span> <span class="notice-text">${esc(text)}</span>`;
+    this.noticeBanner.classList.remove("hidden");
+    this.noticeBanner.classList.remove("banner-active");
+    void this.noticeBanner.offsetWidth; // re-flow
+    this.noticeBanner.classList.add("banner-active");
+    clearTimeout((this.noticeBanner as any)._timer);
+    (this.noticeBanner as any)._timer = setTimeout(() => {
+      this.noticeBanner.classList.remove("banner-active");
+      setTimeout(() => this.noticeBanner.classList.add("hidden"), 400);
+    }, 7000);
   }
 
   get chatInput() {

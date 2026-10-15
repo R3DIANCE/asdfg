@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Maple Wayfarer</title>
-  <meta name="description" content="A fan-made MapleStory-style side-scrolling platformer with 4 playable classes, instanced WebGPU rendering, auto-battle, crafting, bosses, and gear progression." />
+  <meta name="description" content=" " />
   <meta property="og:title" content="Maple Wayfarer" />
-  <meta property="og:description" content="A fan-made MapleStory-style side-scrolling platformer with 4 playable classes, instanced WebGPU rendering, auto-battle, crafting, bosses, and gear progression." />
+  <meta property="og:description" content=" " />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="stylesheet" href="/src/style.css" />
@@ -19,7 +19,7 @@
         <img id="title-mob" alt="" class="w-16 h-16 image-rendering-pixelated rounded" />
         <div class="text-left">
           <h1 class="text-3xl font-bold text-lime-400 tracking-wide">Maple Wayfarer</h1>
-          <p class="text-xs text-muted-2 mt-1 leading-relaxed">A fan-made MapleStory-style platformer · WebGPU</p>
+          <p class="text-xs text-muted-2 mt-1 leading-relaxed">&nbsp;</p>
         </div>
       </div>
       <label class="field mb-3">Character name
@@ -51,21 +51,32 @@
     </div>
   </section>
   <div id="loading" class="loading-overlay">
-    <div class="loading-card">
-      <div class="loading-header">
-        <span class="loading-leaf">🍁</span>
-        <span class="loading-title">MAPLE WAYFARER</span>
+    <div class="loading-simple">
+      <div class="slime-bounce-wrap">
+        <img id="loading-slime" class="slime-sprite" alt="Loading Slime" />
+        <div class="slime-shadow"></div>
       </div>
+      <script>
+        (function() {
+          var s = document.getElementById('loading-slime');
+          if (s) {
+            s.src = '/wz/sprite/Mob/0100100/move/2';
+            s.onerror = function() { s.src = '/wz/sprite/Mob/0100100/stand/0'; };
+          }
+        })();
+      </script>
       <div class="loading-status" id="loading-status">Connecting to Maple World…</div>
       <div class="loading-bar-wrap">
         <div class="loading-bar-fill" id="loading-bar-fill" style="width: 5%;"></div>
+      </div>
+      <div class="loading-meta">
+        <span class="loading-sub" id="loading-sub">Initializing graphics engine & assets</span>
         <span class="loading-pct" id="loading-pct">5%</span>
       </div>
-      <div class="loading-sub" id="loading-sub">Initializing WebGPU engine & assets</div>
     </div>
   </div>
   <section id="gpu-error" class="overlay hidden">
-    <div class="login"><h1>WebGPU is required</h1><p>Use a recent Chrome, Edge, or Safari 26+, or open this page in its own tab.</p><p class="err-detail"></p></div>
+    <div class="login"><h1>Graphics Error</h1><p>WebGPU or WebGL2 is required. Use a modern browser (Chrome, Edge, Firefox, or Safari).</p><p class="err-detail"></p></div>
   </section>
   <script type="module" src="/src/main.ts"></script>
 </body>

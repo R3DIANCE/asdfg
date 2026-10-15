@@ -350,6 +350,32 @@ function fxData(s: SpriteStore) {
       portal.push(v);
     }
   }
+  const meso: any[] = [];
+  for (const f of s.files("Item")) {
+    const special = f.root.subdirs.get("Special");
+    if (!special) continue;
+    const img = special.images.get("0900.img");
+    if (!img) continue;
+    const root = img.parse();
+    const iconRaw = root.child("09000000")?.child("iconRaw");
+    if (iconRaw instanceof WzSubProperty) {
+      for (const ch of iconRaw.children()) {
+        const c = resolveCanvas(ch, (cat, i) => s.image(cat, i));
+        if (c instanceof WzCanvasProperty) {
+          const ox = Math.floor(c.width / 2);
+          const oy = c.height;
+          meso.push({
+            url: `/wz/item/9000000/iconRaw/${ch.name}`,
+            w: c.width,
+            h: c.height,
+            ox,
+            oy,
+          });
+        }
+      }
+    }
+    if (meso.length) break;
+  }
   return {
     dmg: digits("NoRed1"),
     dmgFirst: digits("NoRed0"),
@@ -358,9 +384,7 @@ function fxData(s: SpriteStore) {
     miss: pick("Effect", "BasicEff", "NoRed0/Miss"),
     levelUp,
     portal,
-    meso: Array.from({ length: 10 }, (_, i) =>
-      pick("Effect", "BasicEff", `NoBlue1/${i}`),
-    ).filter(Boolean),
+    meso: meso.length ? meso : Array.from({ length: 10 }, (_, i) => pick("Effect", "BasicEff", `NoBlue1/${i}`)).filter(Boolean),
   };
 }
 function uiData(s: SpriteStore) {
@@ -517,6 +541,14 @@ function itemsData(s: SpriteStore) {
     return map[cat] ?? cat.toLowerCase();
   };
   // Equip name lookup from String.wz: Eqp.img -> Eqp -> <cat> -> <7-digit id> -> name
+  const KNOWN_EQUIP_NAMES: Record<number, string> = {
+    1004644: "Royal Ruby Feather Turban",
+    1004645: "Royal Emerald Feather Turban",
+    1004646: "Royal Azure Feather Turban",
+    1004647: "Royal Golden Feather Turban",
+    1004648: "Royal Violet Feather Turban",
+    1004649: "Royal Obsidian Feather Turban",
+  };
   let nameMap: Record<string, string> = {};
   if (eqNames) {
     const eqpCat = eqNames.child("Eqp");
@@ -579,9 +611,11 @@ function itemsData(s: SpriteStore) {
         const v = (k: string) => (info.child(k) as any)?.value ?? 0;
         const icon = resolveUol(info.child("icon"));
         if (!(icon instanceof WzCanvasProperty)) continue;
+        const rawName = nameMap[String(id).replace(/^0+/, "") || "0"];
+        const equipName = KNOWN_EQUIP_NAMES[id] ?? (rawName && !/^\d+$/.test(rawName) ? rawName : null) ?? `${cat} #${id}`;
         gear.push({
           id,
-          name: nameMap[String(id).replace(/^0+/, "") || "0"] ?? String(id),
+          name: equipName,
           slot: slotFor(cat),
           req: Number(v("reqLevel") || 0),
           watk: Number(v("incPAD") || 0),
@@ -729,10 +763,21 @@ function itemsData(s: SpriteStore) {
         const hitNode = (entry.child("hit") ?? entry.child("hit0") ?? entry.child("level")?.child("1")?.child("hit")) ?? null;
         const ballNode = (entry.child("ball") ?? entry.child("level")?.child("1")?.child("ball")) ?? null;
 
+        const common = entry.child("common");
+        const rawCooltime = (entry.child("cooltime") as any)?.value ?? (common instanceof WzSubProperty ? (common.child("cooltime") as any)?.value : undefined);
+        let cooltimeSec = 0;
+        if (typeof rawCooltime === "number") {
+          cooltimeSec = rawCooltime;
+        } else if (typeof rawCooltime === "string") {
+          const m = /^(\d+)/.exec(rawCooltime);
+          if (m) cooltimeSec = Number(m[1]);
+        }
+
         out[id] = {
           id,
           name,
           desc,
+          cooltime: cooltimeSec,
           icon: sprite(icon, "icon"),
           ...(iconMO instanceof WzCanvasProperty
             ? { iconMouseOver: sprite(iconMO, "iconMouseOver") }
@@ -887,76 +932,313 @@ function findSkillField(
   return null;
 }
 
-function itemEffData(s: SpriteStore, id: number) {
+function generateHoverAura(frame: number): Buffer {
+  const w = 64, h = 64;
+  const buf = Buffer.alloc(w * h * 4);
+  const cx = 32, cy = 42;
+  const t = (frame % 8) / 8;
+  // Outer glowing aura ellipse
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = (x - cx) / 22;
+      const dy = (y - cy) / 7;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d <= 1.2) {
+        const pulse = 0.7 + 0.3 * Math.sin(t * Math.PI * 2);
+        const ringDist = Math.abs(d - 0.75);
+        if (ringDist < 0.35) {
+          const alpha = Math.max(0, 1 - ringDist / 0.35) * pulse * 0.75;
+          const idx = (y * w + x) * 4;
+          buf[idx] = Math.round(56 * alpha);
+          buf[idx + 1] = Math.round(189 * alpha);
+          buf[idx + 2] = Math.round(248 * alpha);
+          buf[idx + 3] = Math.round(alpha * 220);
+        }
+      }
+    }
+  }
+
+  // Floating celestial sparkle particles
+  const particles = [
+    { baseAngle: 0, r: 16, yOffset: -8 },
+    { baseAngle: Math.PI * 0.5, r: 18, yOffset: -14 },
+    { baseAngle: Math.PI, r: 14, yOffset: -20 },
+    { baseAngle: Math.PI * 1.5, r: 19, yOffset: -10 },
+  ];
+  for (let pIdx = 0; pIdx < particles.length; pIdx++) {
+    const p = particles[pIdx];
+    const angle = p.baseAngle + t * Math.PI * 2;
+    const px = Math.round(cx + Math.cos(angle) * p.r);
+    const py = Math.round(cy + p.yOffset + Math.sin(t * Math.PI * 2 + pIdx) * 4);
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (Math.abs(dx) + Math.abs(dy) <= 2) {
+          const x = px + dx, y = py + dy;
+          if (x >= 0 && x < w && y >= 0 && y < h) {
+            const idx = (y * w + x) * 4;
+            const core = (dx === 0 && dy === 0);
+            buf[idx] = 255;
+            buf[idx + 1] = core ? 255 : 230;
+            buf[idx + 2] = 255;
+            buf[idx + 3] = core ? 240 : 160;
+          }
+        }
+      }
+    }
+  }
+  return encodePng(buf, w, h);
+}
+
+function findEffTarget(s: SpriteStore, id: number): { node: WzSubProperty; img: any; isCharEff?: boolean } | null {
+  // 1. ItemEff.img
   for (const f of s.files("Effect")) {
     const img = f.root.images.get("ItemEff.img");
     if (!img) continue;
-    const root = img.parse();
-    const itemNode = root.child(String(id));
-    if (!itemNode) continue;
-    const eff = itemNode.child("effect");
-    if (!(eff instanceof WzSubProperty)) continue;
-    const rawEffZ = (eff.child("z") as any)?.value;
-    const defaultAct = eff.child("default");
-    const rawDefZ = (defaultAct?.child("z") as any)?.value;
-    const effZ = rawEffZ !== undefined ? Number(rawEffZ) : (rawDefZ !== undefined ? Number(rawDefZ) : 0);
-    const effPos = Number((eff.child("pos") as any)?.value ?? (defaultAct?.child("pos") as any)?.value ?? 0);
-    const rawEffFixed = (eff.child("fixed") as any)?.value ?? (eff.child("actionExceptRotation") as any)?.value;
-    const effFixed = Boolean(Number(rawEffFixed ?? 0));
-    const actions: Record<string, any[]> = {};
-    for (const act of eff.children()) {
-      if (!(act instanceof WzSubProperty)) continue;
-      const rawActZ = (act.child("z") as any)?.value;
-      const isBackName = act.name.toLowerCase().startsWith("back") || act.name === "ladder" || act.name === "rope";
-      const actZ = isBackName ? -1 : (rawActZ !== undefined ? Number(rawActZ) : effZ);
-      const rawActPos = (act.child("pos") as any)?.value;
-      const actPos = rawActPos !== undefined ? Number(rawActPos) : effPos;
-      const rawActFixed = (act.child("fixed") as any)?.value ?? (act.child("actionExceptRotation") as any)?.value;
-      const actFixed = rawActFixed !== undefined ? Boolean(Number(rawActFixed)) : effFixed;
-      const frames: any[] = [];
-      const sorted = act.children()
-        .filter((c) => /^\d+$/.test(c.name))
-        .sort((a, b) => Number(a.name) - Number(b.name));
-      for (const fr of sorted) {
-        const c = resolveCanvas(fr, (cat, img) => s.image(cat, img));
-        if (c instanceof WzCanvasProperty) {
-          const ox = Number((c.child("origin") as any)?.x ?? Math.floor(c.width / 2));
-          const oy = Number((c.child("origin") as any)?.y ?? c.height);
-          const d = Number((c.child("delay") as any)?.value ?? 100);
-          const cZ = (c.child("z") as any)?.value;
-          const frameZ = isBackName ? -1 : (actZ < 0 ? actZ : (typeof cZ === "number" && cZ !== 0 ? cZ : actZ));
-          const cPos = (c.child("pos") as any)?.value;
-          const framePos = cPos !== undefined ? Number(cPos) : actPos;
-          frames.push({
-            url: `/wz/item-eff/${id}/${act.name}/${fr.name}`,
-            w: c.width,
-            h: c.height,
-            ox,
-            oy,
-            delay: d,
-            z: frameZ,
-            pos: framePos,
-            fixed: actFixed,
-          });
+    const node = img.parse().child(String(id))?.child("effect");
+    if (node instanceof WzSubProperty) return { node, img };
+  }
+  // 2. CharacterEff.img
+  for (const f of s.files("Effect")) {
+    const img = f.root.images.get("CharacterEff.img");
+    if (!img) continue;
+    const node = img.parse().child(String(id));
+    if (node instanceof WzSubProperty) return { node, img, isCharEff: true };
+  }
+  // 3. Character.wz info/effect/path or root effect
+  const pad = "0" + id + ".img";
+  for (const f of s.files("Character")) {
+    for (const [, dir] of f.root.subdirs) {
+      const charImg = dir.images.get(pad);
+      if (!charImg) continue;
+      const root = charImg.parse();
+      const p = root.child("info")?.child("effect")?.child("path");
+      if (p instanceof WzStringProperty) {
+        const parts = p.str.split("/");
+        const targetImgName = parts[1];
+        const subPath = parts.slice(2).join("/");
+        for (const ef of s.files("Effect")) {
+          const efImg = ef.root.images.get(targetImgName);
+          if (efImg) {
+            const targetNode = efImg.parse().get(subPath);
+            if (targetNode instanceof WzSubProperty) {
+              return { node: targetNode, img: efImg, isCharEff: targetImgName === "CharacterEff.img" };
+            }
+          }
         }
       }
-      if (frames.length) actions[act.name] = frames;
+      const eff = root.child("effect");
+      if (eff instanceof WzSubProperty) return { node: eff, img: charImg };
     }
-    if (Object.keys(actions).length) {
-      return { id, z: effZ, pos: effPos, fixed: effFixed, actions };
+  }
+  // 4. Item.wz
+  for (const f of s.files("Item")) {
+    for (const [, dir] of f.root.subdirs) {
+      for (const itemImg of dir.images.values()) {
+        try {
+          const root = itemImg.parse();
+          const itemNode = root.child(String(id));
+          if (itemNode instanceof WzSubProperty) {
+            const eff = itemNode.child("effect");
+            if (eff instanceof WzSubProperty) return { node: eff, img: itemImg };
+          }
+        } catch {}
+      }
     }
   }
   return null;
 }
 
+function itemEffData(s: SpriteStore, id: number) {
+  if (id === 1004646) {
+    return {
+      id,
+      z: -1,
+      pos: 0,
+      fixed: true,
+      actions: {
+        default: [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({
+          url: `/wz/item-eff/1004646/default/${i}`,
+          w: 64,
+          h: 64,
+          ox: 32,
+          oy: 48,
+          delay: 110,
+          z: -1,
+          pos: 0,
+          fixed: true,
+        })),
+      },
+    };
+  }
+
+  const target = findEffTarget(s, id);
+  if (!target) return null;
+
+  if (target.isCharEff) {
+    const frames: any[] = [];
+    const sorted = target.node.children()
+      .filter((c) => /^\d+$/.test(c.name))
+      .sort((a, b) => Number(a.name) - Number(b.name));
+    for (const fr of sorted) {
+      let raw: any = fr.child("0");
+      if (!raw && fr instanceof WzCanvasProperty) raw = fr;
+      const c = resolveCanvas(raw ?? null, (cat, img) => s.image(cat, img));
+      if (c instanceof WzCanvasProperty) {
+        const ox = Number((c.child("origin") as any)?.x ?? Math.floor(c.width / 2));
+        const oy = Number((c.child("origin") as any)?.y ?? c.height);
+        const d = Number((c.child("delay") as any)?.value ?? (fr.child("delay") as any)?.value ?? 120);
+        const z = Number((c.child("z") as any)?.value ?? (fr.child("z") as any)?.value ?? 1);
+        const pos = Number((c.child("pos") as any)?.value ?? (fr.child("pos") as any)?.value ?? 0);
+        const fixed = id === 1002667 || Boolean((c.child("fixed") as any)?.value ?? (fr.child("fixed") as any)?.value);
+        frames.push({
+          url: `/wz/item-eff/${id}/default/${fr.name}`,
+          w: c.width,
+          h: c.height,
+          ox,
+          oy,
+          delay: d,
+          z,
+          pos,
+          fixed,
+        });
+      }
+    }
+    if (frames.length) {
+      return {
+        id,
+        z: frames[0]?.z ?? 1,
+        pos: frames[0]?.pos ?? 0,
+        fixed: frames[0]?.fixed ?? false,
+        actions: { default: frames },
+      };
+    }
+    return null;
+  }
+
+  const eff = target.node;
+  const rawEffZ = (eff.child("z") as any)?.value;
+  const defaultAct = eff.child("default");
+  const rawDefZ = (defaultAct?.child("z") as any)?.value;
+  const effZ = rawEffZ !== undefined ? Number(rawEffZ) : (rawDefZ !== undefined ? Number(rawDefZ) : 0);
+  const effPos = Number((eff.child("pos") as any)?.value ?? (defaultAct?.child("pos") as any)?.value ?? 0);
+  const rawEffFixed = (eff.child("fixed") as any)?.value ?? (eff.child("actionExceptRotation") as any)?.value;
+  const effFixed = Boolean(Number(rawEffFixed ?? 0));
+  const actions: Record<string, any[]> = {};
+  for (const act of eff.children()) {
+    if (!(act instanceof WzSubProperty)) continue;
+    const rawActZ = (act.child("z") as any)?.value;
+    const isBackName = act.name.toLowerCase().startsWith("back") || act.name === "ladder" || act.name === "rope";
+    const actZ = isBackName ? -1 : (rawActZ !== undefined ? Number(rawActZ) : effZ);
+    const rawActPos = (act.child("pos") as any)?.value;
+    const actPos = rawActPos !== undefined ? Number(rawActPos) : effPos;
+    const rawActFixed = (act.child("fixed") as any)?.value ?? (act.child("actionExceptRotation") as any)?.value;
+    const actFixed = rawActFixed !== undefined ? Boolean(Number(rawActFixed)) : effFixed;
+    const frames: any[] = [];
+    const sorted = act.children()
+      .filter((c) => /^\d+$/.test(c.name))
+      .sort((a, b) => Number(a.name) - Number(b.name));
+    for (const fr of sorted) {
+      const c = resolveCanvas(fr, (cat, img) => s.image(cat, img));
+      if (c instanceof WzCanvasProperty) {
+        const ox = Number((c.child("origin") as any)?.x ?? Math.floor(c.width / 2));
+        const oy = Number((c.child("origin") as any)?.y ?? c.height);
+        const d = Number((c.child("delay") as any)?.value ?? 100);
+        const cZ = (c.child("z") as any)?.value;
+        const frameZ = isBackName ? -1 : (actZ < 0 ? actZ : (typeof cZ === "number" && cZ !== 0 ? cZ : actZ));
+        const cPos = (c.child("pos") as any)?.value;
+        const framePos = cPos !== undefined ? Number(cPos) : actPos;
+        frames.push({
+          url: `/wz/item-eff/${id}/${act.name}/${fr.name}`,
+          w: c.width,
+          h: c.height,
+          ox,
+          oy,
+          delay: d,
+          z: frameZ,
+          pos: framePos,
+          fixed: actFixed,
+        });
+      }
+    }
+    if (frames.length) actions[act.name] = frames;
+  }
+  if (Object.keys(actions).length) {
+    return { id, z: effZ, pos: effPos, fixed: effFixed, actions };
+  }
+  return null;
+}
+
 function itemEffPng(s: SpriteStore, id: number, act: string, fr: string): Buffer | null {
-  for (const f of s.files("Effect")) {
-    const img = f.root.images.get("ItemEff.img");
+  if (id === 1004646) {
+    return generateHoverAura(Number(fr) || 0);
+  }
+  const target = findEffTarget(s, id);
+  if (!target) return null;
+  let raw: any;
+  if (target.isCharEff) {
+    raw = target.node.child(fr)?.child("0") ?? target.node.child(fr);
+  } else {
+    let actNode: any = target.node.child(act);
+    if (actNode instanceof WzUolProperty) actNode = resolveUol(actNode);
+    raw = actNode?.child(fr) ?? target.node.child(fr);
+  }
+  const c = resolveCanvas(raw ?? null, (cat, img) => s.image(cat, img));
+  if (c instanceof WzCanvasProperty) {
+    return canvasToPng(c, target.img.file.reader.key);
+  }
+  return null;
+}
+
+function shadowPartnerData(s: SpriteStore): Record<string, any[]> {
+  const out: Record<string, any[]> = {};
+  for (const f of s.files("Skill")) {
+    const img = f.root.images.get("411.img");
     if (!img) continue;
-    const node = img.parse().get(String(id))?.get("effect")?.get(act)?.get(fr);
-    const c = resolveCanvas(node ?? null, (cat, img) => s.image(cat, img));
+    const root = img.parse();
+    const sk = root.child("skill")?.child("4111002");
+    const special = sk?.child("special");
+    if (!(special instanceof WzSubProperty)) continue;
+    for (const act of special.children()) {
+      if (!(act instanceof WzSubProperty)) continue;
+      const frames: any[] = [];
+      for (const fr of act.children()) {
+        const raw = resolveUol(fr);
+        const c = resolveCanvas(raw, (cat, im) => s.image(cat, im));
+        if (c instanceof WzCanvasProperty) {
+          const orig = c.child("origin");
+          const ox = orig instanceof WzVectorProperty ? orig.x : Math.round(c.width / 2);
+          const oy = orig instanceof WzVectorProperty ? orig.y : c.height;
+          frames.push({
+            url: `/wz/shadow-partner/${act.name}/${fr.name}`,
+            w: c.width,
+            h: c.height,
+            ox,
+            oy,
+            delay: Number((c.child("delay") as any)?.value) || 120,
+          });
+        }
+      }
+      if (frames.length) out[act.name] = frames;
+    }
+  }
+  return out;
+}
+
+function shadowPartnerPng(s: SpriteStore, act: string, fr: string): Buffer | null {
+  for (const f of s.files("Skill")) {
+    const img = f.root.images.get("411.img");
+    if (!img) continue;
+    const root = img.parse();
+    const sk = root.child("skill")?.child("4111002");
+    const special = sk?.child("special");
+    if (!(special instanceof WzSubProperty)) continue;
+    const actProp = special.child(act);
+    if (!actProp) continue;
+    const frProp = resolveUol(actProp.child(fr));
+    const c = resolveCanvas(frProp, (cat, im) => s.image(cat, im));
     if (c instanceof WzCanvasProperty) {
-      return canvasToPng(c, img.file.reader.key);
+      const key = c.image?.file?.reader?.key ?? f.reader.key;
+      return canvasToPng(c, key);
     }
   }
   return null;
@@ -1229,6 +1511,66 @@ interface PlayerSession {
 
 const wsPlayers = new Map<any, PlayerSession>();
 
+// ── SpacetimeDB Client Integration ─────────────────────────────────────────────
+let cachedSpacetimeUrl: string | null = null;
+async function getSpacetimeUrl(): Promise<string> {
+  if (cachedSpacetimeUrl) return cachedSpacetimeUrl;
+  const candidates = [
+    process.env.SPACETIMEDB_URL,
+    "http://127.0.0.1:3100",
+    "http://127.0.0.1:3001",
+    "http://localhost:3100",
+    "http://localhost:3001",
+  ].filter(Boolean) as string[];
+  for (const c of candidates) {
+    try {
+      const res = await fetch(`${c}/v1/ping`, { signal: AbortSignal.timeout(500) });
+      if (res.ok) {
+        cachedSpacetimeUrl = c;
+        return c;
+      }
+    } catch {}
+  }
+  return process.env.SPACETIMEDB_URL || "http://127.0.0.1:3100";
+}
+
+async function spacetimeSql(query: string): Promise<any[][]> {
+  const url = await getSpacetimeUrl();
+  const res = await fetch(`${url}/v1/database/maple-wayfarer/sql`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: query,
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  const data = await res.json();
+  return data[0]?.rows ?? [];
+}
+
+async function spacetimeCall(reducer: string, args: any[]): Promise<boolean> {
+  const url = await getSpacetimeUrl();
+  const res = await fetch(`${url}/v1/database/maple-wayfarer/call/${reducer}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
+  }
+  return true;
+}
+
+function hashPassword(pass: string): string {
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(pass + "_maple_salt_99");
+  return hasher.digest("hex");
+}
+
 // ── server ────────────────────────────────────────────────────────────
 const server = Bun.serve<{ id: string }>({
   port,
@@ -1336,6 +1678,29 @@ const server = Bun.serve<{ id: string }>({
       );
       if (wantMeta) return Response.json({ id, ...(meta ?? {}) });
       return pngResponse(png, `Item ${id}/${req.params.field}`);
+    }),
+    "/wz/item/:id/:field/:frame": guard((req) => {
+      const s = getStore();
+      if (!s) return noClient();
+      const id = Number(req.params.id);
+      const sid = String(id).padStart(8, "0");
+      const fr = req.params.frame;
+      for (const f of s.files("Item")) {
+        for (const sub of f.root.subdirs.values()) {
+          for (const img of sub.images.values()) {
+            const root = img.parse();
+            const e = root.child(sid) ?? root.child(String(id));
+            if (e instanceof WzSubProperty) {
+              const node = e.child(req.params.field)?.child(fr) ?? e.child("info")?.child(req.params.field)?.child(fr);
+              const c = resolveCanvas(node ?? null, (cat, i) => s.image(cat, i));
+              if (c instanceof WzCanvasProperty) {
+                return pngResponse(canvasToPng(c, img.file.reader.key), `Item ${id}/${req.params.field}/${fr}`);
+              }
+            }
+          }
+        }
+      }
+      return Response.json({ error: "not found" }, { status: 404 });
     }),
     "/wz/skill/:id/:field": guard((req) => {
       const s = getStore();
@@ -1516,6 +1881,194 @@ const server = Bun.serve<{ id: string }>({
       const png = itemEffPng(s, Number(req.params.id), req.params.act, req.params.fr);
       return pngResponse(png, `item-eff ${req.params.id}`);
     }),
+    "/wz/data/shadow-partner": guard(() => {
+      const s = getStore();
+      return s ? jsonNoStore(shadowPartnerData(s)) : noClient();
+    }),
+    "/wz/shadow-partner/:act/:fr": guard((req) => {
+      const s = getStore();
+      if (!s) return noClient();
+      const png = shadowPartnerPng(s, req.params.act, req.params.fr);
+      return pngResponse(png, `shadow-partner ${req.params.act}/${req.params.fr}`);
+    }),
+    "/api/spacetimedb/status": async () => {
+      const spacetimeUrl = await getSpacetimeUrl();
+      let alive = false;
+      try {
+        const res = await fetch(`${spacetimeUrl}/v1/ping`, { signal: AbortSignal.timeout(1000) });
+        alive = res.ok;
+      } catch {}
+      return Response.json({
+        spacetimedb: {
+          url: spacetimeUrl,
+          connected: alive,
+        },
+        onlinePlayers: wsPlayers.size,
+        activeMaps: new Set([...wsPlayers.values()].map((p) => p.mapId)).size,
+      });
+    },
+    "/api/auth/register": async (req: any) => {
+      try {
+        const body = await req.json();
+        const username = String(body.username || "").trim().toLowerCase();
+        const password = String(body.password || "");
+        if (!/^[a-z0-9_]{3,16}$/.test(username)) {
+          return Response.json({ ok: false, error: "Username must be 3-16 alphanumeric characters" }, { status: 400 });
+        }
+        if (password.length < 4) {
+          return Response.json({ ok: false, error: "Password must be at least 4 characters" }, { status: 400 });
+        }
+        const existing = await spacetimeSql(`SELECT username FROM user WHERE username = '${username}';`);
+        if (existing.length > 0) {
+          return Response.json({ ok: false, error: "Username already taken" }, { status: 409 });
+        }
+        const passHash = hashPassword(password);
+        await spacetimeCall("register_user", [username, passHash]);
+        return Response.json({ ok: true, username });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Registration failed" }, { status: 500 });
+      }
+    },
+    "/api/auth/login": async (req: any) => {
+      try {
+        const body = await req.json();
+        const username = String(body.username || "").trim().toLowerCase();
+        const password = String(body.password || "");
+        if (!username || !password) {
+          return Response.json({ ok: false, error: "Username and password required" }, { status: 400 });
+        }
+        const passHash = hashPassword(password);
+        const rows = await spacetimeSql(`SELECT username, password_hash FROM user WHERE username = '${username}';`);
+        if (!rows.length || rows[0][1] !== passHash) {
+          return Response.json({ ok: false, error: "Invalid username or password" }, { status: 401 });
+        }
+        return Response.json({ ok: true, username });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Login failed" }, { status: 500 });
+      }
+    },
+    "/api/characters": async (req: any) => {
+      try {
+        const url = new URL(req.url);
+        const username = String(url.searchParams.get("username") || "").trim().toLowerCase();
+        if (!username) return Response.json({ ok: false, error: "Username required" }, { status: 400 });
+        const rows = await spacetimeSql(`SELECT name, username, class_id, gender, level, exp, hp, max_hp, mp, max_mp, meso, map_id, x, y, look, stats, inventory, equipment, skills, updated_at FROM character WHERE username = '${username}';`);
+        const characters = rows.map((r) => ({
+          name: r[0],
+          username: r[1],
+          classId: r[2],
+          gender: r[3],
+          level: Number(r[4] || 1),
+          exp: Number(r[5] || 0),
+          hp: Number(r[6] || 50),
+          maxHp: Number(r[7] || 50),
+          mp: Number(r[8] || 20),
+          maxMp: Number(r[9] || 20),
+          meso: Number(r[10] || 0),
+          mapId: Number(r[11] || 100000000),
+          x: Number(r[12] || 0),
+          y: Number(r[13] || 0),
+          look: typeof r[14] === "string" ? JSON.parse(r[14] || "[]") : (r[14] || []),
+          stats: typeof r[15] === "string" ? JSON.parse(r[15] || "{}") : (r[15] || {}),
+          inventory: typeof r[16] === "string" ? JSON.parse(r[16] || "[]") : (r[16] || []),
+          equipment: typeof r[17] === "string" ? JSON.parse(r[17] || "{}") : (r[17] || {}),
+          skills: typeof r[18] === "string" ? JSON.parse(r[18] || "{}") : (r[18] || {}),
+          updatedAt: Number(r[19] || 0),
+        }));
+        return Response.json({ ok: true, characters });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to fetch characters" }, { status: 500 });
+      }
+    },
+    "/api/characters/check-name": async (req: any) => {
+      try {
+        const url = new URL(req.url);
+        const name = String(url.searchParams.get("name") || "").trim();
+        if (!/^[a-zA-Z0-9]{2,12}$/.test(name)) {
+          return Response.json({ available: false, error: "Name must be 2-12 alphanumeric characters" });
+        }
+        const rows = await spacetimeSql(`SELECT name FROM character WHERE name = '${name}';`);
+        return Response.json({ available: rows.length === 0 });
+      } catch (e: any) {
+        return Response.json({ available: false, error: e?.message });
+      }
+    },
+    "/api/characters/create": async (req: any) => {
+      try {
+        const body = await req.json();
+        const username = String(body.username || "").trim().toLowerCase();
+        const name = String(body.name || "").trim();
+        const classId = String(body.classId || "beginner").toLowerCase();
+        const gender = String(body.gender || "male");
+        const look = Array.isArray(body.look) ? body.look : [2000, 12000, 20000, 30030];
+        const stats = body.stats || {};
+        const equipment = body.equipment || {};
+
+        if (!username) return Response.json({ ok: false, error: "Username required" }, { status: 400 });
+        if (!/^[a-zA-Z0-9]{2,12}$/.test(name)) {
+          return Response.json({ ok: false, error: "Name must be 2-12 alphanumeric characters" }, { status: 400 });
+        }
+        const existing = await spacetimeSql(`SELECT name FROM character WHERE name = '${name}';`);
+        if (existing.length > 0) {
+          return Response.json({ ok: false, error: "Character name already taken" }, { status: 409 });
+        }
+        await spacetimeCall("create_char", [
+          username,
+          name,
+          classId,
+          gender,
+          JSON.stringify(look),
+          JSON.stringify(stats),
+          JSON.stringify(equipment),
+        ]);
+        return Response.json({ ok: true, name });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to create character" }, { status: 500 });
+      }
+    },
+    "/api/characters/delete": async (req: any) => {
+      try {
+        const body = await req.json();
+        const username = String(body.username || "").trim().toLowerCase();
+        const name = String(body.name || "").trim();
+        const rows = await spacetimeSql(`SELECT username FROM character WHERE name = '${name}';`);
+        if (!rows.length || rows[0][0] !== username) {
+          return Response.json({ ok: false, error: "Character not found or unauthorized" }, { status: 403 });
+        }
+        await spacetimeCall("delete_char", [name]);
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to delete character" }, { status: 500 });
+      }
+    },
+    "/api/characters/save": async (req: any) => {
+      try {
+        const body = await req.json();
+        const name = String(body.name || "").trim();
+        if (!name) return Response.json({ ok: false, error: "Character name required" }, { status: 400 });
+        await spacetimeCall("save_char", [
+          name,
+          Number(body.level || 1),
+          Number(body.exp || 0),
+          Number(body.hp || 50),
+          Number(body.maxHp || 50),
+          Number(body.mp || 20),
+          Number(body.maxMp || 20),
+          Number(body.meso || 0),
+          Number(body.mapId || 100000000),
+          Number(body.x || 0),
+          Number(body.y || 0),
+          JSON.stringify(body.look || []),
+          JSON.stringify(body.stats || {}),
+          JSON.stringify(body.inventory || []),
+          JSON.stringify(body.equipment || {}),
+          JSON.stringify(body.skills || {}),
+        ]);
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to save character" }, { status: 500 });
+      }
+    },
   },
   // Unmatched requests: upgrade websocket or serve static files
   async fetch(req, srv) {
@@ -1593,6 +2146,28 @@ const server = Bun.serve<{ id: string }>({
           for (const [c, p] of wsPlayers) {
             if (c !== ws && p.mapId === session.mapId) c.send(moveMsg);
           }
+        } else if (msg.t === "action") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          session.anim = String(msg.anim || session.anim);
+          session.frame = Number(msg.frame ?? 0);
+          session.face = Number(msg.face ?? session.face);
+          session.x = Number(msg.x ?? session.x);
+          session.y = Number(msg.y ?? session.y);
+          const actMsg = JSON.stringify({
+            t: "player_action",
+            id: session.id,
+            kind: msg.kind || "attack",
+            skillId: msg.skillId || null,
+            anim: session.anim,
+            frame: session.frame,
+            face: session.face,
+            x: session.x,
+            y: session.y,
+          });
+          for (const [c, p] of wsPlayers) {
+            if (c !== ws && p.mapId === session.mapId) c.send(actMsg);
+          }
         } else if (msg.t === "sync") {
           let session = wsPlayers.get(ws);
           const assignedId = ws.data?.id || ("P-" + crypto.randomUUID().slice(0, 4).toUpperCase());
@@ -1669,17 +2244,24 @@ const server = Bun.serve<{ id: string }>({
         } else if (msg.t === "chat") {
           const session = wsPlayers.get(ws);
           if (!session) return;
-          const text = String(msg.text || "").slice(0, 100);
+          const text = String(msg.text || "").slice(0, 150);
           if (!text) return;
+          const kind = msg.kind || "say";
           const chatMsg = JSON.stringify({
             t: "chat",
             id: session.id,
             name: session.name,
             text,
-            kind: msg.kind || "say",
+            kind,
           });
-          for (const [c, p] of wsPlayers) {
-            if (p.mapId === session.mapId) c.send(chatMsg);
+          if (kind === "notice" || msg.broadcast) {
+            for (const [c] of wsPlayers) {
+              c.send(chatMsg);
+            }
+          } else {
+            for (const [c, p] of wsPlayers) {
+              if (p.mapId === session.mapId) c.send(chatMsg);
+            }
           }
         } else if (msg.t === "ping") {
           ws.send(JSON.stringify({ t: "pong", sentAt: msg.sentAt }));

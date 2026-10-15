@@ -9,6 +9,8 @@ import { CLASSES, QUICK_KEYS, type ClassId } from "./skills.ts";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { DebugPanel } from "./components/Debug";
+import { AuthUI } from "./components/AuthUI";
+import { spacetime, type SpacetimeCharacter } from "./spacetimedb";
 
 let root: HTMLElement | null = null;
 
@@ -17,17 +19,10 @@ let debugContainer: HTMLElement | null = null;
 
 function setupDebugPanel() {
   if (debugContainer) return;
-  root = document.getElementById("root");
-  if (!root) return;
-  debugContainer = document.createElement("div");
-  debugContainer.className = "debug-overlay";
-  debugContainer.style.position = "fixed";
-  debugContainer.style.top = "8px";
-  debugContainer.style.right = "8px";
-  debugContainer.style.zIndex = "10000";
-  debugContainer.style.pointerEvents = "none";
-  root.style.position = "relative";
-  root.appendChild(debugContainer);
+  if (hud?.perfContainer) {
+    debugContainer = hud.perfContainer;
+    createRoot(debugContainer).render(createElement(DebugPanel));
+  }
 }
 
 let debugAttach = false;
@@ -95,17 +90,15 @@ window.addEventListener("pointerdown", (e: PointerEvent) => {
 });
 
 addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") e.preventDefault();
   if (!running || !game) return;
   const target = e.target as HTMLElement;
+  const isMoveKey = e.key.startsWith("Arrow") || e.code.startsWith("Arrow") || ["a", "d", "w", "s", "Alt", " ", "Space"].includes(e.key);
   if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") {
     if (target.closest(".hidden") || target.offsetParent === null) {
       target.blur();
       canvas.focus();
-    } else if (
-      target === hud?.chatInput &&
-      hud?.chatInput.value === "" &&
-      (e.key.startsWith("Arrow") || e.code.startsWith("Arrow") || ["a", "d", "w", "s", " ", "Alt"].includes(e.key.toLowerCase()))
-    ) {
+    } else if (isMoveKey && target === hud?.chatInput && hud?.chatInput.value === "") {
       target.blur();
       canvas.focus();
     } else {
@@ -120,7 +113,7 @@ addEventListener("keydown", (e: KeyboardEvent) => {
   const k = keyName(e);
   if (k === "Enter") { e.preventDefault(); hud?.expandChat(); hud?.chatInput.focus(); return; }
   if (k === "Escape") { hud?.wins.closeTop(); return; }
-  if (GAME_KEYS.has(k) || k.length === 1 || k === "F1" || k === "F2") e.preventDefault();
+  if (GAME_KEYS.has(k) || k.length === 1 || k === "F1" || k === "F2" || k === "Alt") e.preventDefault();
   if (!e.repeat && hud) {
     const w = hud.wins;
     if (k === "u" || (e.altKey && k === "s")) w.toggle(w.stat);
@@ -130,18 +123,26 @@ addEventListener("keydown", (e: KeyboardEvent) => {
     else if (k === "e") w.ext.open("equip");
     else if (k === "j") w.ext.open("craft");
     else if (k === "h") w.ext.open("ah");
-    else if (k === "l" || k === "`" || k === "~") w.ext.items.open();
+    else if (k === "l" || k === "`" || k === "~") {
+      if (game.isGm()) w.ext.items.open();
+    }
     else if (k === "b") w.toggleAutoBattle();
     else if (k === "m") hud.toggleMinimap();
     else if (k === "'") hud.toggleChatMinimize();
     else if (k === "]") hud.toggleQuickSlots();
-    else if (k === "F1" || k === "f1" || k === "F2" || k === "f2" || k === "\\") w.toggle(w.debugWin);
+    else if (k === "F1" || k === "f1" || k === "F2" || k === "f2" || k === "\\") {
+      if (game.isGm()) w.toggle(w.debugWin);
+    }
   }
   if (!game.keys.has(k)) game.pressed.add(k);
   game.keys.add(k);
 });
 addEventListener("blur", () => { if (game) game.keys.clear(); });
-addEventListener("keyup", (e: KeyboardEvent) => { if (game) game.keys.delete(keyName(e)); });
+addEventListener("focus", () => { if (game) game.keys.clear(); });
+addEventListener("keyup", (e: KeyboardEvent) => {
+  if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") e.preventDefault();
+  if (game) game.keys.delete(keyName(e));
+});
 
 function setLoading(status: string | null, pct = 0, sub?: string) {
   if (!status) {
@@ -165,16 +166,25 @@ try {
 } catch {}
 
 async function boot() {
-  setLoading("Starting WebGPU Engine…", 10, "Connecting to graphics adapter & display context");
+  setLoading("Starting Graphics Engine…", 10, "Detecting WebGPU / WebGL display context");
   try {
     await r.init();
-    setLoading("Initializing Orillusion Systems…", 25, "Setting up ECS scene, camera & render systems");
+    const isWebGPU = r.backend === "webgpu";
+    setLoading(
+      isWebGPU ? "Initializing Orillusion Systems…" : "Initializing WebGL Engine…",
+      25,
+      isWebGPU ? "Setting up ECS scene, camera & render systems" : "Setting up 2D batching shaders & buffers"
+    );
     try {
-      gameEntity = new Object3D();
-      gameEntity.name = "GameSystem";
-      game = gameEntity.addComponent(Game, { r });
-      if (r.scene) {
-        r.scene.addChild(gameEntity);
+      if (isWebGPU) {
+        gameEntity = new Object3D();
+        gameEntity.name = "GameSystem";
+        game = gameEntity.addComponent(Game, { r });
+        if (r.scene) {
+          r.scene.addChild(gameEntity);
+        }
+      } else {
+        game = new Game(r);
       }
     } catch {
       game = new Game(r);
@@ -187,19 +197,22 @@ async function boot() {
     loading.classList.add("hidden");
     return;
   }
-  // Automatically bypass intro and go straight to game with auto combat
-  start();
+
+  // Hide initial loading screen and present MapleStory Auth & Character Selection
+  setLoading(null);
+  title.classList.remove("hidden");
+  new AuthUI({
+    container: title,
+    onCharacterSelected: (char: SpacetimeCharacter) => {
+      start(char);
+    },
+  });
 }
 
-async function start() {
+async function start(char?: SpacetimeCharacter) {
   if (running) return;
-  let saved: any = null;
-  try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null"); } catch {}
-  game.stats.name = (nameInput.value.trim() || "Wayfarer").slice(0, 12);
-  startBtn.disabled = true;
+  running = true;
   title.classList.add("hidden");
-  nameInput.blur();
-  (document.activeElement as HTMLElement)?.blur();
 
   setLoading("Loading UI & Window Blueprints…", 40, "Downloading MapleStory interface & inventory layouts");
   const [ui, win, items] = await Promise.all([json("/wz/data/ui"), json("/wz/data/windows"), json("/wz/data/items")]);
@@ -219,23 +232,51 @@ async function start() {
   game.onGain = (k, t) => { hud?.showGain(k, t); hud?.wins.pushLog(k as ChatKind, t); };
   game.onLog = (k, t) => hud?.wins.pushLog(k, t);
 
-  const name = game.stats.name;
-  const hasSave = saved?.stats?.name === name;
-  if (hasSave) game.restore(saved);
-  else game.applyClassDefaults("beginner");
+  if (char) {
+    const fullSave = char.stats?.fullSave;
+    if (fullSave) {
+      game.restore(fullSave);
+    } else {
+      game.applyClassDefaults((char.classId as any) || "beginner");
+      game.stats.level = char.level || 1;
+      game.stats.exp = char.exp || 0;
+      game.stats.hp = char.hp || 50;
+      game.stats.maxHp = char.maxHp || 50;
+      game.stats.mp = char.mp || 20;
+      game.stats.maxMp = char.maxMp || 20;
+      game.stats.meso = char.meso || 1000;
+      if (Array.isArray(char.look) && char.look.length) {
+        game.look = [...char.look];
+      }
+    }
+    // Strictly enforce character name from database
+    game.stats.name = char.name;
+    try {
+      localStorage.setItem("ms_player_name", char.name);
+      localStorage.setItem("ms_current_character", char.name);
+    } catch {}
+  } else {
+    let saved: any = null;
+    try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null"); } catch {}
+    const name = (nameInput?.value?.trim() || "Wayfarer").slice(0, 12);
+    game.stats.name = name;
+    if (saved?.stats?.name === name) game.restore(saved);
+    else game.applyClassDefaults("beginner");
+  }
 
   // Enable auto combat by default
   game.auto.battle = true;
   game.auto.boss = true;
 
   setLoading("Loading Maple World Map & Footholds…", 72, "Buffering map background, tiles & collision vectors");
-  if (hasSave && saved.map && saved.map !== FREE_MARKET_MAP) {
-    game.prevHuntingMap = saved.map;
+  const targetMap = char?.mapId && char.mapId !== FREE_MARKET_MAP ? char.mapId : FREE_MARKET_MAP;
+  await game.init(targetMap);
+  if (char?.name) {
+    game.stats.name = char.name;
+    try {
+      localStorage.setItem("ms_player_name", char.name);
+    } catch {}
   }
-  await game.init(FREE_MARKET_MAP);
-  if (hasSave) game.restore(saved);
-  game.stats.name = name;
-  game.auto.battle = true;
 
   setLoading("Creating User Interface & HUD…", 88, "Assembling health bars, chat, minimap & action slots");
   hudEntity = new Object3D();
@@ -247,24 +288,51 @@ async function start() {
   }
   hud.setMap(game.map);
 
-  // Overlay the real-time performance panel on top of the game window.
-  const dp = document.createElement("div");
-  dp.style.cssText =
-    "position:fixed;top:10px;right:14px;z-index:10000;pointer-events:none;background:none;border:none;padding:0;";
-  debugContainer = dp;
-  hud.root.parentElement?.appendChild(dp);
-  createRoot(debugContainer).render(createElement(DebugPanel));
+  // Mount the real-time performance panel (FPS, Ping, JS Heap) right next to HP/MP bar on the right side.
+  if (hud.perfContainer) {
+    debugContainer = hud.perfContainer;
+    createRoot(debugContainer).render(createElement(DebugPanel));
+  }
 
   hud.addChat("system", "Arrows / WASD move · Alt/C/Space jump · Ctrl/X attack · Shift, Ins, Home, PgUp skills · Del/End potions · Z loot · Up/W at a portal");
-  hud.addChat("system", "U stats · K skills · E equipment · I inventory · J crafting · H auction house · L all items · B auto battle · F1 debug. Drag icons onto quick slots.");
+  hud.addChat("system", "U stats · K skills · E equipment · I inventory · J crafting · H auction house · B auto battle. Drag icons onto quick slots.");
+  if (game.isGm()) {
+    hud.addChat("notice", "★ [GM Privileges Active] Press F1 for GM Control Panel · L for All-Items Catalog · Type /gm for commands.");
+  }
+  hud.addChat("notice", `Logged in to SpacetimeDB as [${spacetime.currentUser || "Guest"}]. Character [${game.stats.name}] ready.`);
   if (game.map.id === FREE_MARKET_MAP) {
     hud.addChat("notice", "Welcome to Free Market! This is a peaceful social hub. Enter portals to visit hunting zones.");
   } else {
     hud.addChat("notice", `Auto Combat is ON. Hunting monsters in ${game.map.name}. Stage boss ready every 25 kills.`);
   }
-  if (hasSave && saved.savedAt) game.offlineRewards(saved.savedAt);
+
   game.ah.refresh(Date.now());
-  const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(game.save())); } catch {} };
+  const persist = () => {
+    try {
+      const full = game.save();
+      const charSaveKey = game.stats.name ? `maple-wayfarer-save-${game.stats.name}` : SAVE_KEY;
+      localStorage.setItem(charSaveKey, JSON.stringify(full));
+      localStorage.setItem(SAVE_KEY, JSON.stringify(full));
+      spacetime.saveCharacter({
+        name: game.stats.name,
+        level: game.stats.level,
+        exp: game.stats.exp,
+        hp: game.stats.hp,
+        maxHp: game.stats.maxHp,
+        mp: game.stats.mp,
+        maxMp: game.stats.maxMp,
+        meso: game.stats.meso,
+        mapId: game.map?.id || 100000000,
+        x: Math.round(game.p.x),
+        y: Math.round(game.p.y),
+        look: game.look,
+        stats: { ...game.stats, fullSave: full },
+        inventory: [...game.bag],
+        equipment: { eq: game.eq, visualEq: game.visualEq },
+        skills: { skillLv: game.skillLv, quick: game.quick },
+      }).catch(() => {});
+    } catch {}
+  };
   let saveT = 0;
   game.onChange = () => { clearTimeout(saveT); saveT = setTimeout(persist, 800) as unknown as number; };
   setInterval(persist, 10000);
@@ -281,12 +349,13 @@ async function start() {
   );
   await new Promise((resolve) => setTimeout(resolve, 250));
   setLoading(null);
-  running = true;
+  game.fullyLoaded = true;
+  game.initWs();
   document.body.classList.add("playing");
   canvas.focus();
 }
 
-startBtn.addEventListener("click", start);
+startBtn.addEventListener("click", () => start());
 nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") start(); });
 
 let last = performance.now();

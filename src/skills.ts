@@ -15,6 +15,8 @@ export interface SkillDef {
   hits?: number;
   targets?: number;
   range?: number;
+  /** Cooldown in seconds. */
+  cooldown?: (lv: number) => number;
   /** Buff duration in seconds. */
   duration?: (lv: number) => number;
   /** Flat stat bonuses this buff grants while active (per level). */
@@ -23,7 +25,7 @@ export interface SkillDef {
 }
 
 export interface SkillArt {
-  id: string; name: string; desc: string;
+  id: string; name: string; desc: string; cooltime?: number;
   icon: Sprite; iconMouseOver: Sprite | null; iconDisabled: Sprite | null;
   effect: Sprite[]; effect0: Sprite[]; hit: Sprite[]; ball?: Sprite[];
 }

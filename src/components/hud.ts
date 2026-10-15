@@ -55,7 +55,7 @@ export class StatusCapsule extends ComponentBase {
   }
 
   private initComponent() {
-    this.root = el("div", "ms-hud-center flex flex-col justify-center items-center gap-[2px] pointer-events-auto", this.parentEl);
+    this.root = el("div", "ms-hud-center relative flex flex-col justify-center items-center gap-[2px] pointer-events-auto", this.parentEl);
 
     // HP Bar Row (Thick, wide bar matching modern MapleStory UI)
     const hpRow = el("div", "ms-bar-row flex items-center w-[280px] h-[20px]", this.root);
