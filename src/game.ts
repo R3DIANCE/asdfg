@@ -46,7 +46,7 @@ import {
   rand,
   type PetInstance,
 } from "./game-types.ts";
-import { WorldRenderer } from "./systems/render-system.ts";
+import { WorldRenderer, STATUS_UI } from "./systems/render-system.ts";
 import { AutoCombatSystem } from "./systems/auto-combat.ts";
 import { StageSystem } from "./systems/stage-system.ts";
 import { PetSystem } from "./systems/pet-system.ts";
@@ -304,6 +304,18 @@ export class Game extends ComponentBase {
     const fxs = [this.fxData.dmg, this.fxData.dmgFirst, this.fxData.hurt, this.fxData.hurtFirst].flatMap((o: any) => Object.values(o));
     for (const s of [...fxs, ...this.fxData.meso, ...this.fxData.portal, this.fxData.miss, ...(this.fxData.levelUp ?? [])] as Sprite[]) if (s) loads.push(this.assets.load(s.url));
     for (const a of Object.values(this.skillArt)) for (const f of [...a.effect, ...a.effect0, ...a.hit, ...(a.ball ?? [])]) this.assets.load(f.url);
+    const statusSprites = [
+      STATUS_UI.backgrnd,
+      STATUS_UI.cover,
+      STATUS_UI.hpBar,
+      STATUS_UI.mpBar,
+      STATUS_UI.lvTag,
+      STATUS_UI.gaugeSlash,
+      ...STATUS_UI.aniHp,
+      ...STATUS_UI.lvNum,
+      ...STATUS_UI.gaugeNum,
+    ];
+    for (const url of statusSprites) loads.push(this.assets.load(url));
     try {
       await this.loadMap(startMap, "spawn", spawnPos);
     } catch (e) {

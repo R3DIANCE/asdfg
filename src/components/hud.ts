@@ -16,10 +16,8 @@ export interface StatusUpdateData {
 
 export class StatusCapsule extends ComponentBase {
   root!: HTMLElement;
-  hpFill!: HTMLElement;
-  hpText!: HTMLElement;
-  mpFill!: HTMLElement;
-  mpText!: HTMLElement;
+  hpZone!: HTMLElement;
+  mpZone!: HTMLElement;
   expText!: HTMLElement;
   expBottomFill!: HTMLElement;
   fullExp!: HTMLElement;
@@ -63,52 +61,22 @@ export class StatusCapsule extends ComponentBase {
   }
 
   private initComponent() {
-    this.root = el("div", "ms-hud-center relative flex flex-col justify-center items-center gap-[3px] pointer-events-auto select-none", this.parentEl);
-
-    // HP Bar Row — Translucent Glass style, clean without text badge
-    const hpRow = el(
+    this.root = el(
       "div",
-      "ms-bar-row flex items-center w-[292px] h-[20px] bg-slate-950/40 border border-white/10 rounded-[4px] p-[2px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur-[8px] transition-all",
+      "ms-hud-center relative w-[204px] h-[70px] pointer-events-auto select-none cursor-default flex flex-col justify-between",
+      this.parentEl
+    );
+
+    // Interactive tooltip regions over the WebGPU-drawn authentic WZ HP and MP bars
+    this.hpZone = el(
+      "div",
+      "ms-hp-zone absolute left-[24px] top-[26px] w-[171px] h-[16px] cursor-pointer z-[10]",
       this.root
     );
-
-    const hpTrack = el(
+    this.mpZone = el(
       "div",
-      "ms-bar-track relative flex-1 h-full bg-black/40 rounded-[2px] overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]",
-      hpRow
-    );
-    this.hpFill = el(
-      "div",
-      "ms-bar-fill hp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-rose-600/75 border-r-2 border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]",
-      hpTrack
-    );
-    this.hpText = el(
-      "div",
-      "ms-bar-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[11px] leading-[20px] text-white tracking-[0.5px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none tabular-nums",
-      hpTrack
-    );
-
-    // MP Bar Row — Translucent Glass style, clean without text badge
-    const mpRow = el(
-      "div",
-      "ms-bar-row flex items-center w-[292px] h-[20px] bg-slate-950/40 border border-white/10 rounded-[4px] p-[2px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur-[8px] transition-all",
+      "ms-mp-zone absolute left-[24px] top-[42px] w-[171px] h-[16px] cursor-pointer z-[10]",
       this.root
-    );
-
-    const mpTrack = el(
-      "div",
-      "ms-bar-track relative flex-1 h-full bg-black/40 rounded-[2px] overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]",
-      mpRow
-    );
-    this.mpFill = el(
-      "div",
-      "ms-bar-fill mp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-sky-600/75 border-r-2 border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]",
-      mpTrack
-    );
-    this.mpText = el(
-      "div",
-      "ms-bar-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[11px] leading-[20px] text-white tracking-[0.5px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none tabular-nums",
-      mpTrack
     );
 
     // Single clear and readable translucent bottom EXP bar (strictly singleton)
@@ -143,22 +111,14 @@ export class StatusCapsule extends ComponentBase {
     const mpPct = Math.min(100, Math.max(0, (d.mp / d.maxMp) * 100));
     const expPct = Math.min(100, Math.max(0, (d.exp / d.expNeed) * 100));
 
-    this.hpFill.style.width = `${hpPct}%`;
-    this.mpFill.style.width = `${mpPct}%`;
     this.expBottomFill.style.width = `${expPct}%`;
-
-    this.hpText.textContent = `${d.hp.toLocaleString()} / ${d.maxHp.toLocaleString()}`;
-    this.mpText.textContent = `${d.mp.toLocaleString()} / ${d.maxMp.toLocaleString()}`;
     this.expText.textContent = `EXP: ${d.exp.toLocaleString()} / ${d.expNeed.toLocaleString()} [${expPct.toFixed(2)}%]`;
 
-    // Critical HP warning pulse on bar border
-    const hpRow = this.root.querySelector(".ms-bar-row") as HTMLElement | null;
-    if (hpRow) {
-      if (hpPct <= 25 && d.hp > 0) {
-        hpRow.classList.add("border-rose-500", "shadow-[0_0_8px_rgba(244,63,94,0.5)]");
-      } else {
-        hpRow.classList.remove("border-rose-500", "shadow-[0_0_8px_rgba(244,63,94,0.5)]");
-      }
+    if (this.hpZone) {
+      this.hpZone.title = `HP: ${d.hp.toLocaleString()} / ${d.maxHp.toLocaleString()} (${hpPct.toFixed(1)}%)`;
+    }
+    if (this.mpZone) {
+      this.mpZone.title = `MP: ${d.mp.toLocaleString()} / ${d.maxMp.toLocaleString()} (${mpPct.toFixed(1)}%)`;
     }
   }
 }

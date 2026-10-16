@@ -106,7 +106,14 @@ function pngResponse(png: Buffer | null, what: string): Response {
   req: Request,
   fixedSegments: number,
 ): string {
-  const parts = new URL(req.url).pathname.split("/").filter(Boolean);
+  const parts = new URL(req.url).pathname.split("/").filter(Boolean).map((p) => {
+    try {
+      const dec = decodeURIComponent(p);
+      return dec === "slash" ? "\\" : dec;
+    } catch {
+      return p;
+    }
+  });
   return parts.slice(fixedSegments).join("/");
 }
 // ── property → JSON ───────────────────────────────────────────────────

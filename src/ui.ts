@@ -72,7 +72,7 @@ export class Hud extends ComponentBase {
     this.root = el("div", "hud", document.body);
 
     // Floating Bottom Dock (Tailwind CSS exact match to MapleStory HUD)
-    this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] h-[34px] flex items-end justify-between px-2.5 pb-0.5 pointer-events-none select-none z-[12]", this.root);
+    this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] min-h-[70px] flex items-end justify-between px-2.5 pb-0.5 pointer-events-none select-none z-[12]", this.root);
     this.dockLeft = el("div", "dock-left pointer-events-auto flex items-end gap-2 min-w-0 mb-0.5", this.dock);
     this.dockCenter = el("div", "dock-center pointer-events-auto flex items-center justify-center gap-1.5 min-w-0", this.dock);
     this.dockRight = el("div", "dock-right pointer-events-auto flex flex-col items-end gap-0.5 min-w-0", this.dock);

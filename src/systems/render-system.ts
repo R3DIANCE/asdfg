@@ -245,6 +245,25 @@ export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: G
   return null;
 }
 
+export const STATUS_UI = {
+  backgrnd: "/wz/sprite/UI/StatusBar3/mainBar/status/backgrnd",
+  cover: "/wz/sprite/UI/StatusBar3/mainBar/status/layer:cover",
+  hpBar: "/wz/sprite/UI/StatusBar3/mainBar/status/gauge/hp/layer:0",
+  mpBar: "/wz/sprite/UI/StatusBar3/mainBar/status/gauge/mp/layer:0",
+  lvTag: "/wz/sprite/UI/StatusBar3/mainBar/status/layer:Lv",
+  aniHp: [
+    "/wz/sprite/UI/StatusBar3/mainBar/status/aniHPGauge/0",
+    "/wz/sprite/UI/StatusBar3/mainBar/status/aniHPGauge/1",
+    "/wz/sprite/UI/StatusBar3/mainBar/status/aniHPGauge/2",
+    "/wz/sprite/UI/StatusBar3/mainBar/status/aniHPGauge/3",
+    "/wz/sprite/UI/StatusBar3/mainBar/status/aniHPGauge/4",
+    "/wz/sprite/UI/StatusBar3/mainBar/status/aniHPGauge/5",
+  ],
+  lvNum: Array.from({ length: 10 }, (_, i) => `/wz/sprite/UI/StatusBar3/mainBar/status/lvNumber/${i}`),
+  gaugeNum: Array.from({ length: 10 }, (_, i) => `/wz/sprite/UI/StatusBar3/mainBar/status/gauge/number/${i}`),
+  gaugeSlash: "/wz/sprite/UI/StatusBar3/mainBar/status/gauge/number/slash",
+};
+
 export class WorldRenderer {
   public static draw(game: Game) {
     const r = game.r;
@@ -441,7 +460,149 @@ export class WorldRenderer {
     WorldRenderer.drawBacks(game, true, cx, cy);
     if (game.fade > 0) r.rect(0, 0, r.width, r.height, [0, 0, 0, game.fade]);
     if (game.loadingMap) r.rect(0, 0, r.width, r.height, [0, 0, 0, 1]);
+
+    // WebGPU UI: Draw HP/MP status panel directly from authentic .wz assets
+    WorldRenderer.drawHpMpPanel(game);
+
     r.end();
+  }
+
+  public static drawHpMpPanel(game: Game) {
+    if (!game.stats || game.loadingMap) return;
+    const r = game.r;
+
+    // Anchor with .ms-hud-center DOM element if present, otherwise bottom center
+    const centerEl = typeof document !== "undefined" ? document.querySelector(".ms-hud-center") : null;
+    const rect = centerEl?.getBoundingClientRect();
+    const panelW = 204;
+    const panelH = 70;
+    const x = (rect && rect.width > 0)
+      ? Math.round(rect.left + (rect.width - panelW) / 2)
+      : Math.round((r.width - panelW) / 2);
+    const y = (rect && rect.height > 0)
+      ? Math.round(rect.top + (rect.height - panelH) / 2)
+      : Math.round(r.height - panelH - 18);
+
+    // 1. Panel Background
+    const bgTex = game.assets.get(STATUS_UI.backgrnd);
+    if (bgTex) {
+      r.draw(bgTex, x + 2, y + 24, 198, 37);
+    } else {
+      game.assets.load(STATUS_UI.backgrnd);
+    }
+
+    // 2. HP Bar Fill & Fluid Animation
+    const maxHp = Math.max(1, game.stats.maxHp || 50);
+    const hp = Math.max(0, Math.min(maxHp, game.stats.hp ?? maxHp));
+    const hpRatio = hp / maxHp;
+    const hpFillW = Math.round(171 * hpRatio);
+
+    const hpTex = game.assets.get(STATUS_UI.hpBar);
+    if (hpTex) {
+      if (hpFillW > 0) {
+        r.draw(hpTex, x + 24, y + 28, hpFillW, 13, { sx: 0, sy: 0, sw: hpFillW, sh: 13 });
+      }
+    } else {
+      game.assets.load(STATUS_UI.hpBar);
+    }
+
+    if (hpFillW > 0) {
+      const frameIdx = Math.floor((game.time * 8) % 6);
+      const aniUrl = STATUS_UI.aniHp[frameIdx];
+      const aniTex = game.assets.get(aniUrl);
+      if (aniTex) {
+        const aniW = Math.min(hpFillW, 169);
+        r.draw(aniTex, x + 25, y + 29, aniW, 11, { sx: 0, sy: 0, sw: aniW, sh: 11, alpha: 0.85 });
+      } else {
+        game.assets.load(aniUrl);
+      }
+    }
+
+    // 3. MP Bar Fill
+    const maxMp = Math.max(1, game.stats.maxMp || 20);
+    const mp = Math.max(0, Math.min(maxMp, game.stats.mp ?? maxMp));
+    const mpRatio = mp / maxMp;
+    const mpFillW = Math.round(171 * mpRatio);
+
+    const mpTex = game.assets.get(STATUS_UI.mpBar);
+    if (mpTex) {
+      if (mpFillW > 0) {
+        r.draw(mpTex, x + 24, y + 44, mpFillW, 13, { sx: 0, sy: 0, sw: mpFillW, sh: 13 });
+      }
+    } else {
+      game.assets.load(STATUS_UI.mpBar);
+    }
+
+    // 4. Status Bar Cover (Metallic Bezel, Borders & Shadows)
+    const coverTex = game.assets.get(STATUS_UI.cover);
+    if (coverTex) {
+      r.draw(coverTex, x - 1, y, 204, 70);
+    } else {
+      game.assets.load(STATUS_UI.cover);
+    }
+
+    // 5. Level Tag & Level Digits
+    const lvTag = game.assets.get(STATUS_UI.lvTag);
+    if (lvTag) {
+      r.draw(lvTag, x + 24, y + 8, 15, 10);
+    } else {
+      game.assets.load(STATUS_UI.lvTag);
+    }
+
+    const lvStr = String(game.stats.level || 1);
+    let curLvX = x + 41;
+    for (let i = 0; i < lvStr.length; i++) {
+      const digit = Number(lvStr[i]);
+      const digUrl = STATUS_UI.lvNum[digit];
+      const digTex = digUrl ? game.assets.get(digUrl) : null;
+      if (digTex) {
+        r.draw(digTex, curLvX, y + 8, digTex.w, digTex.h);
+        curLvX += digTex.w + 1;
+      } else if (digUrl) {
+        game.assets.load(digUrl);
+      }
+    }
+
+    // Helper: Draw gauge numbers (centered over 171px gauge)
+    const drawGaugeNumbers = (text: string, centerY: number) => {
+      let totalW = 0;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === "/") totalW += 7;
+        else if (c === " ") totalW += 3;
+        else if (c >= "0" && c <= "9") totalW += (c === "1" ? 4 : 7);
+      }
+      let curX = Math.round(x + 24 + (171 - totalW) / 2);
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === "/") {
+          const slashTex = game.assets.get(STATUS_UI.gaugeSlash);
+          if (slashTex) {
+            r.draw(slashTex, curX, centerY + 1, slashTex.w, slashTex.h);
+            curX += slashTex.w + 1;
+          } else {
+            game.assets.load(STATUS_UI.gaugeSlash);
+            curX += 8;
+          }
+        } else if (c === " ") {
+          curX += 3;
+        } else if (c >= "0" && c <= "9") {
+          const digUrl = STATUS_UI.gaugeNum[Number(c)];
+          const digTex = digUrl ? game.assets.get(digUrl) : null;
+          if (digTex) {
+            r.draw(digTex, curX, centerY, digTex.w, digTex.h);
+            curX += digTex.w + 1;
+          } else {
+            if (digUrl) game.assets.load(digUrl);
+            curX += (c === "1" ? 5 : 8);
+          }
+        }
+      }
+    };
+
+    // 6. Draw HP & MP Numbers
+    drawGaugeNumbers(`${hp} / ${maxHp}`, y + 30);
+    drawGaugeNumbers(`${mp} / ${maxMp}`, y + 46);
   }
 
   public static drawAniObjs(game: Game, front: boolean, cx: number, cy: number) {
