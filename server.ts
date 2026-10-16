@@ -1777,6 +1777,9 @@ interface PlayerSession {
   job?: string;
   hp?: number;
   maxHp?: number;
+  fps?: number;
+  ping?: number;
+  damageSkin?: number | string;
 }
 
 const wsPlayers = new Map<any, PlayerSession>();
@@ -3771,6 +3774,9 @@ const server = Bun.serve<{ id: string }>({
             anim: String(msg.anim || "stand1"),
             frame: Number(msg.frame || 0),
             look: Array.isArray(msg.look) ? msg.look : [2000, 12000, 20000, 30030],
+            fps: Number(msg.fps ?? 60),
+            ping: Number(msg.ping ?? 20),
+            damageSkin: msg.damageSkin ?? 0,
           };
           wsPlayers.set(ws, session);
           const g = getGuildForPlayer(session.name);
@@ -3800,6 +3806,9 @@ const server = Bun.serve<{ id: string }>({
           session.face = Number(msg.face ?? session.face);
           session.anim = String(msg.anim ?? session.anim);
           session.frame = Number(msg.frame ?? session.frame);
+          if (msg.fps !== undefined) session.fps = Number(msg.fps);
+          if (msg.ping !== undefined) session.ping = Number(msg.ping);
+          if (msg.damageSkin !== undefined) session.damageSkin = msg.damageSkin;
           if (msg.mapId !== undefined) session.mapId = Number(msg.mapId);
           const moveMsg = JSON.stringify({
             t: "player_move",
@@ -3809,9 +3818,74 @@ const server = Bun.serve<{ id: string }>({
             face: session.face,
             anim: session.anim,
             frame: session.frame,
+            fps: session.fps,
+            ping: session.ping,
+            damageSkin: session.damageSkin,
           });
           for (const [c, p] of wsPlayers) {
             if (c !== ws && p.mapId === session.mapId) c.send(moveMsg);
+          }
+        } else if (msg.t === "damage") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          const dmgMsg = JSON.stringify({
+            t: "player_damage",
+            id: session.id,
+            name: session.name,
+            value: Number(msg.value || 0),
+            miss: Boolean(msg.miss),
+            hurt: Boolean(msg.hurt),
+            critical: Boolean(msg.critical),
+            skinId: msg.skinId ?? session.damageSkin ?? 0,
+            x: Number(msg.x || session.x),
+            y: Number(msg.y || session.y),
+          });
+          for (const [c, p] of wsPlayers) {
+            if (c !== ws && p.mapId === session.mapId) c.send(dmgMsg);
+          }
+        } else if (msg.t === "loot") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          const lootMsg = JSON.stringify({
+            t: "player_loot",
+            id: session.id,
+            name: session.name,
+            x: Number(msg.x ?? session.x),
+            y: Number(msg.y ?? session.y),
+            amount: Number(msg.amount || 0),
+            item: msg.item ? Number(msg.item) : undefined,
+            mat: msg.mat ? Number(msg.mat) : undefined,
+            gear: msg.gear ? Number(msg.gear) : undefined,
+            magnet: Boolean(msg.magnet),
+          });
+          for (const [c, p] of wsPlayers) {
+            if (c !== ws && p.mapId === session.mapId) c.send(lootMsg);
+          }
+        } else if (msg.t === "magnet") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          const magMsg = JSON.stringify({
+            t: "player_magnet",
+            id: session.id,
+            x: Number(msg.x ?? session.x),
+            y: Number(msg.y ?? session.y),
+            dropX: Number(msg.dropX ?? session.x),
+            dropY: Number(msg.dropY ?? session.y),
+          });
+          for (const [c, p] of wsPlayers) {
+            if (c !== ws && p.mapId === session.mapId) c.send(magMsg);
+          }
+        } else if (msg.t === "damage_skin") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          session.damageSkin = msg.skinId ?? 0;
+          const dsMsg = JSON.stringify({
+            t: "player_damage_skin",
+            id: session.id,
+            damageSkin: session.damageSkin,
+          });
+          for (const [c, p] of wsPlayers) {
+            if (c !== ws && p.mapId === session.mapId) c.send(dsMsg);
           }
         } else if (msg.t === "action") {
           const session = wsPlayers.get(ws);
@@ -3853,6 +3927,9 @@ const server = Bun.serve<{ id: string }>({
               anim: String(msg.anim || "stand1"),
               frame: Number(msg.frame || 0),
               look: Array.isArray(msg.look) ? msg.look : [2000, 12000, 20000, 30030],
+              fps: Number(msg.fps ?? 60),
+              ping: Number(msg.ping ?? 20),
+              damageSkin: msg.damageSkin ?? 0,
             };
             wsPlayers.set(ws, session);
           } else {
@@ -3865,6 +3942,9 @@ const server = Bun.serve<{ id: string }>({
             if (msg.anim !== undefined) session.anim = String(msg.anim);
             if (msg.frame !== undefined) session.frame = Number(msg.frame);
             if (Array.isArray(msg.look)) session.look = msg.look;
+            if (msg.fps !== undefined) session.fps = Number(msg.fps);
+            if (msg.ping !== undefined) session.ping = Number(msg.ping);
+            if (msg.damageSkin !== undefined) session.damageSkin = msg.damageSkin;
           }
           const g = getGuildForPlayer(session.name);
           if (g) {
@@ -4075,6 +4155,11 @@ const server = Bun.serve<{ id: string }>({
             }
           }
         } else if (msg.t === "ping") {
+          const session = wsPlayers.get(ws);
+          if (session) {
+            if (msg.fps !== undefined) session.fps = Number(msg.fps);
+            if (msg.ping !== undefined) session.ping = Number(msg.ping);
+          }
           ws.send(JSON.stringify({ t: "pong", sentAt: msg.sentAt }));
         }
       } catch {}

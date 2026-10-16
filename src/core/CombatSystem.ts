@@ -163,10 +163,24 @@ export class CombatSystem {
     const [lo, hi] = game.damageRange();
     const mobLv = mob.data.meta?.level ?? 1;
     const missChance = Math.max(0.02, Math.min(0.5, 0.06 + (mobLv - game.stats.level) * 0.03 - game.totalDex() * 0.002 - game.lv("1100000") * 0.004));
-    if (Math.random() < missChance) return { dmg: 0, miss: true };
+    if (Math.random() < missChance) return { dmg: 0, miss: true, critical: false };
     const def = (mob.data.meta?.PDDamage ?? 0) * 0.5;
     const bossMul = mob.boss ? 1 + game.gt.boss / 100 : 1;
-    return { dmg: Math.max(1, Math.round((rand(lo, hi) * pct / 100) * bossMul - def)), miss: false };
+
+    let critRate = 0.08;
+    if (game.lv("3100001")) critRate += game.lv("3100001") * 0.02;
+    if (game.lv("4100001")) critRate += game.lv("4100001") * 0.03;
+    if (game.lv("2111000")) critRate += game.lv("2111000") * 0.03;
+    if (game.lv("4120002")) critRate += 0.15;
+    if (game.totalLuk) critRate += Math.min(0.25, game.totalLuk() * 0.0005);
+    critRate = Math.min(1.0, Math.max(0.05, critRate));
+
+    const isCritical = Math.random() < critRate;
+    const critMul = isCritical ? 1.45 : 1.0;
+
+    const baseDmg = (rand(lo, hi) * pct / 100) * bossMul - def;
+    const dmg = Math.max(1, Math.round(baseDmg * critMul));
+    return { dmg, miss: false, critical: isCritical };
   }
 
   static resolveAttack(game: Game, id: string | null) {
@@ -195,6 +209,7 @@ export class CombatSystem {
             target: m,
             dmg: r.dmg,
             miss: r.miss,
+            critical: r.critical,
             t: -h * 0.08,
             skillId: id ?? undefined,
             arcY: arcSpread,
@@ -212,6 +227,7 @@ export class CombatSystem {
               target: m,
               dmg: r.dmg,
               miss: r.miss,
+              critical: r.critical,
               t: -h * 0.08,
               skillId: id ?? undefined,
               isShadow: true,
@@ -227,7 +243,7 @@ export class CombatSystem {
       for (let h = 0; h < (d?.hits ?? 1); h++) {
         if (m.state === "die1" || m.state === "dead") break;
         const r = CombatSystem.rollDamage(game, pct, m);
-        CombatSystem.damageMob(game, m, r.dmg, r.miss);
+        CombatSystem.damageMob(game, m, r.dmg, r.miss, r.critical);
       }
       if (game.buffs["4111002"]) {
         const shadowPct = Math.round(pct * 0.5);
@@ -235,22 +251,37 @@ export class CombatSystem {
           if (m.state === "die1" || m.state === "dead") break;
           const r = CombatSystem.rollDamage(game, shadowPct, m);
           if (Math.random() < 0.18) r.miss = true;
-          CombatSystem.damageMob(game, m, r.dmg, r.miss);
+          CombatSystem.damageMob(game, m, r.dmg, r.miss, r.critical);
         }
       }
       if (art?.hit.length) game.fx.push({ frames: art.hit, x: m.x, y: m.y - 25, flip: p.face === 1, t: 0 });
     }
   }
 
-  static damageMob(game: Game, m: Mob, dmg: number, miss: boolean) {
+  static damageMob(game: Game, m: Mob, dmg: number, miss: boolean, critical = false) {
     if (!m || !m.data) return;
     if (game.oneHitKill) {
       dmg = 9999999;
       miss = false;
+      critical = true;
     }
     const box = game.mobBox(m);
     const stack = game.dmg.filter((d) => !d.hurt && Math.abs(d.x - m.x) < 30 && d.t < 0.4).length;
-    game.dmg.push({ value: dmg, miss, hurt: false, x: m.x, y: box.y0 - 6 - stack * 30, t: 0 });
+    const dmgY = box.y0 - 6 - stack * 30;
+    game.dmg.push({ value: dmg, miss, hurt: false, critical, skinId: game.damageSkin, x: m.x, y: dmgY, t: 0 });
+
+    if (game.ws && game.ws.readyState === WebSocket.OPEN) {
+      game.ws.send(JSON.stringify({
+        t: "damage",
+        value: dmg,
+        miss,
+        hurt: false,
+        critical,
+        skinId: game.damageSkin,
+        x: Math.round(m.x),
+        y: Math.round(dmgY),
+      }));
+    }
     if (miss) return;
     m.hp -= dmg;
     m.hpShow = 4;
@@ -335,7 +366,19 @@ export class CombatSystem {
       if (p.x + 12 > b.x0 && p.x - 12 < b.x1 && p.y > b.y0 + 6 && p.y - 60 < b.y1) {
         const dmg = CombatSystem.hurtAmount(game, m.atk);
         game.stats.hp = Math.max(0, game.stats.hp - dmg);
-        game.dmg.push({ value: dmg, miss: false, hurt: true, x: p.x, y: p.y - 75, t: 0 });
+        const hurtY = p.y - 75;
+        game.dmg.push({ value: dmg, miss: false, hurt: true, critical: false, x: p.x, y: hurtY, t: 0 });
+        if (game.ws && game.ws.readyState === WebSocket.OPEN) {
+          game.ws.send(JSON.stringify({
+            t: "damage",
+            value: dmg,
+            miss: false,
+            hurt: true,
+            critical: false,
+            x: Math.round(p.x),
+            y: Math.round(hurtY),
+          }));
+        }
         p.invuln = 2; p.alert = 3;
         const away = p.x < m.x ? -1 : 1;
         p.ladder = null; p.fh = null; p.vx = away * 130; p.vy = -260; p.attack = 0;
@@ -425,7 +468,7 @@ export class CombatSystem {
       const step = speed * dt;
       if (dist <= step || (dist < 22 && (pr.target.state === "dead" || pr.target.state === "die1"))) {
         if (pr.target?.data && pr.target.state !== "dead" && pr.target.state !== "die1") {
-          CombatSystem.damageMob(game, pr.target, pr.dmg, pr.miss);
+          CombatSystem.damageMob(game, pr.target, pr.dmg, pr.miss, pr.critical);
         }
         if (pr.skillId) {
           const art = game.skillArt[pr.skillId];

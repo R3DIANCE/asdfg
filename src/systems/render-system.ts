@@ -17,6 +17,7 @@ import { itemIconRaw } from "../skills.ts";
 import { PetSystem } from "./pet-system.ts";
 import { type GuildEmblem, EMBLEM_COLORS, guildEmblemUrl } from "../guild.ts";
 import { getWeaponType } from "../items.ts";
+import { DamageSkinSystem } from "./damage-skin-system.ts";
 
 const textTexCache = new Map<string, Tex>();
 const textTexPending = new Set<string>();
@@ -285,6 +286,74 @@ export function renderPlayerNameTexture(r: Renderer, name: string): Tex | null {
     // Character Name in clean white
     ctx.fillStyle = "#ffffff";
     ctx.fillText(name, w / 2, h / 2);
+
+    createImageBitmap(canvas).then((bmp) => {
+      const tex = r.texture(bmp);
+      textTexCache.set(key, tex);
+      textTexPending.delete(key);
+    }).catch(() => {
+      textTexPending.delete(key);
+    });
+  } catch {
+    textTexPending.delete(key);
+  }
+
+  return null;
+}
+
+export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number): Tex | null {
+  const key = `gmtelemetry:${fps}:${ping}`;
+  const hit = textTexCache.get(key);
+  if (hit) return hit;
+  if (textTexPending.has(key)) return null;
+  textTexPending.add(key);
+
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      textTexPending.delete(key);
+      return null;
+    }
+
+    const text = `${fps} FPS · ${ping}ms`;
+    ctx.font = "bold 9px Tahoma, 'Segoe UI', Arial, sans-serif";
+    const tm = ctx.measureText(text);
+    const tw = Math.ceil(tm.width);
+    const w = tw + 10;
+    const h = 14;
+    canvas.width = w;
+    canvas.height = h;
+
+    ctx.font = "bold 9px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.imageSmoothingEnabled = false;
+
+    // Dark pill container
+    ctx.fillStyle = "rgba(10, 14, 22, 0.88)";
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(0, 0, w, h, 3) : ctx.rect(0, 0, w, h);
+    ctx.fill();
+
+    // Subtle GM gold border
+    ctx.strokeStyle = "rgba(255, 204, 68, 0.75)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(0.5, 0.5, w - 1, h - 1, 3) : ctx.rect(0.5, 0.5, w - 1, h - 1);
+    ctx.stroke();
+
+    // FPS text with color coding
+    const fpsColor = fps >= 50 ? "#4ade80" : fps >= 30 ? "#facc15" : "#f87171";
+    ctx.fillStyle = fpsColor;
+    ctx.fillText(`${fps} FPS`, w / 2 - 12, h / 2);
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.fillText("·", w / 2 + 5, h / 2);
+
+    const pingColor = ping < 60 ? "#4ade80" : ping < 120 ? "#facc15" : "#f87171";
+    ctx.fillStyle = pingColor;
+    ctx.fillText(`${ping}ms`, w / 2 + 18, h / 2);
 
     createImageBitmap(canvas).then((bmp) => {
       const tex = r.texture(bmp);
@@ -1247,6 +1316,14 @@ export class WorldRenderer {
     }
   }
 
+  public static drawGmTelemetryTag(r: Renderer, fps: number, ping: number, x: number, y: number, cx: number, cy: number, hasGuild: boolean) {
+    const tex = renderGmTelemetryTexture(r, fps, ping);
+    if (tex) {
+      const tagOffset = hasGuild ? 34 : 20;
+      r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y + tagOffset - cy), tex.w, tex.h);
+    }
+  }
+
   public static drawSpeechBalloon(r: Renderer, text: string, x: number, y: number, cx: number, cy: number) {
     const tex = renderTextTexture(r, text, "balloon");
     if (tex) {
@@ -1397,6 +1474,9 @@ export class WorldRenderer {
     WorldRenderer.drawNameTag(game.r, rp.name, rp.x, drawPosY, cx, cy);
     if (rp.guildName) {
       WorldRenderer.drawGuildTag(game.r, rp.guildName, rp.guildEmblem, rp.x, drawPosY, cx, cy);
+    }
+    if (game.isGm()) {
+      WorldRenderer.drawGmTelemetryTag(game.r, rp.fps ?? 60, rp.ping ?? 20, rp.x, drawPosY, cx, cy, Boolean(rp.guildName));
     }
     if (game.party && game.party.members) {
       const mem = game.party.members.find(
@@ -1642,24 +1722,69 @@ export class WorldRenderer {
 
   public static drawDamage(game: Game, d: DmgText, cx: number, cy: number) {
     const fx = game.fxData;
+    const skin = DamageSkinSystem.getSkin(d.skinId ?? game.damageSkin ?? 0);
     const rise = Math.min(1, d.t / 1.0) * 40;
     const alpha = d.t > 0.9 ? Math.max(0, 1 - (d.t - 0.9) / 0.6) : 1;
+
+    // Miss
     if (d.miss) {
-      const s: Sprite = fx.miss, t = s && game.assets.get(s.url);
-      if (t) game.r.draw(t, Math.round(d.x - s.w / 2 - cx), Math.round(d.y - rise - s.h - cy), s.w, s.h, { alpha });
+      const missUrl = skin.miss || fx?.miss?.url || "/wz/sprite/Effect/BasicEff/NoRed0/Miss";
+      let t = game.assets.get(missUrl);
+      if (!t && fx?.miss?.url) t = game.assets.get(fx.miss.url);
+      if (t) {
+        game.r.draw(t, Math.round(d.x - t.w / 2 - cx), Math.round(d.y - rise - t.h - cy), t.w, t.h, { alpha });
+      } else {
+        game.assets.load(missUrl);
+        if (fx?.miss?.url) game.assets.load(fx.miss.url);
+      }
       return;
     }
+
     const str = String(d.value);
-    const glyphs: Sprite[] = [...str].map((c, i) => (i === 0 ? (d.hurt ? fx.hurtFirst : fx.dmgFirst)[c] : (d.hurt ? fx.hurt : fx.dmg)[c]));
-    const overlap = 6;
-    const total = glyphs.reduce((a, g) => a + (g?.w ?? 20) - overlap, overlap);
+    const isCritical = Boolean(d.critical && !d.hurt);
+
+    // Get glyph URLs based on hit type and skin
+    const glyphUrls: string[] = [...str].map((c, i) => {
+      if (d.hurt) {
+        return (i === 0 ? fx?.hurtFirst?.[c]?.url : fx?.hurt?.[c]?.url) || `/wz/sprite/Effect/BasicEff/NoViolet${i === 0 ? "0" : "1"}/${c}`;
+      }
+      if (isCritical) {
+        return (i === 0 ? skin.criFirst[c] : skin.cri[c]) || (i === 0 ? fx?.dmgFirst?.[c]?.url : fx?.dmg?.[c]?.url) || `/wz/sprite/Effect/BasicEff/NoCri${i === 0 ? "0" : "1"}/${c}`;
+      }
+      return (i === 0 ? skin.dmgFirst[c] : skin.dmg[c]) || (i === 0 ? fx?.dmgFirst?.[c]?.url : fx?.dmg?.[c]?.url) || `/wz/sprite/Effect/BasicEff/NoRed${i === 0 ? "0" : "1"}/${c}`;
+    });
+
+    const glyphTexs = glyphUrls.map((u) => {
+      const tex = u ? game.assets.get(u) : null;
+      if (!tex && u) game.assets.load(u);
+      return tex;
+    });
+
+    const overlap = isCritical ? 4 : 6;
+    const total = glyphTexs.reduce((a, t) => a + (t?.w ?? 22) - overlap, overlap);
     let x = d.x - total / 2;
     const base = d.y - rise;
-    glyphs.forEach((g, i) => {
-      if (!g) return;
-      const t = game.assets.get(g.url);
-      if (t) game.r.draw(t, Math.round(x - cx), Math.round(base - g.h - (i === 0 ? 4 : 0) - cy), g.w, g.h, { alpha });
-      x += g.w - overlap;
+
+    // Critical star effect drawn behind/above the first digit
+    if (isCritical) {
+      const effUrl = skin.criEffect || "/wz/sprite/Effect/BasicEff/NoCri1/effect";
+      let effTex = game.assets.get(effUrl) ?? game.assets.get("/wz/sprite/Effect/BasicEff/NoCri1/effect");
+      if (effTex) {
+        game.r.draw(effTex, Math.round(x - 14 - cx), Math.round(base - effTex.h - 12 - cy), effTex.w, effTex.h, { alpha });
+      } else {
+        game.assets.load(effUrl);
+        game.assets.load("/wz/sprite/Effect/BasicEff/NoCri1/effect");
+      }
+    }
+
+    glyphTexs.forEach((t, i) => {
+      const gw = t?.w ?? 22;
+      const gh = t?.h ?? 30;
+      const bounce = (isCritical && i === 0) ? -4 : 0;
+      if (t) {
+        game.r.draw(t, Math.round(x - cx), Math.round(base - gh + bounce - cy), gw, gh, { alpha });
+      }
+      x += gw - overlap;
     });
   }
 }

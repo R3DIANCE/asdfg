@@ -1449,6 +1449,40 @@ export class Windows {
       killAllBtn.textContent = "Kill All Monsters on Map";
       killAllBtn.addEventListener("click", () => g.killAllMobs());
 
+      // Damage Skin Selector (WZ skins)
+      const secSkin = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secSkin).textContent = "Custom Damage Skins (WZ & Synced)";
+      const skinRow1 = el("div", "debug-row gap-1", secSkin);
+      const skinSelect = el("select", "debug-input flex-1", skinRow1) as HTMLSelectElement;
+      skinSelect.innerHTML = `
+        <option value="0">Classic Maple (Default)</option>
+        <option value="blue">Arcane Blue</option>
+        <option value="violet">Shadow Violet</option>
+        <option value="green">Verdant Green</option>
+        <option value="kite">Kite Festival</option>
+        <option value="1">#1 Digital Cyber</option>
+        <option value="2">#2 Sweet Macaroon</option>
+        <option value="3">#3 Neon Matrix</option>
+        <option value="4">#4 Crimson Balrog</option>
+        <option value="5">#5 Starry Cosmos</option>
+        <option value="10">#10 Origami Paper</option>
+        <option value="20">#20 Rainbow Candy</option>
+        <option value="50">#50 Glitch Hologram</option>
+        <option value="100">#100 Royal Gold</option>
+      `;
+      skinSelect.value = String(g.damageSkin ?? 0);
+      skinSelect.addEventListener("change", () => {
+        g.setDamageSkin(skinSelect.value);
+      });
+      const customSkinInp = el("input", "debug-input w-20", skinRow1) as HTMLInputElement;
+      customSkinInp.placeholder = "ID 1-641";
+      const applySkinBtn = el("button", "debug-btn blue", skinRow1);
+      applySkinBtn.textContent = "Apply";
+      applySkinBtn.addEventListener("click", () => {
+        const val = customSkinInp.value.trim();
+        if (val) g.setDamageSkin(val);
+      });
+
       // Combat & Stage Progression
       const secCombat = el("div", "debug-section", wd);
       el("div", "debug-sec-title", secCombat).textContent = "Stage & Boss Progression";

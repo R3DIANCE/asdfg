@@ -134,7 +134,19 @@ export class MobSystem {
         if (Math.abs(dx) < 230 && Math.abs(p.y - m.y) < 140 && p.invuln <= 0 && game.stats.hp > 0) {
           const dmg = CombatSystem.hurtAmount(game, m.atk * 1.6);
           game.stats.hp = Math.max(0, game.stats.hp - dmg);
-          game.dmg.push({ value: dmg, miss: false, hurt: true, x: p.x, y: p.y - 75, t: 0 });
+          const hurtY = p.y - 75;
+          game.dmg.push({ value: dmg, miss: false, hurt: true, critical: false, x: p.x, y: hurtY, t: 0 });
+          if (game.ws && game.ws.readyState === WebSocket.OPEN) {
+            game.ws.send(JSON.stringify({
+              t: "damage",
+              value: dmg,
+              miss: false,
+              hurt: true,
+              critical: false,
+              x: Math.round(p.x),
+              y: Math.round(hurtY),
+            }));
+          }
           p.invuln = 1.5; p.alert = 3; p.ladder = null; p.fh = null; p.vx = (dx < 0 ? -1 : 1) * 200; p.vy = -320; p.attack = 0;
           if (game.stats.hp <= 0) CombatSystem.die(game);
         }
@@ -160,8 +172,33 @@ export class MobSystem {
 
   static updateDrops(game: Game, dt: number) {
     const magnet = game.auto.battle && game.auto.magnet;
+    const now = performance.now();
     for (const d of game.drops) {
       d.t += dt;
+
+      // Drop being magnetically pulled or looted into a remote player
+      if (d.targetPlayer) {
+        const rp = d.targetPlayer;
+        const tx = rp.x;
+        const ty = rp.y - 20;
+        const dx = tx - d.x;
+        const dy = ty - d.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (d.picked) {
+          d.picked += dt;
+          d.x += (tx - d.x) * Math.min(1, dt * 16);
+          d.y += (ty - d.y) * Math.min(1, dt * 16);
+        } else {
+          const speed = Math.min(dist, (500 + d.t * 700) * dt);
+          d.x += (dx / dist) * speed;
+          d.y += (dy / dist) * speed;
+          if (dist < 36) {
+            d.picked = 0.001;
+          }
+        }
+        continue;
+      }
+
       if (d.picked) {
         d.picked += dt;
         d.x += (game.p.x - d.x) * Math.min(1, dt * 14);
@@ -178,16 +215,41 @@ export class MobSystem {
         d.fh = null;
         d.ignoreFh = undefined;
         d.vx = 0; d.vy = 0;
+
+        if (now - game.lastMagnetBroadcast > 350 && game.ws && game.ws.readyState === WebSocket.OPEN) {
+          game.lastMagnetBroadcast = now;
+          game.ws.send(JSON.stringify({
+            t: "magnet",
+            x: Math.round(game.p.x),
+            y: Math.round(game.p.y),
+            dropX: Math.round(d.x),
+            dropY: Math.round(d.y),
+          }));
+        }
       } else if (!d.fh) {
         airMove(game.tree, d, dt);
         if (d.fh) d.vx = 0;
       }
     }
-    game.drops = game.drops.filter((d) => (d.picked ? d.picked < 0.22 : d.t < 600));
+    game.drops = game.drops.filter((d) => (d.picked ? d.picked < 0.25 : d.t < 600));
     if (magnet) {
       for (const d of game.drops) {
-        if (d.picked) continue;
-        if (Math.abs(d.x - game.p.x) < 36 && Math.abs(d.y - (game.p.y - 20)) < 36) d.picked = 0.001;
+        if (d.picked || d.targetPlayer) continue;
+        if (Math.abs(d.x - game.p.x) < 36 && Math.abs(d.y - (game.p.y - 20)) < 36) {
+          d.picked = 0.001;
+          if (game.ws && game.ws.readyState === WebSocket.OPEN) {
+            game.ws.send(JSON.stringify({
+              t: "loot",
+              x: Math.round(d.x),
+              y: Math.round(d.y),
+              amount: d.amount,
+              item: d.item,
+              mat: d.mat,
+              gear: d.gear?.id,
+              magnet: true,
+            }));
+          }
+        }
       }
     }
   }

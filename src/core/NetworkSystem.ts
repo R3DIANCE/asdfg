@@ -3,6 +3,7 @@ import { charUrlFor, FREE_MARKET_MAP, type ChatKind } from "../game-types.ts";
 import { SKILL } from "../skills.ts";
 import { spacetime } from "../spacetimedb.ts";
 import { CombatSystem } from "./CombatSystem.ts";
+import { DamageSkinSystem } from "../systems/damage-skin-system.ts";
 
 export class NetworkSystem {
   private static isSamePlayerName(a?: string, b?: string): boolean {
@@ -126,6 +127,9 @@ export class NetworkSystem {
       anim: game.p.anim,
       frame: game.p.frame,
       look: game.look,
+      fps: Math.round(game.fps),
+      ping: Math.round(game.wsPing),
+      damageSkin: game.damageSkin,
     }));
   }
 
@@ -146,6 +150,9 @@ export class NetworkSystem {
       anim: game.p.anim,
       frame: game.p.frame,
       look: game.look,
+      fps: Math.round(game.fps),
+      ping: Math.round(game.wsPing),
+      damageSkin: game.damageSkin,
     }));
   }
 
@@ -184,6 +191,9 @@ export class NetworkSystem {
         face: p.face,
         anim: p.anim,
         frame: p.frame,
+        fps: Math.round(game.fps),
+        ping: Math.round(game.wsPing),
+        damageSkin: game.damageSkin,
       }));
       if (game.partyId) {
         NetworkSystem.sendPartySync(game);
@@ -295,8 +305,12 @@ export class NetworkSystem {
               ...p,
               targetX: p.x,
               targetY: p.y,
+              fps: p.fps ?? 60,
+              ping: p.ping ?? 20,
+              damageSkin: p.damageSkin ?? 0,
             });
             game.assets.load(charUrlFor(p.look, p.anim || "stand1", p.frame || 0));
+            if (p.damageSkin) DamageSkinSystem.preloadSkin(game, p.damageSkin);
           }
         }
       }
@@ -307,9 +321,13 @@ export class NetworkSystem {
           ...msg.player,
           targetX: msg.player.x,
           targetY: msg.player.y,
+          fps: msg.player.fps ?? 60,
+          ping: msg.player.ping ?? 20,
+          damageSkin: msg.player.damageSkin ?? 0,
         });
         game.onChat("system", `${msg.player.name} entered the map.`);
         game.assets.load(charUrlFor(msg.player.look, msg.player.anim || "stand1", msg.player.frame || 0));
+        if (msg.player.damageSkin) DamageSkinSystem.preloadSkin(game, msg.player.damageSkin);
       }
     } else if (msg.t === "player_move") {
       if (msg.id === game.wsId) return;
@@ -318,6 +336,12 @@ export class NetworkSystem {
         rp.targetX = msg.x;
         rp.targetY = msg.y;
         rp.face = msg.face;
+        if (msg.fps !== undefined) rp.fps = msg.fps;
+        if (msg.ping !== undefined) rp.ping = msg.ping;
+        if (msg.damageSkin !== undefined && msg.damageSkin !== rp.damageSkin) {
+          rp.damageSkin = msg.damageSkin;
+          DamageSkinSystem.preloadSkin(game, rp.damageSkin);
+        }
         if (!rp.attackTimer || rp.attackTimer <= 0) {
           rp.anim = msg.anim;
           rp.frame = msg.frame;
@@ -378,6 +402,80 @@ export class NetworkSystem {
       if (rp) {
         rp.look = msg.look;
         game.assets.load(charUrlFor(rp.look, rp.anim || "stand1", rp.frame || 0));
+      }
+    } else if (msg.t === "player_damage") {
+      if (msg.id === game.wsId) return;
+      game.dmg.push({
+        value: msg.value,
+        miss: Boolean(msg.miss),
+        hurt: Boolean(msg.hurt),
+        critical: Boolean(msg.critical),
+        skinId: msg.skinId ?? 0,
+        x: msg.x,
+        y: msg.y,
+        t: 0,
+      });
+      if (msg.skinId) {
+        DamageSkinSystem.preloadSkin(game, msg.skinId);
+      }
+    } else if (msg.t === "player_damage_skin") {
+      if (msg.id === game.wsId) return;
+      const rp = game.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.damageSkin = msg.damageSkin;
+        DamageSkinSystem.preloadSkin(game, rp.damageSkin);
+      }
+    } else if (msg.t === "player_loot") {
+      if (msg.id === game.wsId) return;
+      const rp = game.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.magnetActive = Boolean(msg.magnet);
+        rp.magnetTimer = 0.6;
+        const drop = game.drops.find((d) => !d.picked && Math.abs(d.x - msg.x) < 45 && Math.abs(d.y - msg.y) < 45);
+        if (drop) {
+          drop.targetPlayer = rp;
+          drop.picked = 0.001;
+        } else {
+          game.drops.push({
+            x: msg.x,
+            y: msg.y,
+            vx: (Math.random() - 0.5) * 30,
+            vy: -60,
+            fh: null,
+            amount: msg.amount || 0,
+            item: msg.item,
+            mat: msg.mat,
+            gear: msg.gear ? { id: msg.gear, rarity: 0, stars: 0, att: 0, stat: 0, name: "" } as any : undefined,
+            t: 0,
+            picked: 0.001,
+            targetPlayer: rp,
+            isCosmetic: true,
+          });
+        }
+      }
+    } else if (msg.t === "player_magnet") {
+      if (msg.id === game.wsId) return;
+      const rp = game.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.magnetActive = true;
+        rp.magnetTimer = 0.6;
+        const drop = game.drops.find((d) => !d.picked && Math.abs(d.x - msg.dropX) < 50 && Math.abs(d.y - msg.dropY) < 50);
+        if (drop) {
+          drop.targetPlayer = rp;
+        } else {
+          game.drops.push({
+            x: msg.dropX,
+            y: msg.dropY,
+            vx: 0,
+            vy: 0,
+            fh: null,
+            amount: 50,
+            t: 0.15,
+            picked: 0,
+            targetPlayer: rp,
+            isCosmetic: true,
+          });
+        }
       }
     } else if (msg.t === "chat") {
       if (msg.id === game.wsId) return;

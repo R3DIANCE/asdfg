@@ -13,6 +13,7 @@ import { preloadIcon } from "./util.ts";
 
 import { type Guild, type GuildEmblem, GuildClient } from "./guild.ts";
 import { type Party, PartyClient } from "./party.ts";
+import { DamageSkinSystem, DAMAGE_SKIN_PRESETS } from "./systems/damage-skin-system.ts";
 export * from "./game-types.ts";
 import {
   type Back,
@@ -172,6 +173,23 @@ export class Game extends ComponentBase {
   hud: any = null;
   windows: any = null;
   shadowPartnerArt: Record<string, Sprite[]> = {};
+  fps = 60;
+  damageSkin: number | string = 0;
+  lastMagnetBroadcast = 0;
+
+  setDamageSkin(skinId: number | string) {
+    this.damageSkin = isNaN(Number(skinId)) ? skinId : Number(skinId);
+    try {
+      localStorage.setItem("ms_damage_skin", String(this.damageSkin));
+    } catch {}
+    DamageSkinSystem.preloadSkin(this, this.damageSkin);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ t: "damage_skin", skinId: this.damageSkin }));
+    }
+    const def = DamageSkinSystem.getSkin(this.damageSkin);
+    this.onChat("notice", `[Damage Skin] Active skin set to: ${def.name} (#${def.id})`);
+    this.onChange();
+  }
 
   hasWizetHat(look?: number[]): boolean {
     if (look) {
@@ -309,6 +327,14 @@ export class Game extends ComponentBase {
     const fxs = [this.fxData.dmg, this.fxData.dmgFirst, this.fxData.hurt, this.fxData.hurtFirst].flatMap((o: any) => Object.values(o));
     for (const s of [...fxs, ...this.fxData.meso, ...this.fxData.portal, this.fxData.miss, ...(this.fxData.levelUp ?? [])] as Sprite[]) if (s) loads.push(this.assets.load(s.url));
     for (const a of Object.values(this.skillArt)) for (const f of [...a.effect, ...a.effect0, ...a.hit, ...(a.ball ?? [])]) this.assets.load(f.url);
+    try {
+      const savedSkin = localStorage.getItem("ms_damage_skin");
+      if (savedSkin) {
+        this.damageSkin = isNaN(Number(savedSkin)) ? savedSkin : Number(savedSkin);
+      }
+    } catch {}
+    DamageSkinSystem.preloadSkin(this, this.damageSkin);
+    DamageSkinSystem.preloadSkin(this, 0);
     const statusSprites = [
       STATUS_UI.backgrnd,
       STATUS_UI.cover,
@@ -776,6 +802,9 @@ export class Game extends ComponentBase {
   // ------------------------------------------------------------ update
   update(dt: number) {
     this.time += dt;
+    if (dt > 0.0001) {
+      this.fps = Math.round(this.fps * 0.95 + (1 / dt) * 0.05);
+    }
     if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
     if (this.loadingMap || !this.map) { this.pressed.clear(); return; }
     this.fade = Math.max(0, this.fade - dt * 2.5);
@@ -811,6 +840,10 @@ export class Game extends ComponentBase {
 
       if (rp.attackTimer && rp.attackTimer > 0) {
         rp.attackTimer -= dt;
+      }
+      if (rp.magnetTimer && rp.magnetTimer > 0) {
+        rp.magnetTimer -= dt;
+        if (rp.magnetTimer <= 0) rp.magnetActive = false;
       }
 
       // Smooth frame advancement
@@ -926,6 +959,18 @@ export class Game extends ComponentBase {
         if (d.picked || !d.fh) continue;
         if (Math.abs(d.x - p.x) < 40 && Math.abs(d.y - p.y) < 40) {
           d.picked = 0.001;
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+              t: "loot",
+              x: Math.round(d.x),
+              y: Math.round(d.y),
+              amount: d.amount,
+              item: d.item,
+              mat: d.mat,
+              gear: d.gear?.id,
+              magnet: false,
+            }));
+          }
           if (d.gear) {
             this.addGear(d.gear);
             this.onChat("item", `You have gained ${RARITY[d.gear.rarity]} ${GEAR.get(d.gear.id)?.name ?? "equipment"}.`);

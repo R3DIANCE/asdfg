@@ -141,6 +141,11 @@ export interface RemotePlayer {
   guildId?: string;
   guildName?: string;
   guildEmblem?: GuildEmblem;
+  fps?: number;
+  ping?: number;
+  damageSkin?: number | string;
+  magnetActive?: boolean;
+  magnetTimer?: number;
 }
 
 export const BODY = [2000, 12000, 20000, 30030];
@@ -227,6 +232,8 @@ export interface Drop {
   t: number;
   picked: number;
   ignoreFh?: number;
+  targetPlayer?: RemotePlayer;
+  isCosmetic?: boolean;
 }
 
 export interface Projectile {
@@ -235,6 +242,7 @@ export interface Projectile {
   target: Mob;
   dmg: number;
   miss: boolean;
+  critical?: boolean;
   t: number;
   skillId?: string;
   isShadow?: boolean;
@@ -256,6 +264,8 @@ export interface DmgText {
   value: number;
   miss: boolean;
   hurt: boolean;
+  critical?: boolean;
+  skinId?: number | string;
   x: number;
   y: number;
   t: number;

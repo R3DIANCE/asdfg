@@ -8,6 +8,7 @@ import { GEAR, MATS } from "../items.ts";
 import { ITEMS } from "../skills.ts";
 import { renderGearTooltip, renderUseTooltip, renderMatTooltip } from "../tooltip.ts";
 import { PartyClient } from "../party.ts";
+import { DAMAGE_SKIN_PRESETS } from "../systems/damage-skin-system.ts";
 
 export type ChatFilter = "all" | "say" | "party" | "guild" | "whisper" | "notice";
 
@@ -415,8 +416,19 @@ export class ChatComponent extends ComponentBase {
             } else {
               this.game.onChat("system", "Usage: /w <name> <message>");
             }
+          } else if (t.startsWith("/skin ") || t === "/skin") {
+            const raw = t.replace(/^\/skin\s*/, "").trim();
+            if (raw) {
+              const sid = isNaN(Number(raw)) ? raw : Number(raw);
+              this.game.setDamageSkin(sid);
+            } else {
+              this.game.onChat("system", "Usage: /skin <id or preset> (e.g., /skin 2, /skin blue, /skin 50). Type /skins to view presets.");
+            }
+          } else if (t === "/skins") {
+            const list = DAMAGE_SKIN_PRESETS.map((p) => `${p.name} (${p.id})`).join(", ");
+            this.game.onChat("notice", `★ [Damage Skins] Presets: ${list}. Any ID 1-641 from WZ supported!`);
           } else if (t === "/help" || t === "/commands") {
-            const baseHelp = "[Commands] /name <newName> | /g <msg> (guild) | /p <msg> (party) | /w <player> <msg> (whisper)";
+            const baseHelp = "[Commands] /name <newName> | /skin <id> | /skins | /g <msg> (guild) | /p <msg> (party) | /w <player> <msg> (whisper)";
             this.game.onChat("system", `${baseHelp} | /gm or /setgm - GM Panel | /sync | /logout`);
           } else {
             // Check active channel routing
