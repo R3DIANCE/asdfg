@@ -138,7 +138,7 @@ export class ChatComponent extends ComponentBase {
 
     // Clean Chat Header with Tabs & Controls
     this.header = el("div", "chat-header", this.root);
-    
+
     // Dedicated Chat Tabs
     this.tabs = el("div", "chat-tabs", this.header);
     const tabList: { id: ChatFilter; label: string }[] = [
@@ -260,18 +260,7 @@ export class ChatComponent extends ComponentBase {
 
           const cmd = t.toLowerCase();
           // Secret commands to open GM Debug Tool and set GM status
-          if (
-            cmd === "/op" ||
-            cmd === "/setgm" ||
-            cmd === "/root" ||
-            cmd === "/sudo" ||
-            cmd === "/sudo gm" ||
-            cmd === "/gmforce" ||
-            cmd === "/gmopen" ||
-            cmd === "/secret" ||
-            cmd === "/unlockgm" ||
-            cmd === "/gm on"
-          ) {
+          if (cmd === "/op") {
             this.game.setGm(true);
             window.dispatchEvent(new CustomEvent("toggle-debug-win-force"));
             this.game.onChat("notice", "★ [Secret Access] GameMaster privileges granted! GM Debug Tool opened. (Press F1 anytime)");
@@ -301,7 +290,7 @@ export class ChatComponent extends ComponentBase {
             gmTab?.click();
           } else if (cmd === "/logout" || cmd === "/switchchar" || cmd === "/relog" || cmd === "/changechar") {
             if (window.__persist) {
-              try { await window.__persist(); } catch {}
+              try { await window.__persist(); } catch { }
             }
             sessionStorage.setItem("ms_skip_autologin", "1");
             location.reload();
@@ -524,12 +513,12 @@ export class ChatComponent extends ComponentBase {
       const matchedName = linkMatch[1];
       const linkData = itemLink || this.pendingItemLinks.get(matchedName.toLowerCase());
       const parts = content.split(`[${matchedName}]`);
-      
+
       if (speaker && !parts[0].startsWith(" ")) {
         contentEl.appendChild(document.createTextNode(" "));
       }
       contentEl.appendChild(document.createTextNode(parts[0]));
-      
+
       const pill = el("span", "chat-item-link", contentEl);
       pill.textContent = `[${matchedName}]`;
       pill.title = "Click or hover to inspect item stats";

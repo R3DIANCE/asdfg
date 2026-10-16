@@ -2,7 +2,23 @@
 import type { Game } from "../game.ts";
 import { WALK } from "../game-types.ts";
 import { classFor, SKILL, type ClassId, type Action } from "../skills.ts";
-import { gearStats, type Slot } from "../items.ts";
+import { gearStats, makeGear, type Slot } from "../items.ts";
+
+export const SECONDARY_WEAPONS: Partial<Record<ClassId, number>> = {
+  warrior: 1402001, // Wooden Sword (2H)
+  magician: 1382000, // Wooden Staff
+  bowman: 1462001, // Crossbow
+  thief: 1332007, // Fruit Knife
+  pirate: 1492000, // Pistol
+};
+
+export const JOB_STARTER_ITEMS: Partial<Record<ClassId, [number, number][]>> = {
+  bowman: [[2060000, 1000], [2061000, 500]], // Bow & Crossbow arrows
+  thief: [[2070000, 1000]], // Subi Throwing-Stars
+  pirate: [[2330000, 1000]], // Bullets
+  magician: [[2000003, 100]], // Blue Potions
+  warrior: [[2000000, 50]], // Red Potions
+};
 
 export const emptyGt = () => ({
   watk: 0,
@@ -191,7 +207,21 @@ export class StatsSystem {
       });
     if (pick) game.skillLv[pick] = 1;
     game.quick = { ...c.defaultQuick };
+
+    // Set signature starter weapon
+    if (c.startingGear?.weapon) {
+      game.eq.weapon = makeGear(c.startingGear.weapon, 0, 0);
+    }
+    // Grant initial class ammunition & supplies
+    const items = JOB_STARTER_ITEMS[id];
+    if (items) {
+      for (const [itemId, count] of items) {
+        game.inv[itemId] = (game.inv[itemId] ?? 0) + count;
+      }
+    }
+
     StatsSystem.recalc(game);
+    game.refreshLook();
   }
 
   static canAdvanceJob(game: Game, tier?: number): boolean {
@@ -214,6 +244,32 @@ export class StatsSystem {
     s.job = c.tabs[jobIndex] || c.tabs[1] || c.name;
     s.sp += 5;
     s.ap += 5;
+
+    // Grant & equip 1st job signature weapon
+    if (c.startingGear?.weapon) {
+      const primaryWepId = c.startingGear.weapon;
+      const oldWep = game.eq.weapon;
+      // Stash any previously equipped weapon to inventory bag if not the basic starter sword
+      if (oldWep && oldWep.id !== 1302000) {
+        game.bag.push(oldWep);
+      }
+      game.eq.weapon = makeGear(primaryWepId, 0, 0);
+    }
+
+    // Grant secondary weapon choice in inventory bag
+    const secWepId = SECONDARY_WEAPONS[id];
+    if (secWepId) {
+      game.bag.push(makeGear(secWepId, 0, 0));
+    }
+
+    // Grant class supplies (arrows, stars, bullets, potions)
+    const items = JOB_STARTER_ITEMS[id];
+    if (items) {
+      for (const [itemId, count] of items) {
+        game.inv[itemId] = (game.inv[itemId] ?? 0) + count;
+      }
+    }
+
     const firstSkill = c.skillsByTab[1]?.[0];
     if (firstSkill && !game.skillLv[firstSkill]) {
       game.skillLv[firstSkill] = 1;
@@ -225,11 +281,12 @@ export class StatsSystem {
       game.quick["Space"] = { t: "skill", id: moveSkill };
     }
     StatsSystem.recalc(game);
+    game.refreshLook();
     s.hp = s.maxHp;
     s.mp = s.maxMp;
     game.fx.push({ frames: game.fxData.levelUp, x: game.p.x, y: game.p.y, flip: false, t: 0, follow: true });
     game.onGain("level", `Job Advancement complete! You are now a ${s.job}!`);
-    game.onChat("level", `★ Job Advancement: You have advanced to ${s.job}! +5 SP & +5 AP awarded.`);
+    game.onChat("level", `★ Job Advancement: You have advanced to ${s.job}! Received your job's weapons and supplies.`);
     game.onChange();
   }
 }

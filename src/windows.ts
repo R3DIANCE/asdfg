@@ -561,6 +561,8 @@ export class Windows {
         const jid = btn.dataset.job as ClassId;
         this.game.advanceJob(jid);
         this.jobAdvWin.classList.add("hidden");
+        const tabsEl = this.skill.querySelector(".skill-tabs") as HTMLElement;
+        if (tabsEl) this.buildSkillTabs(tabsEl);
         this.lastStat = this.lastSkill = "";
         this.renderStat();
         this.renderSkill();
@@ -2070,6 +2072,19 @@ export class Windows {
         }
       } else if (act === "refresh-guild") {
         g.loadGuild().then(() => this.renderGuild());
+      }
+    });
+
+    window.addEventListener("guild-state-changed", () => {
+      this.renderGuild();
+    });
+
+    window.addEventListener("guild-directory-changed", () => {
+      if (this.guildTab === "directory") {
+        GuildClient.getGuildList().then((list) => {
+          this.guildCachedDirectory = list;
+          this.renderGuild();
+        });
       }
     });
 

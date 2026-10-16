@@ -308,7 +308,7 @@ async function start(char?: SpacetimeCharacter) {
       if (Array.isArray(char.look) && char.look.length) {
         game.look = [...char.look];
       }
-      if (localSaved) {
+      if (localSaved && localSaved.stats?.name === char.name) {
         game.restore(localSaved);
       }
     }

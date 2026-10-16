@@ -14,7 +14,8 @@ import {
 } from "../game-types.ts";
 import { itemIconRaw } from "../skills.ts";
 import { PetSystem } from "./pet-system.ts";
-import { type GuildEmblem, EMBLEM_COLORS } from "../guild.ts";
+import { type GuildEmblem, EMBLEM_COLORS, guildEmblemUrl } from "../guild.ts";
+import { getWeaponType } from "../items.ts";
 
 const textTexCache = new Map<string, Tex>();
 const textTexPending = new Set<string>();
@@ -162,74 +163,83 @@ export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: G
   if (textTexPending.has(key)) return null;
   textTexPending.add(key);
 
-  try {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
+  const buildTag = (emblemImg: HTMLImageElement | null) => {
+    try {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        textTexPending.delete(key);
+        return;
+      }
 
-    ctx.font = "bold 10px Tahoma, Arial, sans-serif";
-    const tm = ctx.measureText(guildName);
-    const tw = Math.ceil(tm.width);
+      ctx.font = "bold 10px Tahoma, Arial, sans-serif";
+      const tm = ctx.measureText(guildName);
+      const tw = Math.ceil(tm.width);
 
-    const hasEmblem = Boolean(emblem);
-    const emblemW = hasEmblem ? 14 : 0;
-    const padX = 6;
-    const w = Math.max(28, tw + emblemW + padX * 2);
-    const h = 15;
-    canvas.width = w;
-    canvas.height = h;
+      const hasEmblem = Boolean(emblem);
+      const emblemW = hasEmblem ? 16 : 0;
+      const padX = 5;
+      const w = Math.max(28, tw + emblemW + padX * 2);
+      const h = 17;
+      canvas.width = w;
+      canvas.height = h;
 
-    ctx.font = "bold 10px Tahoma, Arial, sans-serif";
-    ctx.textBaseline = "middle";
+      ctx.font = "bold 10px Tahoma, Arial, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.imageSmoothingEnabled = false;
 
-    // Tag background
-    ctx.fillStyle = "rgba(10, 15, 25, 0.78)";
-    ctx.beginPath();
-    if ((ctx as any).roundRect) (ctx as any).roundRect(0, 0, w, h, 3);
-    else ctx.rect(0, 0, w, h);
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(100, 116, 139, 0.5)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    let textStartX = padX;
-
-    // Draw mini emblem
-    if (hasEmblem && emblem) {
-      const bgHex = EMBLEM_COLORS[emblem.bgColor % 16]?.hex ?? "#dc2626";
-      const symHex = EMBLEM_COLORS[emblem.symbolColor % 16]?.hex ?? "#ffffff";
-
-      // Background shield
-      ctx.fillStyle = bgHex;
+      // Tag background
+      ctx.fillStyle = "rgba(10, 15, 25, 0.78)";
       ctx.beginPath();
-      if ((ctx as any).roundRect) (ctx as any).roundRect(padX - 2, 2.5, 10, 10, 2);
-      else ctx.rect(padX - 2, 2.5, 10, 10);
+      if ((ctx as any).roundRect) (ctx as any).roundRect(0, 0, w, h, 3);
+      else ctx.rect(0, 0, w, h);
       ctx.fill();
 
-      // Symbol
-      ctx.fillStyle = symHex;
-      ctx.beginPath();
-      ctx.arc(padX + 3, 7.5, 2.5, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.strokeStyle = "rgba(100, 116, 139, 0.5)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
-      textStartX += 12;
+      let textStartX = padX;
+
+      // Draw authentic WZ guild emblem (or fallback color crest)
+      if (hasEmblem && emblem) {
+        if (emblemImg && emblemImg.naturalWidth > 0) {
+          ctx.drawImage(emblemImg, padX - 1, 1, 15, 15);
+        } else {
+          const bgHex = EMBLEM_COLORS[emblem.bgColor % 16]?.hex ?? "#ee1111";
+          const symHex = EMBLEM_COLORS[emblem.symbolColor % 16]?.hex ?? "#eeeeee";
+          ctx.fillStyle = bgHex;
+          ctx.fillRect(padX, 2, 13, 13);
+          ctx.fillStyle = symHex;
+          ctx.fillRect(padX + 4, 6, 5, 5);
+        }
+        textStartX += 16;
+      }
+
+      // Guild text
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#fef08a"; // Warm Maple guild gold
+      ctx.fillText(guildName, textStartX, h / 2 + 0.5);
+
+      createImageBitmap(canvas).then((bmp) => {
+        const tex = r.texture(bmp);
+        textTexCache.set(key, tex);
+        textTexPending.delete(key);
+      }).catch(() => {
+        textTexPending.delete(key);
+      });
+    } catch {
+      textTexPending.delete(key);
     }
+  };
 
-    // Guild text
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#fef08a"; // Warm Maple guild gold
-    ctx.fillText(guildName, textStartX, h / 2 + 0.5);
-
-    createImageBitmap(canvas).then((bmp) => {
-      const tex = r.texture(bmp);
-      textTexCache.set(key, tex);
-      textTexPending.delete(key);
-    }).catch(() => {
-      textTexPending.delete(key);
-    });
-  } catch {
-    textTexPending.delete(key);
+  if (emblem && typeof Image !== "undefined") {
+    const img = new Image();
+    img.onload = () => buildTag(img);
+    img.onerror = () => buildTag(null);
+    img.src = guildEmblemUrl(emblem);
+  } else {
+    buildTag(null);
   }
 
   return null;
@@ -383,8 +393,24 @@ export class WorldRenderer {
           fr = art.effect[0];
         }
       }
-      if (!fr && game.throwingStarFrames.length > 0 && (game.stats.classId === "thief" || game.p.skill?.startsWith("4"))) {
-        fr = game.throwingStarFrames[Math.floor(game.time * 24) % game.throwingStarFrames.length];
+      if (!fr) {
+        const wepId = game.eq.weapon?.id ?? 1302000;
+        const wepType = getWeaponType(wepId);
+        if (wepType === "bow" || wepType === "crossbow" || game.stats.classId === "bowman") {
+          const arrowArt = game.skillArt["3001004"];
+          if (arrowArt?.ball?.length) {
+            fr = arrowArt.ball[Math.floor(pr.t * 12) % arrowArt.ball.length];
+          }
+        } else if (wepType === "claw" || game.stats.classId === "thief" || game.p.skill?.startsWith("4")) {
+          if (game.throwingStarFrames.length > 0) {
+            fr = game.throwingStarFrames[Math.floor(game.time * 24) % game.throwingStarFrames.length];
+          }
+        } else if (wepType === "gun" || game.stats.classId === "pirate") {
+          const bulletArt = game.skillArt["5011002"] ?? game.skillArt["5001003"];
+          if (bulletArt?.ball?.length) {
+            fr = bulletArt.ball[Math.floor(pr.t * 12) % bulletArt.ball.length];
+          }
+        }
       }
       if (!fr) fr = game.snailShell;
       if (!fr) continue;

@@ -83,7 +83,7 @@ export const CLASSES: ClassDef[] = [
       ["1111010", "1111012", "1111003", "1111008", "1111015", "1110013", "1110000", "1110009", "1110011"],
       ["1121008", "1121010", "1121000", "1121011"],
     ],
-    startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
+    startingGear: { weapon: 1302007, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
       Shift: { t: "skill", id: "1001005" }, Insert: { t: "skill", id: "1101011" },
       Home: { t: "skill", id: "1111010" }, PageUp: { t: "skill", id: "0001000" },
@@ -103,7 +103,7 @@ export const CLASSES: ClassDef[] = [
       ["2111002", "2111003", "2111010", "2111011", "2111008", "2111007", "2110012", "2110001", "2110009", "2110000"],
       ["2121006", "2121007", "2121003", "2121000"],
     ],
-    startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
+    startingGear: { weapon: 1372005, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
       Shift: { t: "skill", id: "2001008" }, Insert: { t: "skill", id: "2101004" },
       Home: { t: "skill", id: "2111002" }, PageUp: { t: "skill", id: "0001000" },
@@ -123,7 +123,7 @@ export const CLASSES: ClassDef[] = [
       ["3111013", "3111003", "3111009", "3111005", "3111010", "3111011", "3110001", "3110012", "3110007", "3110014"],
       ["3121015", "3121002", "3121000", "3121009"],
     ],
-    startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
+    startingGear: { weapon: 1452002, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
       Shift: { t: "skill", id: "3001004" }, Insert: { t: "skill", id: "3101005" },
       Home: { t: "skill", id: "3111013" }, PageUp: { t: "skill", id: "0001000" },
@@ -143,7 +143,7 @@ export const CLASSES: ClassDef[] = [
       ["4111010", "4111015", "4111007", "4111003", "4111002", "4111009", "4110008", "4110011", "4110012", "4110014"],
       ["4121013", "4121015", "4121000", "4121009"],
     ],
-    startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
+    startingGear: { weapon: 1472000, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
       Shift: { t: "skill", id: "4001344" }, Insert: { t: "skill", id: "4101008" },
       Home: { t: "skill", id: "4111010" }, PageUp: { t: "skill", id: "0001000" },
@@ -163,7 +163,7 @@ export const CLASSES: ClassDef[] = [
       ["5111009", "5111002", "5111012", "5111007", "5111013", "5110014", "5110010", "5110011", "5110000"],
       ["5121007", "5121001", "5121009", "5121000"],
     ],
-    startingGear: { weapon: 1302000, top: 1040002, bottom: 1060002, shoes: 1072001 },
+    startingGear: { weapon: 1482000, top: 1040002, bottom: 1060002, shoes: 1072001 },
     defaultQuick: {
       Shift: { t: "skill", id: "5001002" }, Insert: { t: "skill", id: "5101012" },
       Home: { t: "skill", id: "5111009" }, PageUp: { t: "skill", id: "0001000" },

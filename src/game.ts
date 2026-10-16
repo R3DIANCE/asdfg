@@ -6,6 +6,7 @@ import { AH_TAX, AuctionHouse, goodsName, type Goods } from "./auction.ts";
 import {
   GEAR, MATS, MOB_MAT, ORES, cubeCost, gearStats, makeGear, randomGearFor, rollPotential, recipeGearId, starCost, starMat, starRate,
   npcSellPrice, type Gear, type Recipe, type Slot, RARITY, isHoverItem, isWizetHat, isRavenPersona, gearIcon, matIcon,
+  getWeaponStandAnim, getWeaponWalkAnim,
 } from "./items.ts";
 import { DEFAULT_QUICK, ITEMS, SKILL, SKILL_DEFS, classFor, type ClassId, itemIcon, itemIconRaw, type Action, type SkillArt, type SkillDef } from "./skills.ts";
 import { preloadIcon } from "./util.ts";
@@ -761,12 +762,12 @@ export class Game extends ComponentBase {
       if (d?.length) {
         while (rp.animTimer > (d[rp.frame] ?? 120)) {
           rp.animTimer -= d[rp.frame] ?? 120;
-          rp.frame = (animKey.startsWith("swing") || animKey.startsWith("stab"))
+          rp.frame = (animKey.startsWith("swing") || animKey.startsWith("stab") || animKey.startsWith("shoot"))
             ? Math.min(rp.frame + 1, d.length - 1)
             : (rp.frame + 1) % d.length;
         }
       }
-      if (rp.attackTimer && rp.attackTimer <= 0 && (animKey.startsWith("swing") || animKey.startsWith("stab"))) {
+      if (rp.attackTimer && rp.attackTimer <= 0 && (animKey.startsWith("swing") || animKey.startsWith("stab") || animKey.startsWith("shoot"))) {
         rp.anim = dist > 1.5 ? "walk1" : "stand1";
         rp.frame = 0;
       }
@@ -1069,7 +1070,9 @@ export class Game extends ComponentBase {
       p.x = tree.wallClamp(p.x, p.x, p.y);
       if (res === "air") p.vy = 0;
       p.prone = downK && p.attack <= 0;
-      const anim = p.attack > 0 ? p.attackAnim : p.prone ? "prone" : Math.abs(p.vx) > 10 ? "walk1" : p.alert > 0 ? "alert" : "stand1";
+      const standAnim = this.eq.weapon ? getWeaponStandAnim(this.eq.weapon.id) : "stand1";
+      const walkAnim = this.eq.weapon ? getWeaponWalkAnim(this.eq.weapon.id) : "walk1";
+      const anim = p.attack > 0 ? p.attackAnim : p.prone ? "prone" : Math.abs(p.vx) > 10 ? walkAnim : p.alert > 0 ? "alert" : standAnim;
       this.animate(dt, anim, true);
     } else {
       p.coyote = Math.max(0, p.coyote - dt);
@@ -1140,7 +1143,8 @@ export class Game extends ComponentBase {
     const d = ANIMS[anim];
     while (p.ft > d[p.frame]) {
       p.ft -= d[p.frame];
-      p.frame = anim.startsWith("swing") ? Math.min(p.frame + 1, d.length - 1) : (p.frame + 1) % d.length;
+      const isAttack = anim.startsWith("swing") || anim.startsWith("stab") || anim.startsWith("shoot");
+      p.frame = isAttack ? Math.min(p.frame + 1, d.length - 1) : (p.frame + 1) % d.length;
     }
   }
 

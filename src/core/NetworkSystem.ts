@@ -376,6 +376,40 @@ export class NetworkSystem {
         game.snapCamera();
       }
       if (msg.reason) game.onChat("notice", `[GM] ${msg.reason}`);
+    } else if (msg.t === "guild_update") {
+      game.guild = msg.guild || null;
+      if (msg.guild) {
+        game.guildId = msg.guild.id;
+        game.guildName = msg.guild.name;
+        game.guildEmblem = msg.guild.emblem;
+      } else {
+        game.guildId = undefined;
+        game.guildName = undefined;
+        game.guildEmblem = undefined;
+        if (msg.disbanded) {
+          game.onChat("notice", `Guild [${msg.disbandedName ?? "your guild"}] has been disbanded.`);
+        } else if (msg.expelled) {
+          game.onChat("notice", "You have been expelled from the guild.");
+        }
+      }
+      window.dispatchEvent(new CustomEvent("guild-state-changed", { detail: { guild: game.guild } }));
+      game.onChange();
+    } else if (msg.t === "player_guild") {
+      if (msg.id === game.wsId) {
+        game.guildId = msg.guildId;
+        game.guildName = msg.guildName;
+        game.guildEmblem = msg.guildEmblem;
+      }
+      const rp = game.remotePlayers.get(msg.id);
+      if (rp) {
+        rp.guildId = msg.guildId;
+        rp.guildName = msg.guildName;
+        rp.guildEmblem = msg.guildEmblem;
+      }
+      window.dispatchEvent(new CustomEvent("guild-state-changed", { detail: { guildId: msg.guildId, name: msg.name } }));
+      game.onChange();
+    } else if (msg.t === "guild_directory_update") {
+      window.dispatchEvent(new CustomEvent("guild-directory-changed"));
     } else if (msg.t === "gm_heal") {
       game.stats.hp = game.stats.maxHp;
       game.stats.mp = game.stats.maxMp;

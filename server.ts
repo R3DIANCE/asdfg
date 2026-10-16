@@ -1882,14 +1882,167 @@ function saveGuilds() {
   } catch {}
 }
 
+function getGuildWithOnlineStatus(g: ServerGuild): ServerGuild {
+  const onlineNames = new Set([...wsPlayers.values()].map((p) => p.name.toLowerCase()));
+  return {
+    ...g,
+    members: g.members.map((m) => ({
+      ...m,
+      online: onlineNames.has(m.name.toLowerCase()),
+    })),
+  };
+}
+
 function getGuildForPlayer(playerName: string): ServerGuild | null {
   const all = loadGuilds();
   for (const g of all.values()) {
     if (g.members.some((m) => m.name.toLowerCase() === playerName.toLowerCase())) {
-      return g;
+      return getGuildWithOnlineStatus(g);
     }
   }
   return null;
+}
+
+function broadcastGuildState(
+  guildId: string,
+  opts?: {
+    disbanded?: boolean;
+    disbandedName?: string;
+    removedPlayerNames?: string[];
+    expelledPlayerName?: string;
+  },
+) {
+  const all = loadGuilds();
+  const g = all.get(guildId);
+  const guildPayload = g ? getGuildWithOnlineStatus(g) : null;
+  const removedSet = new Set((opts?.removedPlayerNames ?? []).map((n) => n.toLowerCase()));
+  if (opts?.expelledPlayerName) removedSet.add(opts.expelledPlayerName.toLowerCase());
+  const memberSet = new Set(g ? g.members.map((m) => m.name.toLowerCase()) : []);
+
+  for (const [c, p] of wsPlayers.entries()) {
+    const pLow = (p.name || "").toLowerCase();
+    if (g && memberSet.has(pLow)) {
+      p.guildId = g.id;
+      p.guildName = g.name;
+      p.guildEmblem = g.emblem;
+      try {
+        c.send(JSON.stringify({ t: "guild_update", guild: guildPayload }));
+      } catch {}
+      const mapBroadcast = JSON.stringify({
+        t: "player_guild",
+        id: p.id,
+        name: p.name,
+        guildId: p.guildId,
+        guildName: p.guildName,
+        guildEmblem: p.guildEmblem,
+      });
+      for (const [mc, mp] of wsPlayers.entries()) {
+        if (mp.mapId === p.mapId) {
+          try { mc.send(mapBroadcast); } catch {}
+        }
+      }
+    } else if (removedSet.has(pLow) || (opts?.disbanded && p.guildId === guildId)) {
+      p.guildId = undefined;
+      p.guildName = undefined;
+      p.guildEmblem = undefined;
+      try {
+        c.send(JSON.stringify({
+          t: "guild_update",
+          guild: null,
+          disbanded: Boolean(opts?.disbanded),
+          disbandedName: opts?.disbandedName,
+          expelled: Boolean(opts?.expelledPlayerName && opts.expelledPlayerName.toLowerCase() === pLow),
+        }));
+      } catch {}
+      const mapBroadcast = JSON.stringify({
+        t: "player_guild",
+        id: p.id,
+        name: p.name,
+        guildId: undefined,
+        guildName: undefined,
+        guildEmblem: undefined,
+      });
+      for (const [mc, mp] of wsPlayers.entries()) {
+        if (mp.mapId === p.mapId) {
+          try { mc.send(mapBroadcast); } catch {}
+        }
+      }
+    }
+  }
+
+  // Notify all connected clients that the guild directory changed so open guild windows refresh
+  const dirMsg = JSON.stringify({ t: "guild_directory_update" });
+  for (const [c] of wsPlayers.entries()) {
+    try { c.send(dirMsg); } catch {}
+  }
+}
+
+const GUILD_MARK_BGS = Array.from({ length: 31 }, (_, i) => String(1000 + i).padStart(8, "0"));
+const GUILD_MARK_SYMBOLS: { cat: string; id: string }[] = [
+  ...Array.from({ length: 21 }, (_, i) => ({ cat: "Animal", id: String(2000 + i).padStart(8, "0") })),
+  ...Array.from({ length: 7 }, (_, i) => ({ cat: "Plant", id: String(3000 + i).padStart(8, "0") })),
+  ...Array.from({ length: 22 }, (_, i) => ({ cat: "Pattern", id: String(4000 + i).padStart(8, "0") })),
+  ...Array.from({ length: 27 }, (_, i) => ({ cat: "Etc", id: String(9000 + i).padStart(8, "0") })),
+  ...Array.from({ length: 36 }, (_, i) => ({ cat: "Letter", id: String(5000 + i).padStart(8, "0") })),
+];
+const guildEmblemPngCache = new Map<string, Buffer>();
+
+function composeGuildEmblemPng(
+  s: SpriteStore,
+  bgIdx: number,
+  bgColIdx: number,
+  symIdx: number,
+  symColIdx: number,
+): Buffer | null {
+  const bgi = ((Math.floor(bgIdx) % GUILD_MARK_BGS.length) + GUILD_MARK_BGS.length) % GUILD_MARK_BGS.length;
+  const bgci = (((Math.floor(bgColIdx) % 16) + 16) % 16) + 1;
+  const symi = ((Math.floor(symIdx) % GUILD_MARK_SYMBOLS.length) + GUILD_MARK_SYMBOLS.length) % GUILD_MARK_SYMBOLS.length;
+  const symci = (((Math.floor(symColIdx) % 16) + 16) % 16) + 1;
+  const cacheKey = `${bgi}_${bgci}_${symi}_${symci}`;
+  const cached = guildEmblemPngCache.get(cacheKey);
+  if (cached) return cached;
+
+  const found = s.image("UI", "GuildMark");
+  if (!found) return null;
+  const root = found.image.parse();
+  const key = found.file.reader.key;
+  const fb = new FrameBuffer(17, 17);
+
+  // 1. Draw 17x17 background (unless 00001030 "No Background")
+  const bgId = GUILD_MARK_BGS[bgi];
+  if (bgId !== "00001030") {
+    const bgNode = root.get(`BackGround/${bgId}/${bgci}`) ?? root.get(`BackGround/${bgId}/1`);
+    const bgCanvas = resolveCanvas(bgNode ?? null, (cat, img) => s.image(cat, img));
+    if (bgCanvas instanceof WzCanvasProperty && bgCanvas.width > 0 && bgCanvas.height > 0) {
+      try {
+        const raw = bgCanvas.pngData();
+        const rgba = decodePixels(decompressCanvas(raw, key), bgCanvas.width, bgCanvas.height, bgCanvas.format + bgCanvas.format2);
+        const dx = Math.floor((17 - bgCanvas.width) / 2);
+        const dy = Math.floor((17 - bgCanvas.height) / 2);
+        fb.blend(rgba, bgCanvas.width, bgCanvas.height, dx, dy, false);
+      } catch {}
+    }
+  }
+
+  // 2. Draw 15x15 foreground mark at (1, 1) (unless 00009026 "No Mark")
+  const symEntry = GUILD_MARK_SYMBOLS[symi];
+  if (symEntry && symEntry.id !== "00009026") {
+    const symNode = root.get(`Mark/${symEntry.cat}/${symEntry.id}/${symci}`) ?? root.get(`Mark/${symEntry.cat}/${symEntry.id}/1`);
+    const symCanvas = resolveCanvas(symNode ?? null, (cat, img) => s.image(cat, img));
+    if (symCanvas instanceof WzCanvasProperty && symCanvas.width > 0 && symCanvas.height > 0) {
+      try {
+        const raw = symCanvas.pngData();
+        const rgba = decodePixels(decompressCanvas(raw, key), symCanvas.width, symCanvas.height, symCanvas.format + symCanvas.format2);
+        const dx = Math.floor((17 - symCanvas.width) / 2);
+        const dy = Math.floor((17 - symCanvas.height) / 2);
+        fb.blend(rgba, symCanvas.width, symCanvas.height, dx, dy, false);
+      } catch {}
+    }
+  }
+
+  const png = fb.toPng();
+  guildEmblemPngCache.set(cacheKey, png);
+  return png;
 }
 
 // ── SpacetimeDB Client Integration ─────────────────────────────────────────────
@@ -2189,6 +2342,17 @@ const server = Bun.serve<{ id: string }>({
         s.spritePng("UI", req.params.img, tail(req, 3)),
         `UI ${req.params.img}`,
       );
+    }),
+    "/wz/guild-emblem": guard((req) => {
+      const s = getStore();
+      if (!s) return noClient();
+      const url = new URL(req.url);
+      const bg = Number(url.searchParams.get("bg") ?? 0);
+      const bgc = Number(url.searchParams.get("bgc") ?? 0);
+      const sym = Number(url.searchParams.get("sym") ?? 0);
+      const symc = Number(url.searchParams.get("symc") ?? 0);
+      const png = composeGuildEmblemPng(s, bg, bgc, sym, symc);
+      return pngResponse(png, `guild-emblem ${bg}/${bgc}/${sym}/${symc}`);
     }),
     "/wz/char": guard((req) => {
       const s = getStore();
@@ -2701,14 +2865,7 @@ const server = Bun.serve<{ id: string }>({
         all.set(newGuild.id, newGuild);
         saveGuilds();
 
-        // Update player session if online
-        for (const [_, p] of wsPlayers) {
-          if (p.name.toLowerCase() === masterName.toLowerCase()) {
-            p.guildId = newGuild.id;
-            p.guildName = newGuild.name;
-            p.guildEmblem = newGuild.emblem;
-          }
-        }
+        broadcastGuildState(newGuild.id);
 
         const alertMsg = JSON.stringify({
           t: "chat",
@@ -2719,7 +2876,7 @@ const server = Bun.serve<{ id: string }>({
         });
         for (const [c] of wsPlayers) c.send(alertMsg);
 
-        return Response.json({ ok: true, guild: newGuild });
+        return Response.json({ ok: true, guild: getGuildWithOnlineStatus(newGuild) });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to create guild" }, { status: 500 });
       }
@@ -2751,13 +2908,7 @@ const server = Bun.serve<{ id: string }>({
         g.members.push(newMember);
         saveGuilds();
 
-        for (const [_, p] of wsPlayers) {
-          if (p.name.toLowerCase() === charName.toLowerCase()) {
-            p.guildId = g.id;
-            p.guildName = g.name;
-            p.guildEmblem = g.emblem;
-          }
-        }
+        broadcastGuildState(g.id);
 
         const alertMsg = JSON.stringify({
           t: "chat",
@@ -2771,7 +2922,7 @@ const server = Bun.serve<{ id: string }>({
           if (p.guildId === g.id) c.send(alertMsg);
         }
 
-        return Response.json({ ok: true, guild: g });
+        return Response.json({ ok: true, guild: getGuildWithOnlineStatus(g) });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to join guild" }, { status: 500 });
       }
@@ -2787,30 +2938,39 @@ const server = Bun.serve<{ id: string }>({
         const idx = g.members.findIndex((m) => m.name.toLowerCase() === charName.toLowerCase());
         if (idx < 0) return Response.json({ ok: false, error: "Not a member of this guild" }, { status: 400 });
 
+        const guildName = g.name;
         const isMaster = g.master.toLowerCase() === charName.toLowerCase();
+        if (isMaster && g.members.length === 1) {
+          const allMemberNames = g.members.map((m) => m.name);
+          all.delete(g.id);
+          saveGuilds();
+          broadcastGuildState(g.id, { disbanded: true, disbandedName: guildName, removedPlayerNames: allMemberNames });
+          return Response.json({ ok: true, disbanded: true });
+        }
+
         if (isMaster) {
-          if (g.members.length === 1) {
-            all.delete(g.id);
-            saveGuilds();
-            return Response.json({ ok: true, disbanded: true });
-          } else {
-            g.members.splice(idx, 1);
-            g.members.sort((a, b) => a.rank - b.rank);
-            g.members[0].rank = 1;
-            g.master = g.members[0].name;
-          }
+          g.members.splice(idx, 1);
+          g.members.sort((a, b) => a.rank - b.rank);
+          g.members[0].rank = 1;
+          g.master = g.members[0].name;
         } else {
           g.members.splice(idx, 1);
         }
         saveGuilds();
+        broadcastGuildState(g.id, { removedPlayerNames: [charName] });
 
-        for (const [_, p] of wsPlayers) {
-          if (p.name.toLowerCase() === charName.toLowerCase()) {
-            p.guildId = undefined;
-            p.guildName = undefined;
-            p.guildEmblem = undefined;
-          }
+        const alertMsg = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: g.name,
+          text: `[Guild] ${charName} has left the guild.`,
+          kind: "guild",
+          guildId: g.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (p.guildId === g.id) c.send(alertMsg);
         }
+
         return Response.json({ ok: true });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to leave guild" }, { status: 500 });
@@ -2836,7 +2996,21 @@ const server = Bun.serve<{ id: string }>({
         }
         g.members = g.members.filter((m) => m.name.toLowerCase() !== targetName.toLowerCase());
         saveGuilds();
-        return Response.json({ ok: true });
+        broadcastGuildState(g.id, { expelledPlayerName: targetName });
+
+        const alertMsg = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: g.name,
+          text: `[Guild] ${targetName} was expelled from the guild by ${actorName}.`,
+          kind: "guild",
+          guildId: g.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (p.guildId === g.id) c.send(alertMsg);
+        }
+
+        return Response.json({ ok: true, guild: getGuildWithOnlineStatus(g) });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to expel member" }, { status: 500 });
       }
@@ -2868,7 +3042,8 @@ const server = Bun.serve<{ id: string }>({
           target.rank = rank;
         }
         saveGuilds();
-        return Response.json({ ok: true });
+        broadcastGuildState(g.id);
+        return Response.json({ ok: true, guild: getGuildWithOnlineStatus(g) });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to change rank" }, { status: 500 });
       }
@@ -2888,6 +3063,7 @@ const server = Bun.serve<{ id: string }>({
         }
         g.notice = notice;
         saveGuilds();
+        broadcastGuildState(g.id);
 
         const alertMsg = JSON.stringify({
           t: "chat",
@@ -2901,7 +3077,7 @@ const server = Bun.serve<{ id: string }>({
           if (p.guildId === g.id) c.send(alertMsg);
         }
 
-        return Response.json({ ok: true, notice });
+        return Response.json({ ok: true, notice, guild: getGuildWithOnlineStatus(g) });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to update notice" }, { status: 500 });
       }
@@ -2921,12 +3097,9 @@ const server = Bun.serve<{ id: string }>({
         }
         g.emblem = emblem;
         saveGuilds();
+        broadcastGuildState(g.id);
 
-        for (const [_, p] of wsPlayers) {
-          if (p.guildId === g.id) p.guildEmblem = emblem;
-        }
-
-        return Response.json({ ok: true, emblem });
+        return Response.json({ ok: true, emblem, guild: getGuildWithOnlineStatus(g) });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to update emblem" }, { status: 500 });
       }
@@ -2948,7 +3121,8 @@ const server = Bun.serve<{ id: string }>({
         }
         g.capacity += 10;
         saveGuilds();
-        return Response.json({ ok: true, newCapacity: g.capacity });
+        broadcastGuildState(g.id);
+        return Response.json({ ok: true, newCapacity: g.capacity, guild: getGuildWithOnlineStatus(g) });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to expand capacity" }, { status: 500 });
       }
@@ -2969,8 +3143,9 @@ const server = Bun.serve<{ id: string }>({
         if (Array.isArray(ranks) && ranks.length === 5) {
           g.ranks = ranks.map((r) => String(r || "").slice(0, 10)) as [string, string, string, string, string];
           saveGuilds();
+          broadcastGuildState(g.id);
         }
-        return Response.json({ ok: true, ranks: g.ranks });
+        return Response.json({ ok: true, ranks: g.ranks, guild: getGuildWithOnlineStatus(g) });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to rename ranks" }, { status: 500 });
       }
@@ -3025,13 +3200,14 @@ const server = Bun.serve<{ id: string }>({
             frame: Number(msg.frame || 0),
             look: Array.isArray(msg.look) ? msg.look : [2000, 12000, 20000, 30030],
           };
+          wsPlayers.set(ws, session);
           const g = getGuildForPlayer(session.name);
           if (g) {
             session.guildId = g.id;
             session.guildName = g.name;
             session.guildEmblem = g.emblem;
+            broadcastGuildState(g.id);
           }
-          wsPlayers.set(ws, session);
           ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g }));
           const others = getMapRosterFor(ws, session);
           ws.send(JSON.stringify({ t: "roster", players: others }));
@@ -3118,6 +3294,11 @@ const server = Bun.serve<{ id: string }>({
             session.guildId = g.id;
             session.guildName = g.name;
             session.guildEmblem = g.emblem;
+            broadcastGuildState(g.id);
+          } else {
+            session.guildId = undefined;
+            session.guildName = undefined;
+            session.guildEmblem = undefined;
           }
           ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g }));
           const others = getMapRosterFor(ws, session);
@@ -3125,6 +3306,22 @@ const server = Bun.serve<{ id: string }>({
           const joinMsg = JSON.stringify({ t: "player_join", player: session });
           for (const [c, p] of wsPlayers) {
             if (c !== ws && p.mapId === session.mapId) c.send(joinMsg);
+          }
+        } else if (msg.t === "guild_sync") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          const g = getGuildForPlayer(session.name);
+          if (g) {
+            session.guildId = g.id;
+            session.guildName = g.name;
+            session.guildEmblem = g.emblem;
+            broadcastGuildState(g.id);
+          } else {
+            const oldGuildId = session.guildId;
+            session.guildId = undefined;
+            session.guildName = undefined;
+            session.guildEmblem = undefined;
+            if (oldGuildId) broadcastGuildState(oldGuildId, { removedPlayerNames: [session.name] });
           }
         } else if (msg.t === "map_change") {
           const session = wsPlayers.get(ws);
@@ -3164,15 +3361,19 @@ const server = Bun.serve<{ id: string }>({
               session.guildId = g.id;
               session.guildName = g.name;
               session.guildEmblem = g.emblem;
+              ws.send(JSON.stringify({ t: "guild_update", guild: g }));
+              broadcastGuildState(g.id);
             } else {
               session.guildId = undefined;
               session.guildName = undefined;
               session.guildEmblem = undefined;
+              ws.send(JSON.stringify({ t: "guild_update", guild: null }));
             }
             const renameMsg = JSON.stringify({
               t: "player_name",
               id: session.id,
               name: clean,
+              guildId: session.guildId,
               guildName: session.guildName,
               guildEmblem: session.guildEmblem,
             });
@@ -3227,6 +3428,9 @@ const server = Bun.serve<{ id: string }>({
       const session = wsPlayers.get(ws);
       if (session) {
         wsPlayers.delete(ws);
+        if (session.guildId) {
+          broadcastGuildState(session.guildId);
+        }
         const leaveMsg = JSON.stringify({ t: "player_leave", id: session.id, name: session.name });
         for (const [c, p] of wsPlayers) {
           if (p.mapId === session.mapId) c.send(leaveMsg);

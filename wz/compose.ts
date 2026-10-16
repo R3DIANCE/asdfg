@@ -247,15 +247,22 @@ export function composeCharacter(
           }
         }
       }
-      // Robust action fallbacks for weapons that don't have certain animations
+      // Robust action fallbacks for weapons, armors, and body parts across all Maple animation types
       if (!(act instanceof WzSubProperty)) {
-        if (action === "walk2") act = root.child("walk1") ?? root.get("47/walk1") ?? root.get("30/walk1");
+        if (action === "walk2") act = root.child("walk1") ?? root.get("47/walk1") ?? root.get("30/walk1") ?? root.child("stand1");
+        else if (action === "walk1") act = root.child("walk2") ?? root.get("47/walk2") ?? root.get("30/walk2") ?? root.child("stand1");
         else if (action === "stand2") act = root.child("stand1") ?? root.get("47/stand1") ?? root.get("30/stand1");
-        else if (action.startsWith("shoot")) act = root.child("swingO1") ?? root.child("stabO1") ?? root.get("47/swingO1");
-        else if (action.startsWith("swingT") || action.startsWith("swingP")) act = root.child("swingO1") ?? root.child("swingO2") ?? root.get("47/swingO1");
-        else if (action.startsWith("stabT")) act = root.child("stabO1") ?? root.child("stabO2") ?? root.get("47/stabO1");
+        else if (action === "stand1") act = root.child("stand2") ?? root.get("47/stand2") ?? root.get("30/stand2");
+        else if (action.startsWith("shoot")) act = root.child("shoot1") ?? root.child("shoot2") ?? root.child("swingO1") ?? root.child("stabO1") ?? root.get("47/swingO1") ?? root.get("30/swingO1") ?? root.child("stand1");
+        else if (action.startsWith("swingT") || action.startsWith("swingP") || action.startsWith("swingO") || action.startsWith("swingOF")) {
+          act = root.child(action) ?? root.child("swingO1") ?? root.child("swingO2") ?? root.child("swingO3") ?? root.child("swingT1") ?? root.child("swingP1") ?? root.child("stabO1") ?? root.get("47/swingO1") ?? root.get("30/swingO1") ?? root.child("stand1");
+        }
+        else if (action.startsWith("stabT") || action.startsWith("stabO") || action.startsWith("stabOF")) {
+          act = root.child(action) ?? root.child("stabO1") ?? root.child("stabO2") ?? root.child("stabT1") ?? root.child("swingO1") ?? root.get("47/stabO1") ?? root.get("30/stabO1") ?? root.child("stand1");
+        }
         else if (action === "fly") act = root.child("jump") ?? root.child("stand1");
         else if (action === "rope" || action === "ladder") act = root.child("stand1");
+        else act = root.child("stand1") ?? root.child("default");
       }
       // Hair/Face keep the frame under `default` for the static pose
       if (!(act instanceof WzSubProperty) && root.child("default")) act = root.child("default") as WzProperty;

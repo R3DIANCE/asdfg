@@ -2,10 +2,10 @@
 // Models: Master, Jr.Master, Members (Ranks 1-5), GP Contribution, Capacity, Emblems & Notices
 
 export interface GuildEmblem {
-  bgShape: number; // 0-15 background pattern/shield
-  bgColor: number; // 0-15 background color
-  symbolShape: number; // 0-15 foreground icon
-  symbolColor: number; // 0-15 symbol color
+  bgShape: number; // 0-30 background pattern/shield from UI.wz/GuildMark.img/BackGround (00001000..00001030)
+  bgColor: number; // 0-15 background color (1..16 in WZ)
+  symbolShape: number; // 0-112 foreground icon from UI.wz/GuildMark.img/Mark (Animal, Plant, Pattern, Letter, Etc)
+  symbolColor: number; // 0-15 symbol color (1..16 in WZ)
 }
 
 export interface GuildMember {
@@ -33,138 +33,172 @@ export interface Guild {
   createdAt: number;
 }
 
+/** Authentic 16 color palette from UI.wz/GuildMark.img (1..16) */
 export const EMBLEM_COLORS = [
-  { name: "Crimson Red", hex: "#dc2626" },
-  { name: "Flame Orange", hex: "#ea580c" },
-  { name: "Golden Amber", hex: "#d97706" },
-  { name: "Yellow Gold", hex: "#eab308" },
-  { name: "Emerald Green", hex: "#16a34a" },
-  { name: "Forest Pine", hex: "#15803d" },
-  { name: "Turquoise Cyan", hex: "#06b6d4" },
-  { name: "Sky Blue", hex: "#0284c7" },
-  { name: "Royal Sapphire", hex: "#2563eb" },
-  { name: "Violet Purple", hex: "#7c3aed" },
-  { name: "Orchid Magenta", hex: "#c026d3" },
-  { name: "Rose Pink", hex: "#e11d48" },
-  { name: "Snow White", hex: "#f8fafc" },
-  { name: "Silver Platinum", hex: "#94a3b8" },
-  { name: "Charcoal Slate", hex: "#334155" },
-  { name: "Obsidian Black", hex: "#0f172a" },
+  { name: "Crimson Red", hex: "#ee1111" },
+  { name: "Amber Orange", hex: "#dd8833" },
+  { name: "Golden Yellow", hex: "#eecc11" },
+  { name: "Sand Beige", hex: "#eeddbb" },
+  { name: "Chestnut Brown", hex: "#995544" },
+  { name: "Forest Moss", hex: "#446644" },
+  { name: "Emerald Green", hex: "#118855" },
+  { name: "Spring Olive", hex: "#77aa66" },
+  { name: "Ocean Teal", hex: "#55aa99" },
+  { name: "Sky Azure", hex: "#33aadd" },
+  { name: "Cobalt Blue", hex: "#1133ee" },
+  { name: "Steel Blue", hex: "#6688bb" },
+  { name: "Royal Indigo", hex: "#664499" },
+  { name: "Orchid Violet", hex: "#994499" },
+  { name: "Pure White", hex: "#eeeeee" },
+  { name: "Obsidian Black", hex: "#111111" },
 ];
 
-export const EMBLEM_BG_SHAPES = [
-  "Crest Shield", "Round Shield", "Diamond", "Hexagon",
-  "Circle", "Square", "Rounded Star", "Banner",
-  "Winged Crest", "Crown Crest", "Heart Shield", "Floral Shield",
-  "Cross Crest", "Octagon", "Kite Shield", "Spiked Crest"
+/** All 31 background styles from UI.wz/GuildMark.img/BackGround (00001000..00001030) */
+export const WZ_EMBLEM_BGS: { id: string; name: string }[] = [
+  { id: "00001000", name: "Square" },
+  { id: "00001001", name: "Two-line Square" },
+  { id: "00001002", name: "Outlined Square" },
+  { id: "00001003", name: "X Square" },
+  { id: "00001004", name: "Quatrefoil" },
+  { id: "00001005", name: "Vertical Stripes" },
+  { id: "00001006", name: "Horizontal Stripes" },
+  { id: "00001007", name: "Checkerboard" },
+  { id: "00001008", name: "Biscuit Crest" },
+  { id: "00001009", name: "Maze Square" },
+  { id: "00001010", name: "Beveled Frame" },
+  { id: "00001011", name: "Dotted Square" },
+  { id: "00001012", name: "Vertical 2-line Square" },
+  { id: "00001013", name: "Polka Dot Square" },
+  { id: "00001014", name: "Diagonal Stripes" },
+  { id: "00001015", name: "Corner Dot Square" },
+  { id: "00001016", name: "Thick Outlined Square" },
+  { id: "00001017", name: "Rounded Shield" },
+  { id: "00001018", name: "Horizontal 2-line Square" },
+  { id: "00001019", name: "Cushion Crest" },
+  { id: "00001020", name: "Cross Pattern Square" },
+  { id: "00001021", name: "Clover Pattern" },
+  { id: "00001022", name: "Window Crest" },
+  { id: "00001023", name: "Octagon Shield" },
+  { id: "00001024", name: "Circle Shield" },
+  { id: "00001025", name: "Bow-tie Crest" },
+  { id: "00001026", name: "Tulip Crest" },
+  { id: "00001027", name: "Dotted Frame" },
+  { id: "00001028", name: "Diamond Shield" },
+  { id: "00001029", name: "Oval Medallion" },
+  { id: "00001030", name: "No Background" },
 ];
 
-export const EMBLEM_SYMBOLS = [
-  "Maple Leaf", "Crossed Swords", "Royal Crown", "Dragon Crest",
-  "Phoenix Wings", "Blazing Flame", "Radiant Star", "Pirate Skull",
-  "Valentine Heart", "Sacred Cross", "Diamond", "Magic Potion",
-  "Gold Coin", "Orange Mushroom", "Bouncy Slime", "Knight Shield"
+export const EMBLEM_BG_SHAPES: string[] = WZ_EMBLEM_BGS.map((b) => b.name);
+
+/** All 113 foreground symbols from UI.wz/GuildMark.img/Mark across Animal, Plant, Pattern, Letter, Etc */
+export const WZ_EMBLEM_MARKS: { cat: string; id: string; name: string }[] = [
+  // Animal (00002000..00002020)
+  { cat: "Animal", id: "00002000", name: "Eagle" },
+  { cat: "Animal", id: "00002001", name: "Pigeon" },
+  { cat: "Animal", id: "00002002", name: "Duck" },
+  { cat: "Animal", id: "00002003", name: "Dragon Face" },
+  { cat: "Animal", id: "00002004", name: "Dragon Profile" },
+  { cat: "Animal", id: "00002005", name: "Dragon Crest" },
+  { cat: "Animal", id: "00002006", name: "Horned Dragon" },
+  { cat: "Animal", id: "00002007", name: "Dinosaur" },
+  { cat: "Animal", id: "00002008", name: "Crab" },
+  { cat: "Animal", id: "00002009", name: "Cat" },
+  { cat: "Animal", id: "00002010", name: "Yawning Pig" },
+  { cat: "Animal", id: "00002011", name: "Ribbon Pig" },
+  { cat: "Animal", id: "00002012", name: "Scorpion" },
+  { cat: "Animal", id: "00002013", name: "Angry Cat" },
+  { cat: "Animal", id: "00002014", name: "Curious Cat" },
+  { cat: "Animal", id: "00002015", name: "Cute Cat" },
+  { cat: "Animal", id: "00002016", name: "Rabbit" },
+  { cat: "Animal", id: "00002017", name: "Octopus" },
+  { cat: "Animal", id: "00002018", name: "Bunny" },
+  { cat: "Animal", id: "00002019", name: "Turtle" },
+  { cat: "Animal", id: "00002020", name: "Butterfly" },
+  // Plant (00003000..00003006)
+  { cat: "Plant", id: "00003000", name: "Strawberry" },
+  { cat: "Plant", id: "00003001", name: "Maple Leaf" },
+  { cat: "Plant", id: "00003002", name: "Clover" },
+  { cat: "Plant", id: "00003003", name: "Tree" },
+  { cat: "Plant", id: "00003004", name: "Rose" },
+  { cat: "Plant", id: "00003005", name: "Apple" },
+  { cat: "Plant", id: "00003006", name: "Four-leaf Clover" },
+  // Pattern (00004000..00004021)
+  { cat: "Pattern", id: "00004000", name: "Skinny Cross" },
+  { cat: "Pattern", id: "00004001", name: "Star" },
+  { cat: "Pattern", id: "00004002", name: "Sacred Cross" },
+  { cat: "Pattern", id: "00004003", name: "X Cross" },
+  { cat: "Pattern", id: "00004004", name: "Prohibition Sign" },
+  { cat: "Pattern", id: "00004005", name: "Key Square" },
+  { cat: "Pattern", id: "00004006", name: "Inverted Omega" },
+  { cat: "Pattern", id: "00004007", name: "Omega" },
+  { cat: "Pattern", id: "00004008", name: "Winged Circle" },
+  { cat: "Pattern", id: "00004009", name: "Scroll Frame" },
+  { cat: "Pattern", id: "00004010", name: "Warning Sign" },
+  { cat: "Pattern", id: "00004011", name: "X Mark" },
+  { cat: "Pattern", id: "00004012", name: "Pirate Emblem" },
+  { cat: "Pattern", id: "00004013", name: "Little Cross" },
+  { cat: "Pattern", id: "00004014", name: "Four-point Star" },
+  { cat: "Pattern", id: "00004015", name: "Clover Crest" },
+  { cat: "Pattern", id: "00004016", name: "X-shaped Leaf" },
+  { cat: "Pattern", id: "00004017", name: "T-shaped Cross" },
+  { cat: "Pattern", id: "00004018", name: "Spade" },
+  { cat: "Pattern", id: "00004019", name: "Three-leaf Emblem" },
+  { cat: "Pattern", id: "00004020", name: "Angel Wings" },
+  { cat: "Pattern", id: "00004021", name: "Horseshoe" },
+  // Etc (00009000..00009026)
+  { cat: "Etc", id: "00009000", name: "Skull" },
+  { cat: "Etc", id: "00009001", name: "Heart" },
+  { cat: "Etc", id: "00009002", name: "Smile" },
+  { cat: "Etc", id: "00009003", name: "Sword" },
+  { cat: "Etc", id: "00009004", name: "Royal Crown" },
+  { cat: "Etc", id: "00009005", name: "Knight Shield" },
+  { cat: "Etc", id: "00009006", name: "Flag" },
+  { cat: "Etc", id: "00009007", name: "Evil Smile" },
+  { cat: "Etc", id: "00009008", name: "Musical Note" },
+  { cat: "Etc", id: "00009009", name: "Lightning Bolt" },
+  { cat: "Etc", id: "00009010", name: "Dice" },
+  { cat: "Etc", id: "00009011", name: "Alien" },
+  { cat: "Etc", id: "00009012", name: "Anchor" },
+  { cat: "Etc", id: "00009013", name: "Bomb" },
+  { cat: "Etc", id: "00009014", name: "Spaceship" },
+  { cat: "Etc", id: "00009015", name: "Worker" },
+  { cat: "Etc", id: "00009016", name: "Pawprints" },
+  { cat: "Etc", id: "00009017", name: "Medal" },
+  { cat: "Etc", id: "00009018", name: "Blazing Fire" },
+  { cat: "Etc", id: "00009019", name: "Fish Bone" },
+  { cat: "Etc", id: "00009020", name: "Lightbulb" },
+  { cat: "Etc", id: "00009021", name: "Diagonal Fish Bone" },
+  { cat: "Etc", id: "00009022", name: "Rocket" },
+  { cat: "Etc", id: "00009023", name: "Imperial Crown" },
+  { cat: "Etc", id: "00009024", name: "Footprint" },
+  { cat: "Etc", id: "00009025", name: "Face" },
+  { cat: "Etc", id: "00009026", name: "No Mark" },
+  // Letter (00005000..00005035: A-Z, 0-9)
+  ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split("").map((ch, idx) => ({
+    cat: "Letter",
+    id: String(5000 + idx).padStart(8, "0"),
+    name: `Letter '${ch}'`,
+  })),
 ];
 
-/** Renders an SVG path string for a background shield/shape in a 24x24 viewBox */
-export function getBgShapeSvgPath(shapeIndex: number): string {
-  switch (shapeIndex % 16) {
-    case 0: // Crest Shield
-      return "M 12 1 L 21 4 L 20 15 Q 12 23 12 23 Q 12 23 4 15 L 3 4 Z";
-    case 1: // Round Shield
-      return "M 12 2 Q 22 2 22 12 Q 22 22 12 22 Q 2 22 2 12 Q 2 2 12 2 Z";
-    case 2: // Diamond
-      return "M 12 1 L 23 12 L 12 23 L 1 12 Z";
-    case 3: // Hexagon
-      return "M 12 1 L 22 6 L 22 18 L 12 23 L 2 18 L 2 6 Z";
-    case 4: // Circle
-      return "M 12 2 A 10 10 0 1 0 12 22 A 10 10 0 1 0 12 2 Z";
-    case 5: // Rounded Square
-      return "M 5 2 L 19 2 Q 22 2 22 5 L 22 19 Q 22 22 19 22 L 5 22 Q 2 22 2 19 L 2 5 Q 2 2 5 2 Z";
-    case 6: // Rounded Star
-      return "M 12 1 L 15 8 L 22 9 L 17 15 L 19 22 L 12 18 L 5 22 L 7 15 L 2 9 L 9 8 Z";
-    case 7: // Banner / Pennant
-      return "M 3 2 L 21 2 L 21 18 L 12 23 L 3 18 Z";
-    case 8: // Winged Crest
-      return "M 12 2 Q 18 1 23 6 L 20 16 L 12 23 L 4 16 L 1 6 Q 6 1 12 2 Z";
-    case 9: // Crown Crest
-      return "M 2 7 L 7 3 L 12 8 L 17 3 L 22 7 L 19 20 L 5 20 Z";
-    case 10: // Heart Shield
-      return "M 12 21 C 2 14 1 7 7 3 C 10 1 12 4 12 4 C 12 4 14 1 17 3 C 23 7 22 14 12 21 Z";
-    case 11: // Floral Shield
-      return "M 12 2 Q 17 6 22 5 Q 20 13 21 18 Q 14 19 12 23 Q 10 19 3 18 Q 4 13 2 5 Q 7 6 12 2 Z";
-    case 12: // Cross Crest
-      return "M 8 2 L 16 2 L 16 8 L 22 8 L 22 16 L 16 16 L 16 22 L 8 22 L 8 16 L 2 16 L 2 8 L 8 8 Z";
-    case 13: // Octagon
-      return "M 7 2 L 17 2 L 22 7 L 22 17 L 17 22 L 7 22 L 2 17 L 2 7 Z";
-    case 14: // Kite Shield
-      return "M 4 2 L 20 2 L 18 12 L 12 23 L 6 12 Z";
-    case 15: // Spiked Crest
-    default:
-      return "M 12 1 L 18 4 L 22 11 L 17 19 L 12 23 L 7 19 L 2 11 L 6 4 Z";
-  }
+export const EMBLEM_SYMBOLS: string[] = WZ_EMBLEM_MARKS.map((m) => `[${m.cat}] ${m.name}`);
+
+/** Returns the server URL that renders the authentic 17x17 WZ GuildMark.img PNG */
+export function guildEmblemUrl(emblem?: GuildEmblem): string {
+  const bg = Math.max(0, Math.floor(emblem?.bgShape ?? 0)) % WZ_EMBLEM_BGS.length;
+  const bgc = Math.max(0, Math.floor(emblem?.bgColor ?? 0)) % 16;
+  const sym = Math.max(0, Math.floor(emblem?.symbolShape ?? 0)) % WZ_EMBLEM_MARKS.length;
+  const symc = Math.max(0, Math.floor(emblem?.symbolColor ?? 0)) % 16;
+  return `/wz/guild-emblem?bg=${bg}&bgc=${bgc}&sym=${sym}&symc=${symc}`;
 }
 
-/** Renders an SVG path/shape for a symbol icon in a 24x24 viewBox */
-export function getSymbolSvg(symbolIndex: number, color: string): string {
-  switch (symbolIndex % 16) {
-    case 0: // Maple Leaf
-      return `<path d="M 12 3 L 13 8 L 17 5 L 16 10 L 21 11 L 17 14 L 18 19 L 13 16 L 12 22 L 11 16 L 6 19 L 7 14 L 3 11 L 8 10 L 7 5 L 11 8 Z" fill="${color}" />`;
-    case 1: // Crossed Swords
-      return `<path d="M 4 4 L 8 8 L 19 5 L 20 6 L 17 17 L 20 20 L 19 21 L 16 18 L 8 19 L 7 18 L 6 7 L 3 4 Z M 9 15 L 15 9 M 15 15 L 9 9" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round" />`;
-    case 2: // Royal Crown
-      return `<path d="M 5 18 L 19 18 L 21 8 L 16 12 L 12 5 L 8 12 L 3 8 Z" fill="${color}" />`;
-    case 3: // Dragon Head / Horns
-      return `<path d="M 4 6 Q 9 9 12 4 Q 15 9 20 6 Q 18 14 12 20 Q 6 14 4 6 Z M 9 11 A 1.2 1.2 0 1 0 9 13 M 15 11 A 1.2 1.2 0 1 0 15 13" fill="${color}" />`;
-    case 4: // Phoenix Wings
-      return `<path d="M 12 16 Q 16 10 22 5 Q 18 15 12 20 Q 6 15 2 5 Q 8 10 12 16 Z" fill="${color}" />`;
-    case 5: // Flame
-      return `<path d="M 12 3 Q 17 8 15 14 Q 19 13 17 19 Q 12 22 7 19 Q 5 13 10 11 Q 8 8 12 3 Z" fill="${color}" />`;
-    case 6: // Radiant Star
-      return `<path d="M 12 4 L 14 9 L 20 10 L 15 14 L 17 20 L 12 16 L 7 20 L 9 14 L 4 10 L 10 9 Z" fill="${color}" />`;
-    case 7: // Skull
-      return `<path d="M 7 12 C 7 7 17 7 17 12 C 17 16 15 17 15 19 L 9 19 C 9 17 7 16 7 12 Z M 9 12 A 1.5 1.5 0 1 0 9 14 M 15 12 A 1.5 1.5 0 1 0 15 14 M 10 18 L 10 20 M 14 18 L 14 20" fill="${color}" />`;
-    case 8: // Heart
-      return `<path d="M 12 19 C 5 13 4 8 8 5 C 11 3 12 6 12 6 C 12 6 13 3 16 5 C 20 8 19 13 12 19 Z" fill="${color}" />`;
-    case 9: // Sacred Cross
-      return `<path d="M 10 5 L 14 5 L 14 9 L 19 9 L 19 13 L 14 13 L 14 20 L 10 20 L 10 13 L 5 13 L 5 9 L 10 9 Z" fill="${color}" />`;
-    case 10: // Diamond
-      return `<path d="M 7 6 L 17 6 L 21 10 L 12 20 L 3 10 Z M 7 6 L 12 20 L 17 6 M 3 10 L 21 10" stroke="${color}" fill="${color}" fill-opacity="0.6" stroke-width="1.2" />`;
-    case 11: // Magic Potion
-      return `<path d="M 10 5 L 14 5 L 14 8 Q 19 10 19 16 Q 19 20 12 20 Q 5 20 5 16 Q 5 10 10 8 Z" fill="${color}" />`;
-    case 12: // Gold Coin
-      return `<circle cx="12" cy="12" r="8" fill="${color}" /><circle cx="12" cy="12" r="6" stroke="#ffffff" stroke-width="1" fill="none" opacity="0.6"/><text x="12" y="15" font-size="8" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="#ffffff">$</text>`;
-    case 13: // Orange Mushroom
-      return `<path d="M 4 12 C 4 6 20 6 20 12 Z M 9 12 L 9 18 Q 12 20 15 18 L 15 12 Z M 7 9 A 1 1 0 1 0 7 10 M 17 9 A 1 1 0 1 0 17 10" fill="${color}" />`;
-    case 14: // Slime
-      return `<path d="M 6 16 C 4 10 9 7 12 7 C 15 7 20 10 18 16 C 17 19 7 19 6 16 Z M 9 12 A 1 1 0 1 0 9 13 M 15 12 A 1 1 0 1 0 15 13" fill="${color}" />`;
-    case 15: // Knight Shield
-    default:
-      return `<path d="M 6 5 L 18 5 L 17 13 L 12 18 L 7 13 Z" fill="${color}" /><path d="M 12 5 L 12 18 M 6 10 L 18 10" stroke="#ffffff" stroke-width="1.2" opacity="0.5" />`;
-  }
-}
-
-/** Generates clean SVG markup for a guild emblem */
+/** Generates crisp pixelated WZ GuildMark image markup for a guild emblem */
 export function renderEmblemSvg(emblem?: GuildEmblem, size = 18): string {
   if (!emblem) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" class="guild-emblem"><rect width="24" height="24" rx="4" fill="#334155"/><text x="12" y="16" font-size="12" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="#94a3b8">G</text></svg>`;
   }
-  const bgColor = EMBLEM_COLORS[emblem.bgColor % 16]?.hex ?? "#dc2626";
-  const symColor = EMBLEM_COLORS[emblem.symbolColor % 16]?.hex ?? "#ffffff";
-  const bgPath = getBgShapeSvgPath(emblem.bgShape);
-  const symbolSvg = getSymbolSvg(emblem.symbolShape, symColor);
-
-  return `
-    <svg width="${size}" height="${size}" viewBox="0 0 24 24" class="guild-emblem select-none inline-block">
-      <defs>
-        <filter id="emblem-shadow" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="0" dy="1" stdDeviation="0.8" flood-opacity="0.5"/>
-        </filter>
-      </defs>
-      <path d="${bgPath}" fill="${bgColor}" stroke="rgba(255,255,255,0.4)" stroke-width="1" filter="url(#emblem-shadow)" />
-      ${symbolSvg}
-    </svg>
-  `.trim();
+  const url = guildEmblemUrl(emblem);
+  return `<img src="${url}" width="${size}" height="${size}" alt="Guild Emblem" class="guild-emblem select-none inline-block" style="width:${size}px;height:${size}px;image-rendering:pixelated;object-fit:contain;vertical-align:middle;" />`;
 }
 
 /** Client Guild API helper */

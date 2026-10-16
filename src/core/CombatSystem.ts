@@ -9,7 +9,7 @@ import {
   type Mob,
 } from "../game-types.ts";
 import { ITEMS, SKILL, type Action, type SkillDef } from "../skills.ts";
-import { MOB_MAT, ORES, makeGear, randomGearFor } from "../items.ts";
+import { MOB_MAT, ORES, makeGear, randomGearFor, getWeaponAttackAnim, isRangedWeapon } from "../items.ts";
 import { groundMove } from "../physics.ts";
 
 export class CombatSystem {
@@ -87,16 +87,29 @@ export class CombatSystem {
       return true;
     }
     if (d.kind === "move") {
-      if (p.fh || p.ladder || p.leapt || (!game.infiniteMp && s.mp < cost)) return false;
-      if (!game.infiniteMp) s.mp -= cost; p.leapt = true;
-      const dexBoost = (s.dex || 0) * 0.003;
-      const lukBoost = (s.luk || 0) * 0.0015;
-      const spdBoost = (game.speed() / WALK - 1) * 0.35;
-      const lvBoost = (s.level || 1) * 0.004;
-      const boost = Math.min(2.5, 1.8 + dexBoost + lukBoost + spdBoost + lvBoost + lv * 0.05);
-      const vyFactor = 0.45 + Math.min(0.3, dexBoost * 0.3 + spdBoost * 0.2);
-      p.vy = -JUMP * vyFactor;
-      p.vx = p.face * game.speed() * boost;
+      if (p.ladder || (!game.infiniteMp && s.mp < cost)) return false;
+      // If already airborne, allow at most one mid-air leap until landing
+      if (!p.fh && p.leapt) return false;
+      if (!game.infiniteMp) s.mp -= cost;
+      p.leapt = true;
+      p.fh = null; // Unlatch from ground foothold so momentum takes effect immediately
+
+      if (a.id === "2001009") {
+        // Magician Teleport: instantly warps horizontally
+        const dist = 160 + lv * 8;
+        p.x += p.face * dist;
+        p.vx = p.face * 100;
+        p.vy = -60;
+      } else {
+        const dexBoost = (s.dex || 0) * 0.003;
+        const lukBoost = (s.luk || 0) * 0.0015;
+        const spdBoost = (game.speed() / WALK - 1) * 0.35;
+        const lvBoost = (s.level || 1) * 0.004;
+        const boost = Math.min(2.5, 1.8 + dexBoost + lukBoost + spdBoost + lvBoost + lv * 0.05);
+        const vyFactor = 0.45 + Math.min(0.3, dexBoost * 0.3 + spdBoost * 0.2);
+        p.vy = -JUMP * vyFactor;
+        p.vx = p.face * game.speed() * boost;
+      }
       const art = game.skillArt[a.id];
       if (art?.effect?.length) game.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
       else if (art?.effect0?.length) game.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
@@ -126,7 +139,9 @@ export class CombatSystem {
     if (id) CombatSystem.triggerCooldown(game, id);
     p.skill = id;
     p.attack = d ? 0.75 : 0.6; p.aiAttack = fromAi; p.hitDone = false; p.alert = 3;
-    p.attackAnim = d && d.kind !== "ranged" ? "swingO2" : "swingO1";
+    const wepId = game.eq.weapon?.id ?? 1302000;
+    const wepAnim = getWeaponAttackAnim(wepId);
+    p.attackAnim = d ? (d.kind === "ranged" ? (isRangedWeapon(wepId) ? wepAnim : "swingO1") : wepAnim) : wepAnim;
     p.frame = 0; p.ft = 0;
     const art = id ? game.skillArt[id] : null;
     if (art?.effect.length) game.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
@@ -158,15 +173,17 @@ export class CombatSystem {
     const p = game.p;
     const d: SkillDef | null = id ? SKILL[id] : null;
     const lv = id ? game.lv(id) : 0;
-    const range = d?.range ?? 90;
+    const wepId = game.eq.weapon?.id ?? 1302000;
+    const isRanged = d ? (d.kind === "ranged") : isRangedWeapon(wepId);
+    const range = d?.range ?? (isRanged ? 360 : 90);
     const x0 = p.face === 1 ? p.x - 10 : p.x - range, x1 = p.face === 1 ? p.x + range : p.x + 10;
-    const y0 = p.y - (d ? 100 : 70), y1 = p.y + 10;
+    const y0 = p.y - (d || isRanged ? 100 : 70), y1 = p.y + 10;
     const targets = game.liveMobs()
       .filter((m) => { const b = game.mobBox(m); return b.x1 > x0 && b.x0 < x1 && b.y1 > y0 && b.y0 < y1; })
       .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))
       .slice(0, d?.targets ?? 1);
     const pct = d?.dmg ? d.dmg(lv) : 100;
-    if (d?.kind === "ranged") {
+    if (isRanged) {
       const hits = d?.hits ?? 1;
       for (const m of targets) {
         for (let h = 0; h < hits; h++) {

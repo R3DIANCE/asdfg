@@ -139,10 +139,96 @@ export const ICONIC_GEAR: GearBase[] = [
   { id: 1452016, name: "Maple Bow", slot: "weapon", req: 35, watk: 48, str: 0, dex: 4, int: 0, luk: 0, hp: 40, def: 0, price: 14000 },
   { id: 1472030, name: "Maple Claw", slot: "weapon", req: 35, watk: 24, str: 0, dex: 0, int: 0, luk: 4, hp: 0, def: 0, price: 14000 },
 
+  // Authentic 1st Job Starter Weapons
+  { id: 1302007, name: "Long Sword", slot: "weapon", req: 10, watk: 27, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 800 },
+  { id: 1402001, name: "Wooden Sword", slot: "weapon", req: 10, watk: 30, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 1000 },
+  { id: 1432000, name: "Spear", slot: "weapon", req: 10, watk: 32, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 1100 },
+  { id: 1372005, name: "Wooden Wand", slot: "weapon", req: 8, watk: 15, str: 0, dex: 0, int: 2, luk: 0, hp: 20, def: 0, price: 800 },
+  { id: 1382000, name: "Wooden Staff", slot: "weapon", req: 10, watk: 20, str: 0, dex: 0, int: 3, luk: 0, hp: 30, def: 0, price: 1000 },
+  { id: 1452002, name: "War Bow", slot: "weapon", req: 10, watk: 25, str: 0, dex: 2, int: 0, luk: 0, hp: 10, def: 0, price: 900 },
+  { id: 1462001, name: "Crossbow", slot: "weapon", req: 12, watk: 29, str: 0, dex: 2, int: 0, luk: 0, hp: 10, def: 0, price: 1100 },
+  { id: 1472000, name: "Garnier", slot: "weapon", req: 10, watk: 10, str: 0, dex: 0, int: 0, luk: 2, hp: 0, def: 0, price: 800 },
+  { id: 1332007, name: "Fruit Knife", slot: "weapon", req: 8, watk: 22, str: 0, dex: 0, int: 0, luk: 1, hp: 0, def: 0, price: 750 },
+  { id: 1482000, name: "Steel Knuckler", slot: "weapon", req: 10, watk: 18, str: 1, dex: 1, int: 0, luk: 0, hp: 20, def: 0, price: 850 },
+  { id: 1492000, name: "Pistol", slot: "weapon", req: 10, watk: 13, str: 0, dex: 2, int: 0, luk: 0, hp: 10, def: 0, price: 850 },
+
+  // Authentic 1st Job Projectile Items & Ammunition (in USE)
+  { id: 2060000, name: "Arrow for Bow", slot: "use", req: 0, watk: 1, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 1 },
+  { id: 2061000, name: "Arrow for Crossbow", slot: "use", req: 0, watk: 1, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 1 },
+  { id: 2070000, name: "Subi Throwing-Stars", slot: "use", req: 0, watk: 15, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 500 },
+  { id: 2330000, name: "Bullet", slot: "use", req: 0, watk: 10, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100 },
+
   // Iconic Outfits & Robes
   { id: 1050014, name: "Sauna Robe (M)", slot: "top", req: 30, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 100, def: 20, price: 8000 },
   { id: 1051013, name: "Sauna Robe (F)", slot: "top", req: 30, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 100, def: 20, price: 8000 },
 ];
+
+export type WeaponType =
+  | "1h_sword" | "1h_axe" | "1h_blunt" | "dagger" | "wand" | "staff"
+  | "2h_sword" | "2h_axe" | "2h_blunt" | "spear" | "polearm"
+  | "bow" | "crossbow" | "claw" | "knuckle" | "gun" | "cash";
+
+export function getWeaponType(id: number): WeaponType {
+  const p = Math.floor(id / 10000);
+  switch (p) {
+    case 130: return "1h_sword";
+    case 131: return "1h_axe";
+    case 132: return "1h_blunt";
+    case 133: return "dagger";
+    case 137: return "wand";
+    case 138: return "staff";
+    case 140: return "2h_sword";
+    case 141: return "2h_axe";
+    case 142: return "2h_blunt";
+    case 143: return "spear";
+    case 144: return "polearm";
+    case 145: return "bow";
+    case 146: return "crossbow";
+    case 147: return "claw";
+    case 148: return "knuckle";
+    case 149: return "gun";
+    default: return "cash";
+  }
+}
+
+export function isRangedWeapon(id: number): boolean {
+  const t = getWeaponType(id);
+  return t === "bow" || t === "crossbow" || t === "claw" || t === "gun";
+}
+
+export function isMagicWeapon(id: number): boolean {
+  const t = getWeaponType(id);
+  return t === "wand" || t === "staff";
+}
+
+export function getWeaponAttackAnim(id: number): string {
+  const t = getWeaponType(id);
+  switch (t) {
+    case "bow": return "shoot1";
+    case "crossbow": return "shoot2";
+    case "claw": return Math.random() < 0.5 ? "swingO1" : "swingO2";
+    case "gun": return "shoot1";
+    case "spear": return Math.random() < 0.5 ? "stabT1" : "swingP1";
+    case "polearm": return Math.random() < 0.5 ? "swingP1" : "swingP2";
+    case "2h_sword":
+    case "2h_axe":
+    case "2h_blunt": return Math.random() < 0.5 ? "swingT1" : "swingT2";
+    case "dagger": return Math.random() < 0.5 ? "stabO1" : "swingO1";
+    default: return Math.random() < 0.5 ? "swingO1" : "swingO2";
+  }
+}
+
+export function getWeaponStandAnim(id: number): string {
+  const t = getWeaponType(id);
+  if (t === "spear" || t === "crossbow") return "stand2";
+  return "stand1";
+}
+
+export function getWeaponWalkAnim(id: number): string {
+  const t = getWeaponType(id);
+  if (t === "spear" || t === "crossbow") return "walk2";
+  return "walk1";
+}
 
 export const GEAR = new Map<number, GearBase>([...STARTER, ...ICONIC_GEAR, ...COSMETICS].map((g) => [g.id, { ...g }]));
 export const MATS = new Map<number, string>();
