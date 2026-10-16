@@ -3042,10 +3042,18 @@ export class ExtWindows {
       entries.push({ label: "★ GM Control Panel", key: "F1", fn: () => w.toggle(w.debugWin), isGm: true });
       entries.push({ label: "★ All Items Spawner", key: "L", fn: () => this.items.open(), isGm: true });
     }
+    if (w.game.unclaimedOffline && (w.game.unclaimedOffline.kills > 0 || w.game.unclaimedOffline.seconds >= 60)) {
+      entries.unshift({
+        label: `★ Welcome Back (${dur(w.game.unclaimedOffline.seconds)})`,
+        key: "Claim",
+        fn: () => this.showOffline(w.game.unclaimedOffline!),
+      });
+    }
     entries.push({
       label: "Switch Character",
       key: "Relog",
       fn: async () => {
+        w.game.lastLogoutAt = Date.now();
         if (window.__persist) {
           try { await window.__persist(); } catch {}
         }
@@ -3057,6 +3065,7 @@ export class ExtWindows {
       label: "Log Out Account",
       key: "Exit",
       fn: async () => {
+        w.game.lastLogoutAt = Date.now();
         if (window.__persist) {
           try { await window.__persist(); } catch {}
         }
@@ -3780,13 +3789,50 @@ export class ExtWindows {
     this.offline = box;
     const mats = Object.entries(r.mats).filter(([, n]) => n > 0).map(([id, n]) => `<div class="gcell">${icon(matIcon(+id))}<span class="cnt">${n}</span></div>`).join("");
     const gear = r.gear.map((g) => `<div class="gcell r${g.rarity}">${icon(gearIcon(g.id))}</div>`).join("");
-    box.innerHTML = `<div class="offline-card win-css"><div class="win-title">WELCOME BACK</div>
-      <p class="off-lead">Your character kept hunting for <b>${dur(r.seconds)}</b> while you were away.</p>
-      <div class="off-grid"><span>Monsters defeated</span><b>${fmt(r.kills)}</b><span>EXP</span><b>${fmt(r.exp)}</b><span>Mesos</span><b>${fmt(r.meso)}</b></div>
-      <div class="off-items">${mats}${gear}</div>
-      <div class="off-btns"><button type="button" class="xbtn big gold" data-m="1">Claim</button></div>
-      <p class="tip-dim off-note">Offline hunting runs at 60% of your recent Auto Battle pace, up to 12 hours.</p></div>`;
-    box.querySelector("button")!.addEventListener("click", () => { this.w.game.claimOffline(r, 1); box.remove(); this.offline = null; this.sig = {}; });
+    box.innerHTML = `<div class="offline-card win-css">
+      <div class="win-titlebar">
+        <span class="win-title">WELCOME BACK</span>
+        <button type="button" class="win-close off-close" title="Close (Claim later)">✕</button>
+      </div>
+      <div class="off-body">
+        <p class="off-lead">Your character kept hunting for <b>${dur(r.seconds)}</b> while you were away.</p>
+        <div class="off-grid">
+          <span>Monsters defeated</span><b>${fmt(r.kills)}</b>
+          <span>EXP</span><b>${fmt(r.exp)}</b>
+          <span>Mesos</span><b>${fmt(r.meso)}</b>
+        </div>
+        ${(mats || gear) ? `<div class="off-items">${mats}${gear}</div>` : ""}
+        <div class="off-btns">
+          <button type="button" class="xbtn big gold off-claim-btn">Claim Rewards</button>
+          <button type="button" class="xbtn big off-later-btn">Later</button>
+        </div>
+        <p class="tip-dim off-note">Offline rewards accumulate while logged out (up to 24h) and can only be claimed once.</p>
+      </div>
+    </div>`;
+
+    const claimBtn = box.querySelector<HTMLButtonElement>(".off-claim-btn");
+    const closeBtn = box.querySelector<HTMLButtonElement>(".off-close");
+    const laterBtn = box.querySelector<HTMLButtonElement>(".off-later-btn");
+
+    claimBtn?.addEventListener("click", () => {
+      if (claimBtn.disabled) return;
+      claimBtn.disabled = true;
+      claimBtn.textContent = "Claimed!";
+      this.w.game.claimOffline(r, 1);
+      setTimeout(() => {
+        box.remove();
+        this.offline = null;
+        this.sig = {};
+      }, 300);
+    });
+
+    const closeDialog = () => {
+      box.remove();
+      this.offline = null;
+      this.sig = {};
+    };
+    closeBtn?.addEventListener("click", closeDialog);
+    laterBtn?.addEventListener("click", closeDialog);
   }
 
   // ------------------------------------------------------------- per frame

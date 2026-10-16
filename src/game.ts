@@ -142,6 +142,17 @@ export class Game extends ComponentBase {
   bossLoading = false;
   idle = { autoTime: 0, autoKills: 0, killRate: 0.06, expPerKill: 15, mesoPerKill: 12 };
   ah = new AuctionHouse(() => this.stats.level);
+  lastSavedAt = 0;
+  lastLogoutAt = 0;
+  lastOfflineClaimAt = 0;
+  unclaimedOffline: {
+    seconds: number;
+    kills: number;
+    exp: number;
+    meso: number;
+    mats: Record<number, number>;
+    gear: Gear[];
+  } | null = null;
   onOffline: (r: { seconds: number; kills: number; exp: number; meso: number; mats: Record<number, number>; gear: Gear[] }) => void = () => {};
   onBoss: (m: Mob | null) => void = () => {};
   skillLv: Record<string, number> = { "1001005": 1, "0001000": 1 };
@@ -1324,8 +1335,8 @@ export class Game extends ComponentBase {
   challengeBoss() { return StageSystem.challengeBoss(this); }
   endBoss(won: boolean) { return StageSystem.endBoss(this, won); }
   mobAtk(d: MobData) { return Math.max(1, (d.meta?.physicalDamage ?? 10) * 0.4 * this.stageMul().dmg); }
-  offlineRewards(savedAt: number) { return StageSystem.offlineRewards(this, savedAt); }
-  claimOffline(r: { kills: number; exp: number; meso: number; mats: Record<number, number>; gear: Gear[] }, mult = 1) {
+  offlineRewards(savedAt?: number) { return StageSystem.offlineRewards(this, savedAt); }
+  claimOffline(r?: { seconds: number; kills: number; exp: number; meso: number; mats: Record<number, number>; gear: Gear[] }, mult = 1) {
     return StageSystem.claimOffline(this, r, mult);
   }
 
@@ -1334,7 +1345,11 @@ export class Game extends ComponentBase {
     return {
       v: 1, stats: this.stats, inv: this.inv, skillLv: this.skillLv, quick: this.quick, auto: this.auto, map: this.map?.id,
       p: { x: Math.round(this.p.x), y: Math.round(this.p.y), face: this.p.face },
-      mats: this.mats, bag: this.bag, eq: this.eq, visualEq: this.visualEq, pets: this.pets.map((p) => ({ id: p.id, slotIndex: p.slotIndex })), stage: this.stage, idle: this.idle, ah: this.ah.save(), savedAt: Date.now(),
+      mats: this.mats, bag: this.bag, eq: this.eq, visualEq: this.visualEq, pets: this.pets.map((p) => ({ id: p.id, slotIndex: p.slotIndex })),
+      stage: this.stage, idle: this.idle, ah: this.ah.save(), savedAt: Date.now(),
+      lastLogoutAt: this.lastLogoutAt || Date.now(),
+      lastOfflineClaimAt: this.lastOfflineClaimAt,
+      unclaimedOffline: this.unclaimedOffline,
     };
   }
   restore(d: any) {
@@ -1405,6 +1420,18 @@ export class Game extends ComponentBase {
     if (d.stage) Object.assign(this.stage, d.stage);
     if (d.idle) Object.assign(this.idle, d.idle);
     if (d.ah) this.ah.restore(d.ah);
+    if (typeof d.savedAt === "number") this.lastSavedAt = d.savedAt;
+    if (typeof d.lastLogoutAt === "number") this.lastLogoutAt = d.lastLogoutAt;
+    if (typeof d.lastOfflineClaimAt === "number") this.lastOfflineClaimAt = d.lastOfflineClaimAt;
+    if (d.unclaimedOffline) {
+      this.unclaimedOffline = d.unclaimedOffline;
+    } else {
+      try {
+        const charKey = this.stats.name ? `maple-offline-unclaimed-${this.stats.name}` : "maple-offline-unclaimed";
+        const backup = JSON.parse(localStorage.getItem(charKey) || "null");
+        if (backup) this.unclaimedOffline = backup;
+      } catch {}
+    }
     this.recalc();
     this.preloadItemIcons();
   }

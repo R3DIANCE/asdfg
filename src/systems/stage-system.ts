@@ -145,36 +145,92 @@ export class StageSystem {
     game.onChange();
   }
 
-  public static offlineRewards(game: Game, savedAt: number) {
-    const seconds = Math.min(12 * 3600, Math.max(0, (Date.now() - savedAt) / 1000));
-    if (seconds < 120) return;
-    const kills = Math.floor(seconds * game.idle.killRate * 0.6);
-    if (kills <= 0) return;
-    const exp = Math.round(kills * game.idle.expPerKill);
-    const meso = Math.round(kills * game.idle.mesoPerKill);
-    const mats: Record<number, number> = {};
-    const mm = game.map ? [...new Set(game.map.spawns.map((s) => MOB_MAT[s.id]).filter(Boolean))] : [4000001];
-    for (const id of mm) mats[id] = Math.floor((kills * 0.35) / mm.length);
-    mats[ORES[Math.floor(Math.random() * 3)]] = Math.floor(kills * 0.04);
-    const gear: Gear[] = [];
-    for (let i = 0; i < Math.min(8, Math.floor(kills / 120)); i++) {
-      gear.push(makeGear(randomGearFor(game.stats.level), 0.4));
+  public static offlineRewards(game: Game, savedAt?: number) {
+    const now = Date.now();
+    const lastActive = Math.max(game.lastLogoutAt || 0, game.lastSavedAt || 0, savedAt || 0);
+    const elapsed = lastActive > 0 ? Math.max(0, (now - lastActive) / 1000) : 0;
+
+    // Accumulate offline progress if player was away for at least 60 seconds
+    if (elapsed >= 60) {
+      const seconds = Math.min(24 * 3600, elapsed);
+      const killRate = Math.max(game.idle.killRate || 0, 0.05);
+      const kills = Math.floor(seconds * killRate * 0.6);
+      if (kills > 0) {
+        const exp = Math.round(kills * Math.max(game.idle.expPerKill || 0, 15));
+        const meso = Math.round(kills * Math.max(game.idle.mesoPerKill || 0, 12));
+        const mats: Record<number, number> = {};
+        const mm = game.map ? [...new Set(game.map.spawns.map((s) => MOB_MAT[s.id]).filter(Boolean))] : [4000001];
+        for (const id of mm) mats[id] = Math.floor((kills * 0.35) / mm.length);
+        mats[ORES[Math.floor(Math.random() * 3)]] = Math.floor(kills * 0.04);
+        const gear: Gear[] = [];
+        for (let i = 0; i < Math.min(8, Math.floor(kills / 120)); i++) {
+          gear.push(makeGear(randomGearFor(game.stats.level), 0.4));
+        }
+
+        // Merge and accumulate onto any existing unclaimed rewards
+        if (game.unclaimedOffline) {
+          game.unclaimedOffline.seconds += Math.round(seconds);
+          game.unclaimedOffline.kills += kills;
+          game.unclaimedOffline.exp += exp;
+          game.unclaimedOffline.meso += meso;
+          for (const [id, count] of Object.entries(mats)) {
+            game.unclaimedOffline.mats[+id] = (game.unclaimedOffline.mats[+id] || 0) + count;
+          }
+          const availableSlots = Math.max(0, 16 - game.unclaimedOffline.gear.length);
+          if (availableSlots > 0 && gear.length > 0) {
+            game.unclaimedOffline.gear.push(...gear.slice(0, availableSlots));
+          }
+        } else {
+          game.unclaimedOffline = {
+            seconds: Math.round(seconds),
+            kills,
+            exp,
+            meso,
+            mats,
+            gear,
+          };
+        }
+      }
+      game.lastSavedAt = now;
+      game.lastLogoutAt = 0;
     }
-    game.onOffline({ seconds, kills, exp, meso, mats, gear });
+
+    // If there are accumulated unclaimed rewards, prompt the player
+    if (game.unclaimedOffline && (game.unclaimedOffline.kills > 0 || game.unclaimedOffline.seconds >= 60)) {
+      try {
+        const charKey = game.stats.name ? `maple-offline-unclaimed-${game.stats.name}` : "maple-offline-unclaimed";
+        localStorage.setItem(charKey, JSON.stringify(game.unclaimedOffline));
+      } catch {}
+      game.onOffline(game.unclaimedOffline);
+    }
   }
 
   public static claimOffline(
     game: Game,
-    r: { kills: number; exp: number; meso: number; mats: Record<number, number>; gear: Gear[] },
+    r?: { seconds: number; kills: number; exp: number; meso: number; mats: Record<number, number>; gear: Gear[] },
     mult = 1
   ) {
-    game.stats.meso += Math.round(r.meso * mult);
-    for (const [id, n] of Object.entries(r.mats)) {
+    const rewards = r || game.unclaimedOffline;
+    if (!rewards) return;
+
+    // Enforce single claim: clear the accumulated pool immediately
+    game.unclaimedOffline = null;
+    try {
+      const charKey = game.stats.name ? `maple-offline-unclaimed-${game.stats.name}` : "maple-offline-unclaimed";
+      localStorage.removeItem(charKey);
+    } catch {}
+
+    game.stats.meso += Math.round(rewards.meso * mult);
+    for (const [id, n] of Object.entries(rewards.mats)) {
       game.mats[+id] = (game.mats[+id] ?? 0) + Math.round(n * mult);
     }
-    for (const g of r.gear) game.addGear(g);
-    game.stage.kills = Math.min(STAGE_KILLS, game.stage.kills + r.kills);
-    game.gainExp(Math.round(r.exp * mult));
+    for (const g of rewards.gear) game.addGear(g);
+    game.stage.kills = Math.min(STAGE_KILLS, game.stage.kills + rewards.kills);
+    game.gainExp(Math.round(rewards.exp * mult));
+    game.lastOfflineClaimAt = Date.now();
+    game.lastSavedAt = Date.now();
+    game.onGain?.("meso", `Claimed ${Math.round(rewards.meso * mult).toLocaleString()} mesos & ${Math.round(rewards.exp * mult).toLocaleString()} EXP from offline hunting!`);
+    game.onChat("notice", `★ [Welcome Back] Claimed offline rewards: ${rewards.kills} monsters defeated, ${Math.round(rewards.exp * mult).toLocaleString()} EXP, ${Math.round(rewards.meso * mult).toLocaleString()} Mesos!`);
     game.onChange();
   }
 }

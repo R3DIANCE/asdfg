@@ -427,6 +427,24 @@ export class ChatComponent extends ComponentBase {
           } else if (t === "/skins") {
             const list = DAMAGE_SKIN_PRESETS.map((p) => `${p.name} (${p.id})`).join(", ");
             this.game.onChat("notice", `★ [Damage Skins] Presets: ${list}. Any ID 1-641 from WZ supported!`);
+          } else if (t === "/logout" || t === "/exit") {
+            this.game.lastLogoutAt = Date.now();
+            if (window.__persist) {
+              try { await window.__persist(); } catch {}
+            }
+            try {
+              localStorage.removeItem("ms_current_user");
+              localStorage.removeItem("ms_current_character");
+            } catch {}
+            sessionStorage.setItem("ms_skip_autologin", "1");
+            location.reload();
+          } else if (t === "/switchchar" || t === "/relog" || t === "/changechar") {
+            this.game.lastLogoutAt = Date.now();
+            if (window.__persist) {
+              try { await window.__persist(); } catch {}
+            }
+            sessionStorage.setItem("ms_skip_autologin", "1");
+            location.reload();
           } else if (t === "/help" || t === "/commands") {
             const baseHelp = "[Commands] /name <newName> | /skin <id> | /skins | /g <msg> (guild) | /p <msg> (party) | /w <player> <msg> (whisper)";
             this.game.onChat("system", `${baseHelp} | /gm or /setgm - GM Panel | /sync | /logout`);

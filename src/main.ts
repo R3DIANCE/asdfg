@@ -412,6 +412,10 @@ async function start(char?: SpacetimeCharacter) {
     hud.addChat("notice", `${game.auto.battle ? "Auto Combat is ON" : "Auto Combat is OFF"}. Hunting monsters in ${game.map.name}. Stage boss ready every 25 kills.`);
   }
 
+  // Accumulate offline hunting progress across logout/login and prompt Welcome Back
+  const savedTimestamp = localSaved?.savedAt || (char?.stats?.fullSave?.savedAt as number) || 0;
+  game.offlineRewards(savedTimestamp);
+
   game.ah.refresh(Date.now());
   const persist = async () => {
     try {
@@ -450,9 +454,15 @@ async function start(char?: SpacetimeCharacter) {
   game.onChange = () => { clearTimeout(saveT); saveT = setTimeout(persist, 800) as unknown as number; };
   setInterval(persist, 10000);
   addEventListener("character-renamed", () => persist());
-  addEventListener("beforeunload", () => persist());
+  addEventListener("beforeunload", () => {
+    game.lastLogoutAt = Date.now();
+    persist();
+  });
   addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") persist();
+    if (document.visibilityState === "hidden") {
+      game.lastLogoutAt = Date.now();
+      persist();
+    }
   });
   bgm.src = game.map.bgmUrl;
   bgm.play().catch(() => {});
