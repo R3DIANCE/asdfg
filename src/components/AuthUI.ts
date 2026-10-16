@@ -206,6 +206,11 @@ export class AuthUI {
             ?? JSON.parse(localStorage.getItem("maple-wayfarer-save") ?? "null");
         } catch {}
 
+        let lastPos: any = null;
+        try {
+          lastPos = JSON.parse(localStorage.getItem("ms_last_saved_pos") ?? "null");
+        } catch {}
+
         if (sv || lastSavedName) {
           const charObj: SpacetimeCharacter = {
             name: sv?.stats?.name || lastSavedName,
@@ -219,9 +224,9 @@ export class AuthUI {
             mp: sv?.stats?.mp || 20,
             maxMp: sv?.stats?.maxMp || 20,
             meso: sv?.stats?.meso || 1000,
-            mapId: sv?.map || 910000000,
-            x: sv?.p?.x || 0,
-            y: sv?.p?.y || 0,
+            mapId: sv?.map ?? lastPos?.mapId ?? 910000000,
+            x: sv?.p?.x ?? (lastPos && (lastPos.mapId === sv?.map || !sv?.map) ? lastPos.x : 0),
+            y: sv?.p?.y ?? (lastPos && (lastPos.mapId === sv?.map || !sv?.map) ? lastPos.y : 0),
             look: sv?.look || [2000, 12000, 20000, 30030, 1040002, 1060002, 1072001, 1302000],
             stats: sv?.stats || {},
             inventory: sv?.bag || [],
@@ -292,6 +297,11 @@ export class AuthUI {
       localStorage.setItem("ms_current_character", ch.name);
       localStorage.setItem("ms_player_name", ch.name);
     } catch {}
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    this.container.innerHTML = "";
+    this.container.classList.add("hidden");
     this.destroy();
     this.onCharacterSelected(ch);
   }

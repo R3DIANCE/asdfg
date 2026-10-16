@@ -336,7 +336,10 @@ export class GmOnlinePanel extends ComponentBase {
           this.game.onChat("notice", "[GM] Added +1,000,000 mesos.");
           this.game.onChange();
         });
-        actionsRow.querySelector(".switch-char")?.addEventListener("click", () => {
+        actionsRow.querySelector(".switch-char")?.addEventListener("click", async () => {
+          if (window.__persist) {
+            try { await window.__persist(); } catch {}
+          }
           sessionStorage.setItem("ms_skip_autologin", "1");
           location.reload();
         });

@@ -10,6 +10,7 @@ import {
 import { DEFAULT_QUICK, ITEMS, SKILL, SKILL_DEFS, classFor, type ClassId, itemIcon, itemIconRaw, type Action, type SkillArt, type SkillDef } from "./skills.ts";
 import { preloadIcon } from "./util.ts";
 
+import { type Guild, type GuildEmblem, GuildClient } from "./guild.ts";
 export * from "./game-types.ts";
 import {
   type Back,
@@ -58,6 +59,7 @@ import {
   EconomySystem,
   emptyGt,
 } from "./core/index.ts";
+import { getMapSecretTeleporters } from "./secret-teleporters.ts";
 
 export class Game extends ComponentBase {
   r!: Renderer;
@@ -71,6 +73,7 @@ export class Game extends ComponentBase {
   dmg: DmgText[] = [];
   pets: PetInstance[] = [];
   portals: Portal[] = [];
+  teleportCooldown = 0;
   lastPortalTex: Tex | null = null;
   lastPortalFr: Sprite | null = null;
   fxData: any;
@@ -79,10 +82,14 @@ export class Game extends ComponentBase {
   time = 0;
   loadingMap = false;
   fade = 1;
-  onChat: (kind: ChatKind, text: string) => void = () => {};
+  onChat: (kind: ChatKind, text: string, itemLink?: any) => void = () => {};
   onLog: (kind: ChatKind, text: string) => void = () => {};
   onGain: (kind: "level" | "meso" | "exp", text: string) => void = () => {};
   onMapChange: (m: MapData) => void = () => {};
+  guild: Guild | null = null;
+  guildId?: string;
+  guildName?: string;
+  guildEmblem?: GuildEmblem;
 
   stats: Stats = {
     name: (() => {
@@ -223,13 +230,14 @@ export class Game extends ComponentBase {
     x: 0, y: 0, vx: 0, vy: 0, fh: null as Foothold | null, ignoreFh: undefined as number | undefined,
     face: -1 as -1 | 1, anim: "stand1", frame: 0, ft: 0,
     expr: "default", exprFrame: 0, blinkTimer: 3.5, blinkStep: -1, blinkFrameTimer: 0,
-    ladder: null as Ladder | null, attack: 0, attackAnim: "swingO1", hitDone: false, skill: null as string | null,
+    ladder: null as Ladder | null, attack: 0, aiAttack: false, attackAnim: "swingO1", hitDone: false, skill: null as string | null,
     invuln: 0, prone: false, alert: 0, regen: 0, dead: false, leapt: false,
     coyote: 0, airTime: 0,
   };
 
   keys = new Set<string>();
   pressed = new Set<string>();
+  savedPosition: { x: number; y: number; face?: number } | null = null;
 
   constructor(r?: Renderer) {
     super();
@@ -252,9 +260,9 @@ export class Game extends ComponentBase {
     this.draw();
   }
 
-  async init(startMapOrParam: any) {
+  async init(startMapOrParam: any, spawnPos?: { x: number; y: number }) {
     if (typeof startMapOrParam === "number") {
-      return this.initGame(startMapOrParam);
+      return this.initGame(startMapOrParam, spawnPos);
     }
     super.init(startMapOrParam);
     if (startMapOrParam?.r && !this.r) {
@@ -263,7 +271,7 @@ export class Game extends ComponentBase {
     }
   }
 
-  async initGame(startMap = FREE_MARKET_MAP) {
+  async initGame(startMap = FREE_MARKET_MAP, spawnPos?: { x: number; y: number }) {
     this.fxData = await json("/wz/data/fx");
     const sk = await json<Record<string, any>>("/wz/data/skills");
     this.snailShell = sk.snailShell ?? null;
@@ -295,7 +303,7 @@ export class Game extends ComponentBase {
     for (const s of [...fxs, ...this.fxData.meso, ...this.fxData.portal, this.fxData.miss, ...(this.fxData.levelUp ?? [])] as Sprite[]) if (s) loads.push(this.assets.load(s.url));
     for (const a of Object.values(this.skillArt)) for (const f of [...a.effect, ...a.effect0, ...a.hit, ...(a.ball ?? [])]) this.assets.load(f.url);
     try {
-      await this.loadMap(startMap, "spawn");
+      await this.loadMap(startMap, "spawn", spawnPos);
     } catch (e) {
       console.warn("Initial map load failed, falling back to Free Market:", e);
       if (startMap !== FREE_MARKET_MAP) {
@@ -317,7 +325,7 @@ export class Game extends ComponentBase {
   handleWsMessage(msg: any) { NetworkSystem.handleWsMessage(this, msg); }
 
   // ------------------------------------------------------------ map loading
-  async loadMap(id: number, arrive: "spawn" | "left" | "right") {
+  async loadMap(id: number, arrive: "spawn" | "left" | "right" | "market" = "spawn", spawnPos?: { x: number; y: number }) {
     if (this.boss) this.endBoss(false);
     this.loadingMap = true;
     try {
@@ -356,26 +364,56 @@ export class Game extends ComponentBase {
       };
       const L = lowest(true), R = lowest(false);
       if (id === FREE_MARKET_MAP) {
-        const returnMap = this.prevHuntingMap || 100010000;
+        const returnMap = this.prevHuntingMap || 100000000;
         // Central authentic Free Market portal doorway (with custom animated sign)
         this.portals.push({ x: -417, y: 32, to: returnMap, side: "left", custom: true });
+      } else if (id === 100000000) {
+        // Henesys Town:
+        // Left portal to The Hill North of Henesys (100010000)
+        // Right portal to Spore Hill (100020000)
+        // Authentic Market Place Portal at the town market entrance (x: 2931, y: 334)
+        this.portals.push(
+          { ...L, to: 100010000, side: "left" },
+          { ...R, to: 100020000, side: "right" },
+          { x: 2931, y: 334, to: FREE_MARKET_MAP, side: "market", label: "Free Market" }
+        );
       } else {
         const idx = HUNTING_AREAS.indexOf(id);
         const nextArea = idx >= 0 ? HUNTING_AREAS[(idx + 1) % HUNTING_AREAS.length] : 100010000;
         this.portals.push({ ...L, to: FREE_MARKET_MAP, side: "left" }, { ...R, to: nextArea, side: "right" });
       }
 
+      // Secret intra-map teleporters (teleports player from coordinate X to Y)
+      const secretTeleporters = getMapSecretTeleporters(id, m.portals);
+      this.portals.push(...secretTeleporters);
+
       // Player placement.
       const p = this.p;
       let px: number, py: number;
-      if (id === FREE_MARKET_MAP) {
+      const targetPos = spawnPos ?? this.savedPosition;
+      if (targetPos && typeof targetPos.x === "number" && typeof targetPos.y === "number") {
+        px = targetPos.x;
+        py = targetPos.y;
+        this.savedPosition = null;
+      } else if (id === FREE_MARKET_MAP) {
         px = -417; py = 32;
+      } else if (arrive === "market" && id === 100000000) {
+        px = 2931; py = 334;
       } else if (arrive === "left") ({ x: px, y: py } = this.portals[0] ? { x: this.portals[0].x + 30, y: this.portals[0].y } : { x: 0, y: 0 });
       else if (arrive === "right") ({ x: px, y: py } = this.portals[1] ? { x: this.portals[1].x - 30, y: this.portals[1].y } : { x: 0, y: 0 });
-      else ({ x: px, y: py } = this.portals[0] ? { x: this.portals[0].x + 40, y: this.portals[0].y } : (m.spawns[0] ?? { x: 0, y: 0 }));
+      else if (id === 100000000) {
+        px = 2931; py = 334;
+      } else ({ x: px, y: py } = this.portals[0] ? { x: this.portals[0].x + 40, y: this.portals[0].y } : (m.spawns[0] ?? { x: 0, y: 0 }));
       p.x = px; p.y = py - 5; p.vx = 0; p.vy = 0; p.ladder = null;
-      p.attack = 0; p.hitDone = true; p.skill = null;
-      p.fh = this.tree.landing(p.x, p.y - 20, p.y + 40);
+      p.attack = 0; p.aiAttack = false; p.hitDone = true; p.skill = null;
+      this.ai.keys.clear();
+      this.ai.pressed.clear();
+      this.ai.target = null;
+      this.ai.retreatTime = 0;
+      this.ai.ladderIntent = null;
+      this.ai.ladderTopStuckTimer = 0;
+      this.ai.stuck = 0;
+      p.fh = this.tree.landing(p.x, p.y - 20, p.y + 60) ?? this.tree.below(p.x, p.y - 20);
       if (p.fh) p.y = FootholdTree.yAt(p.fh, p.x);
 
       // Snap active pets to player on map load
@@ -608,7 +646,7 @@ export class Game extends ComponentBase {
     this.onChange();
   }
 
-  say(text: string) {
+  say(text: string, itemLink?: any) {
     if (text.startsWith("/name ") || text.startsWith("/nick ") || text.startsWith("/rename ")) {
       const newName = text.replace(/^\/(name|nick|rename)\s+/, "").trim();
       if (newName) {
@@ -619,19 +657,49 @@ export class Game extends ComponentBase {
       return;
     }
     this.balloon = { text, t: 5 };
-    this.onChat("say", `${this.stats.name} : ${text}`);
+    this.onChat("say", `${this.stats.name} : ${text}`, itemLink);
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ t: "chat", text, kind: "say" }));
+      this.ws.send(JSON.stringify({ t: "chat", text, kind: "say", itemLink }));
     }
   }
 
-  sendChat(text: string, kind: ChatKind = "say") {
+  sendChat(text: string, kind: ChatKind = "say", itemLink?: any) {
     if (kind === "say") {
-      this.say(text);
+      this.say(text, itemLink);
     } else {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ t: "chat", text, kind }));
+        this.ws.send(JSON.stringify({ t: "chat", text, kind, itemLink, guildId: this.guildId }));
       }
+      this.onChat(kind, `${this.stats.name} : ${text}`, itemLink);
+    }
+  }
+
+  async loadGuild() {
+    try {
+      const charName = this.stats.name;
+      const guilds = await GuildClient.getGuildList();
+      for (const g of guilds) {
+        const full = await GuildClient.getGuild(g.id);
+        if (full && full.members.some((m) => m.name.toLowerCase() === charName.toLowerCase())) {
+          this.guild = full;
+          this.guildId = full.id;
+          this.guildName = full.name;
+          this.guildEmblem = full.emblem;
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ t: "guild_sync", guildId: full.id, guildName: full.name, guildEmblem: full.emblem }));
+          }
+          this.onChange();
+          return full;
+        }
+      }
+      this.guild = null;
+      this.guildId = undefined;
+      this.guildName = undefined;
+      this.guildEmblem = undefined;
+      this.onChange();
+      return null;
+    } catch {
+      return null;
     }
   }
 
@@ -639,11 +707,12 @@ export class Game extends ComponentBase {
   skillCooldown(id: string): number { return CombatSystem.skillCooldown(this, id); }
   triggerCooldown(id: string) { CombatSystem.triggerCooldown(this, id); }
   useAction(a: Action | null | undefined, quiet = false): boolean { return CombatSystem.useAction(this, a, quiet); }
-  startAttack(id: string | null): boolean { return CombatSystem.startAttack(this, id); }
+  startAttack(id: string | null, fromAi = false): boolean { return CombatSystem.startAttack(this, id, fromAi); }
 
   // ------------------------------------------------------------ update
   update(dt: number) {
     this.time += dt;
+    if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
     if (this.loadingMap || !this.map) { this.pressed.clear(); return; }
     this.fade = Math.max(0, this.fade - dt * 2.5);
     for (const [id, cd] of Object.entries(this.skillCd)) {
@@ -776,6 +845,7 @@ export class Game extends ComponentBase {
     const up = this.down("ArrowUp", "Up", "w", "W");
     const downK = this.down("ArrowDown", "Down", "s", "S");
     const jump = this.hit("Alt", " ", "Space");
+    const jumpHeld = jump || this.down("Alt", " ", "Space");
     const dir = (right ? 1 : 0) - (left ? 1 : 0);
 
     // Quick slots: attacks repeat while held, everything else fires once per press.
@@ -811,35 +881,83 @@ export class Game extends ComponentBase {
       }
     }
 
-    // Portals.
-    if (up && p.fh && p.attack <= 0) {
+    // Portals & Secret Teleporters.
+    if (up && p.fh && p.attack <= 0 && this.teleportCooldown <= 0) {
       for (const pt of this.portals) {
-        if (Math.abs(pt.x - p.x) < 40 && Math.abs(pt.y - p.y) < 60) {
-          if (pt.side === "left") {
+        if (Math.abs(pt.x - p.x) < 45 && Math.abs(pt.y - p.y) < 60) {
+          // Secret Intra-Map Teleporter (teleport x to y!)
+          if (pt.targetX !== undefined && pt.targetY !== undefined) {
+            this.teleportCooldown = 0.55;
+            const oldX = p.x;
+            const oldY = p.y;
+            p.x = pt.targetX;
+            p.y = pt.targetY;
+            p.vx = 0;
+            p.vy = 0;
+            p.ladder = null;
+
+            // Re-anchor landing foothold
+            p.fh = this.tree.landing(p.x, p.y - 20, p.y + 60) ?? this.tree.below(p.x, p.y - 20);
+            if (p.fh) p.y = FootholdTree.yAt(p.fh, p.x);
+
+            // Snap active pets alongside player
+            for (const pet of this.pets) {
+              pet.x = p.x - p.face * (35 + pet.slotIndex * 32);
+              pet.y = p.y;
+              pet.fh = p.fh;
+              pet.vx = 0;
+              pet.vy = 0;
+              pet.state = "stand0";
+            }
+
+            // Spawn visual portal effects at origin and destination
+            if (this.fxData?.portal?.length) {
+              this.fx.push({ frames: this.fxData.portal, x: oldX, y: oldY, flip: false, t: 0 });
+              this.fx.push({ frames: this.fxData.portal, x: p.x, y: p.y, flip: false, t: 0 });
+            }
+
+            this.snapCamera();
+            this.onChat("notice", `★ [Secret Teleport] Traveled via ${pt.label ?? "Secret Shortcut"} to (${Math.round(p.x)}, ${Math.round(p.y)})!`);
+            return;
+          }
+
+          if (pt.side === "market" || (pt.to === FREE_MARKET_MAP && this.map.id !== FREE_MARKET_MAP)) {
+            this.prevHuntingMap = this.map.id;
+            this.onChat("notice", "Entering Free Market...");
+            this.loadMap(FREE_MARKET_MAP, "spawn");
+            return;
+          } else if (pt.side === "left") {
             if (this.map.id !== FREE_MARKET_MAP) {
-              this.prevHuntingMap = this.map.id;
-              this.onChat("notice", "Entering Free Market...");
-              this.loadMap(FREE_MARKET_MAP, "spawn");
+              if (pt.to === FREE_MARKET_MAP) {
+                this.prevHuntingMap = this.map.id;
+                this.onChat("notice", "Entering Free Market...");
+                this.loadMap(FREE_MARKET_MAP, "spawn");
+              } else {
+                this.onChat("notice", "Traveling to " + (pt.to === 100010000 ? "The Hill North of Henesys..." : "next area..."));
+                this.loadMap(pt.to, "right");
+              }
             } else {
-              const returnMap = this.prevHuntingMap || 100010000;
-              this.onChat("notice", "Returning to hunting area...");
-              this.loadMap(returnMap, "left");
+              const returnMap = this.prevHuntingMap || 100000000;
+              this.onChat("notice", "Returning to " + (returnMap === 100000000 ? "Henesys..." : "hunting area..."));
+              this.loadMap(returnMap, returnMap === 100000000 ? "market" : "left");
             }
             return;
           } else if (pt.side === "right") {
             if (this.map.id === FREE_MARKET_MAP) {
-              const returnMap = this.prevHuntingMap || 100010000;
-              this.onChat("notice", "Returning to hunting area...");
-              this.loadMap(returnMap, "left");
+              const returnMap = this.prevHuntingMap || 100000000;
+              this.onChat("notice", "Returning to " + (returnMap === 100000000 ? "Henesys..." : "hunting area..."));
+              this.loadMap(returnMap, returnMap === 100000000 ? "market" : "left");
               return;
             }
-            if (!this.auto.battle) {
-              this.onChat("system", "Auto Combat must be ON to advance to the next area!");
-              return;
-            }
-            if (!this.areaBossDefeated) {
-              this.onChat("system", `Defeat the stage boss first before advancing to the next area! (Kills: ${this.stage.kills}/${this.stageNeed})`);
-              return;
+            if (this.mobs.length > 0) {
+              if (!this.auto.battle) {
+                this.onChat("system", "Auto Combat must be ON to advance to the next area!");
+                return;
+              }
+              if (!this.areaBossDefeated) {
+                this.onChat("system", `Defeat the stage boss first before advancing to the next area! (Kills: ${this.stage.kills}/${this.stageNeed})`);
+                return;
+              }
             }
             this.areaBossDefeated = false;
             this.onChat("notice", "Advancing to next area!");
@@ -854,6 +972,7 @@ export class Game extends ComponentBase {
     if (p.attack > 0) {
       p.attack -= dt;
       if (!p.hitDone && p.attack < (p.skill ? 0.45 : 0.32)) { p.hitDone = true; this.resolveAttack(p.skill); }
+      if (p.attack <= 0) p.aiAttack = false;
     }
 
     // Ladders & ropes.
@@ -922,12 +1041,12 @@ export class Game extends ComponentBase {
         const L = nearLadder((L) => (Math.abs(L.y1 - p.y) < 30) || (p.y >= L.y1 - 5 && p.y <= L.y2));
         if (L) { p.ladder = L; p.fh = null; p.x = L.x; p.y = Math.max(L.y1 + 12, Math.min(p.y + 10, L.y2)); this.animate(dt, L.isLadder ? "ladder" : "rope", false); return; }
       }
-      if (downK && jump && p.attack <= 0) {
+      if (downK && jumpHeld && p.attack <= 0) {
         const below = tree.below(p.x, p.y + 4, p.fh.id);
         if (below && FootholdTree.yAt(below, p.x) - p.y < 600) {
           p.ignoreFh = p.fh.id; p.fh = null; p.vy = -120; p.vx = 0; p.coyote = 0;
         }
-      } else if (jump && p.attack <= 0) {
+      } else if (jumpHeld && p.attack <= 0) {
         p.fh = null;
         p.vy = -JUMP;
         p.vx = dir !== 0 ? dir * this.speed() : 0;
@@ -1102,12 +1221,19 @@ export class Game extends ComponentBase {
   save() {
     return {
       v: 1, stats: this.stats, inv: this.inv, skillLv: this.skillLv, quick: this.quick, auto: this.auto, map: this.map?.id,
+      p: { x: Math.round(this.p.x), y: Math.round(this.p.y), face: this.p.face },
       mats: this.mats, bag: this.bag, eq: this.eq, visualEq: this.visualEq, pets: this.pets.map((p) => ({ id: p.id, slotIndex: p.slotIndex })), stage: this.stage, idle: this.idle, ah: this.ah.save(), savedAt: Date.now(),
     };
   }
   restore(d: any) {
     if (!d || d.v !== 1) return;
     Object.assign(this.stats, d.stats ?? {});
+    if (d.p && typeof d.p.x === "number" && typeof d.p.y === "number") {
+      this.savedPosition = { x: d.p.x, y: d.p.y, face: d.p.face ?? -1 };
+      this.p.x = d.p.x;
+      this.p.y = d.p.y;
+      if (d.p.face) this.p.face = d.p.face;
+    }
     if (d.inv) this.inv = d.inv;
     if (d.skillLv) this.skillLv = d.skillLv;
     if (d.quick) this.quick = d.quick;

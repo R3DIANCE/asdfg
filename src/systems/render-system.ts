@@ -10,9 +10,11 @@ import {
   type Mob,
   type RemotePlayer,
   charUrlFor,
+  DEFAULT_LOOK,
 } from "../game-types.ts";
 import { itemIconRaw } from "../skills.ts";
 import { PetSystem } from "./pet-system.ts";
+import { type GuildEmblem, EMBLEM_COLORS } from "../guild.ts";
 
 const textTexCache = new Map<string, Tex>();
 const textTexPending = new Set<string>();
@@ -152,6 +154,87 @@ export function renderTextTexture(r: Renderer, text: string, type: "name" | "bal
   return null;
 }
 
+export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: GuildEmblem): Tex | null {
+  const emblemKey = emblem ? `${emblem.bgShape}_${emblem.bgColor}_${emblem.symbolShape}_${emblem.symbolColor}` : "0";
+  const key = `guildtag:${guildName}:${emblemKey}`;
+  const hit = textTexCache.get(key);
+  if (hit) return hit;
+  if (textTexPending.has(key)) return null;
+  textTexPending.add(key);
+
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    ctx.font = "bold 10px Tahoma, Arial, sans-serif";
+    const tm = ctx.measureText(guildName);
+    const tw = Math.ceil(tm.width);
+
+    const hasEmblem = Boolean(emblem);
+    const emblemW = hasEmblem ? 14 : 0;
+    const padX = 6;
+    const w = Math.max(28, tw + emblemW + padX * 2);
+    const h = 15;
+    canvas.width = w;
+    canvas.height = h;
+
+    ctx.font = "bold 10px Tahoma, Arial, sans-serif";
+    ctx.textBaseline = "middle";
+
+    // Tag background
+    ctx.fillStyle = "rgba(10, 15, 25, 0.78)";
+    ctx.beginPath();
+    if ((ctx as any).roundRect) (ctx as any).roundRect(0, 0, w, h, 3);
+    else ctx.rect(0, 0, w, h);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    let textStartX = padX;
+
+    // Draw mini emblem
+    if (hasEmblem && emblem) {
+      const bgHex = EMBLEM_COLORS[emblem.bgColor % 16]?.hex ?? "#dc2626";
+      const symHex = EMBLEM_COLORS[emblem.symbolColor % 16]?.hex ?? "#ffffff";
+
+      // Background shield
+      ctx.fillStyle = bgHex;
+      ctx.beginPath();
+      if ((ctx as any).roundRect) (ctx as any).roundRect(padX - 2, 2.5, 10, 10, 2);
+      else ctx.rect(padX - 2, 2.5, 10, 10);
+      ctx.fill();
+
+      // Symbol
+      ctx.fillStyle = symHex;
+      ctx.beginPath();
+      ctx.arc(padX + 3, 7.5, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      textStartX += 12;
+    }
+
+    // Guild text
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#fef08a"; // Warm Maple guild gold
+    ctx.fillText(guildName, textStartX, h / 2 + 0.5);
+
+    createImageBitmap(canvas).then((bmp) => {
+      const tex = r.texture(bmp);
+      textTexCache.set(key, tex);
+      textTexPending.delete(key);
+    }).catch(() => {
+      textTexPending.delete(key);
+    });
+  } catch {
+    textTexPending.delete(key);
+  }
+
+  return null;
+}
+
 export class WorldRenderer {
   public static draw(game: Game) {
     const r = game.r;
@@ -165,7 +248,11 @@ export class WorldRenderer {
     WorldRenderer.drawBacks(game, false, cx, cy);
 
     const mt = game.assets.get(game.map.render);
-    if (mt) r.draw(mt, -game.map.renderOrigin.x - cx, -game.map.renderOrigin.y - cy);
+    if (mt) {
+      r.draw(mt, -game.map.renderOrigin.x - cx, -game.map.renderOrigin.y - cy);
+    } else {
+      game.assets.load(game.map.render);
+    }
 
     // Background Animated Objects (waterfalls, Free Market portal, crystals, nature)
     WorldRenderer.drawAniObjs(game, false, cx, cy);
@@ -197,9 +284,33 @@ export class WorldRenderer {
       }
       if (tex && fr) {
         for (const pt of game.portals) {
-          if (pt.custom) continue;
+          if (pt.custom || pt.secret) continue;
           r.draw(tex, Math.round(pt.x - fr.ox - cx), Math.round(pt.y - fr.oy - cy), fr.w, fr.h);
+          if (pt.label) {
+            WorldRenderer.drawNameTag(r, pt.label, pt.x, pt.y - 80, cx, cy);
+          }
         }
+      }
+    }
+
+    // Secret Teleporters (Intra-map X to Y teleporters)
+    for (const pt of game.portals) {
+      if (!pt.secret || pt.targetX === undefined || pt.targetY === undefined) continue;
+      const dist = Math.hypot(game.p.x - pt.x, game.p.y - pt.y);
+      const isNear = dist < 70;
+
+      // Subtle mystical floating sparkles at secret spot
+      const t = game.time;
+      const sparkAlpha = 0.4 + 0.3 * Math.sin(t * 4 + pt.x);
+      const sparkY = Math.sin(t * 3 + pt.x) * 4;
+      const sparkX = Math.cos(t * 2.5 + pt.y) * 6;
+      r.rect(Math.round(pt.x + sparkX - 2 - cx), Math.round(pt.y - 20 + sparkY - cy), 4, 4, [1, 0.88, 0.35, sparkAlpha]);
+      r.rect(Math.round(pt.x - sparkX * 0.7 - 1 - cx), Math.round(pt.y - 35 - sparkY * 0.6 - cy), 3, 3, [0.4, 0.9, 1, sparkAlpha * 0.8]);
+
+      // When player walks near the secret teleporter, show interactive prompt
+      if (isNear) {
+        const prompt = `[↑] ${pt.label || "Secret Teleport"}`;
+        WorldRenderer.drawNameTag(r, prompt, pt.x, pt.y - 48, cx, cy);
       }
     }
 
@@ -391,6 +502,13 @@ export class WorldRenderer {
     }
   }
 
+  public static drawGuildTag(r: Renderer, guildName: string, emblem: GuildEmblem | undefined, x: number, y: number, cx: number, cy: number) {
+    const tex = renderGuildTagTexture(r, guildName, emblem);
+    if (tex) {
+      r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y + 19 - cy), tex.w, tex.h);
+    }
+  }
+
   public static drawSpeechBalloon(r: Renderer, text: string, x: number, y: number, cx: number, cy: number) {
     const tex = renderTextTexture(r, text, "balloon");
     if (tex) {
@@ -492,6 +610,9 @@ export class WorldRenderer {
       WorldRenderer.drawItemEffect(game, eff, rp.x, drawPosY, rp.face, rp.anim, cx, cy, "front");
     }
     WorldRenderer.drawNameTag(game.r, rp.name, rp.x, drawPosY, cx, cy);
+    if (rp.guildName) {
+      WorldRenderer.drawGuildTag(game.r, rp.guildName, rp.guildEmblem, rp.x, drawPosY, cx, cy);
+    }
     if (rp.balloon && rp.balloon.t > 0 && rp.balloon.text) {
       WorldRenderer.drawSpeechBalloon(game.r, rp.balloon.text, rp.x, drawPosY, cx, cy);
     }
@@ -516,6 +637,9 @@ export class WorldRenderer {
     }
 
     // 2. Character sprite
+    if (!game.look || !game.look.length) {
+      game.look = [...DEFAULT_LOOK];
+    }
     const currentUrl = charUrlFor(game.look, p.anim, p.frame, p.expr, p.exprFrame);
     let t = game.assets.get(currentUrl)
       ?? game.assets.get(charUrlFor(game.look, p.anim, p.frame))
@@ -587,6 +711,9 @@ export class WorldRenderer {
     }
 
     WorldRenderer.drawNameTag(game.r, game.stats.name, p.x, drawPosY, cx, cy);
+    if (game.guildName) {
+      WorldRenderer.drawGuildTag(game.r, game.guildName, game.guildEmblem, p.x, drawPosY, cx, cy);
+    }
 
     if (game.balloon && game.balloon.t > 0 && game.balloon.text) {
       WorldRenderer.drawSpeechBalloon(game.r, game.balloon.text, p.x, drawPosY, cx, cy);

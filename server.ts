@@ -397,7 +397,7 @@ function mapData(s: SpriteStore, id: number) {
     spawns: m.spawns(id),
     portals: m
       .portals(id)
-      .map((p) => ({ x: p.x, y: p.y, to: p.to, side: p.side })),
+      .map((p) => ({ x: p.x, y: p.y, to: p.to, side: p.side, pn: p.pn, tn: p.tn, pt: p.pt })),
     backs,
     aniObjs,
   };
@@ -1759,9 +1759,71 @@ interface PlayerSession {
   anim: string;
   frame: number;
   look: number[];
+  guildId?: string;
+  guildName?: string;
+  guildEmblem?: any;
 }
 
 const wsPlayers = new Map<any, PlayerSession>();
+
+// ── Guild Persistence & Management ──────────────────────────────────────────
+interface ServerGuildMember {
+  name: string;
+  level: number;
+  job: string;
+  rank: 1 | 2 | 3 | 4 | 5;
+  contribution: number;
+  online: boolean;
+  mapId?: number;
+  look?: number[];
+}
+
+interface ServerGuild {
+  id: string;
+  name: string;
+  master: string;
+  notice: string;
+  level: number;
+  gp: number;
+  capacity: number;
+  emblem: { bgShape: number; bgColor: number; symbolShape: number; symbolColor: number };
+  ranks: [string, string, string, string, string];
+  members: ServerGuildMember[];
+  createdAt: number;
+}
+
+const GUILDS_FILE = join(ROOT, ".cache", "guilds.json");
+let guildsCache: Map<string, ServerGuild> | null = null;
+
+function loadGuilds(): Map<string, ServerGuild> {
+  if (guildsCache) return guildsCache;
+  guildsCache = new Map();
+  try {
+    if (existsSync(GUILDS_FILE)) {
+      const list: ServerGuild[] = JSON.parse(readFileSync(GUILDS_FILE, "utf-8"));
+      for (const g of list) guildsCache.set(g.id, g);
+    }
+  } catch {}
+  return guildsCache;
+}
+
+function saveGuilds() {
+  if (!guildsCache) return;
+  try {
+    mkdirSync(join(ROOT, ".cache"), { recursive: true });
+    writeFileSync(GUILDS_FILE, JSON.stringify([...guildsCache.values()], null, 2), "utf-8");
+  } catch {}
+}
+
+function getGuildForPlayer(playerName: string): ServerGuild | null {
+  const all = loadGuilds();
+  for (const g of all.values()) {
+    if (g.members.some((m) => m.name.toLowerCase() === playerName.toLowerCase())) {
+      return g;
+    }
+  }
+  return null;
+}
 
 // ── SpacetimeDB Client Integration ─────────────────────────────────────────────
 let cachedSpacetimeUrl: string | null = null;
@@ -2484,6 +2546,360 @@ const server = Bun.serve<{ id: string }>({
         return Response.json({ ok: false, error: e?.message || "Failed to save character" }, { status: 500 });
       }
     },
+    "/api/guild/list": () => {
+      const all = loadGuilds();
+      const list = [...all.values()].map((g) => {
+        const onlineCount = g.members.filter((m) =>
+          [...wsPlayers.values()].some((p) => p.name.toLowerCase() === m.name.toLowerCase())
+        ).length;
+        return {
+          id: g.id,
+          name: g.name,
+          master: g.master,
+          notice: g.notice,
+          level: g.level,
+          gp: g.gp,
+          capacity: g.capacity,
+          memberCount: g.members.length,
+          onlineCount,
+          emblem: g.emblem,
+          createdAt: g.createdAt,
+        };
+      });
+      return Response.json({ ok: true, guilds: list });
+    },
+    "/api/guild/:id": (req: any) => {
+      const all = loadGuilds();
+      const g = all.get(req.params.id);
+      if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+      const onlineNames = new Set([...wsPlayers.values()].map((p) => p.name.toLowerCase()));
+      const guildWithOnline = {
+        ...g,
+        members: g.members.map((m) => ({
+          ...m,
+          online: onlineNames.has(m.name.toLowerCase()),
+        })),
+      };
+      return Response.json({ ok: true, guild: guildWithOnline });
+    },
+    "/api/guild/create": async (req: any) => {
+      try {
+        const body = await req.json();
+        const masterName = String(body.masterName || "").trim();
+        const guildName = String(body.guildName || "").trim();
+        if (!masterName) return Response.json({ ok: false, error: "Master name required" }, { status: 400 });
+        if (!/^[a-zA-Z0-9 ]{2,12}$/.test(guildName)) {
+          return Response.json({ ok: false, error: "Guild name must be 2-12 alphanumeric characters" }, { status: 400 });
+        }
+        const all = loadGuilds();
+        for (const g of all.values()) {
+          if (g.name.toLowerCase() === guildName.toLowerCase()) {
+            return Response.json({ ok: false, error: "Guild name already exists" }, { status: 409 });
+          }
+          if (g.members.some((m) => m.name.toLowerCase() === masterName.toLowerCase())) {
+            return Response.json({ ok: false, error: "You are already in a guild" }, { status: 400 });
+          }
+        }
+        const emblem = body.emblem || { bgShape: 0, bgColor: 0, symbolShape: 0, symbolColor: 0 };
+        const newGuild: ServerGuild = {
+          id: "g_" + crypto.randomUUID().slice(0, 8),
+          name: guildName,
+          master: masterName,
+          notice: `Welcome to ${guildName}! Honour and glory to our guild.`,
+          level: 1,
+          gp: 500,
+          capacity: 20,
+          emblem,
+          ranks: ["Master", "Jr.Master", "Veteran", "Member", "Recruit"],
+          members: [
+            {
+              name: masterName,
+              level: Number(body.level || 1),
+              job: String(body.job || "Beginner"),
+              rank: 1,
+              contribution: 500,
+              online: true,
+            },
+          ],
+          createdAt: Date.now(),
+        };
+        all.set(newGuild.id, newGuild);
+        saveGuilds();
+
+        // Update player session if online
+        for (const [_, p] of wsPlayers) {
+          if (p.name.toLowerCase() === masterName.toLowerCase()) {
+            p.guildId = newGuild.id;
+            p.guildName = newGuild.name;
+            p.guildEmblem = newGuild.emblem;
+          }
+        }
+
+        const alertMsg = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: "Guild Registry",
+          text: `★ Guild [${newGuild.name}] has been founded by ${masterName}!`,
+          kind: "notice",
+        });
+        for (const [c] of wsPlayers) c.send(alertMsg);
+
+        return Response.json({ ok: true, guild: newGuild });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to create guild" }, { status: 500 });
+      }
+    },
+    "/api/guild/join": async (req: any) => {
+      try {
+        const body = await req.json();
+        const charName = String(body.characterName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        if (g.members.length >= g.capacity) {
+          return Response.json({ ok: false, error: "Guild has reached maximum member capacity" }, { status: 400 });
+        }
+        for (const other of all.values()) {
+          if (other.members.some((m) => m.name.toLowerCase() === charName.toLowerCase())) {
+            return Response.json({ ok: false, error: "Character is already in a guild" }, { status: 400 });
+          }
+        }
+        const newMember: ServerGuildMember = {
+          name: charName,
+          level: Number(body.level || 1),
+          job: String(body.job || "Beginner"),
+          rank: 5,
+          contribution: 0,
+          online: true,
+        };
+        g.members.push(newMember);
+        saveGuilds();
+
+        for (const [_, p] of wsPlayers) {
+          if (p.name.toLowerCase() === charName.toLowerCase()) {
+            p.guildId = g.id;
+            p.guildName = g.name;
+            p.guildEmblem = g.emblem;
+          }
+        }
+
+        const alertMsg = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: g.name,
+          text: `[Guild] ${charName} has joined the guild! Welcome!`,
+          kind: "guild",
+          guildId: g.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (p.guildId === g.id) c.send(alertMsg);
+        }
+
+        return Response.json({ ok: true, guild: g });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to join guild" }, { status: 500 });
+      }
+    },
+    "/api/guild/leave": async (req: any) => {
+      try {
+        const body = await req.json();
+        const charName = String(body.characterName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        const idx = g.members.findIndex((m) => m.name.toLowerCase() === charName.toLowerCase());
+        if (idx < 0) return Response.json({ ok: false, error: "Not a member of this guild" }, { status: 400 });
+
+        const isMaster = g.master.toLowerCase() === charName.toLowerCase();
+        if (isMaster) {
+          if (g.members.length === 1) {
+            all.delete(g.id);
+            saveGuilds();
+            return Response.json({ ok: true, disbanded: true });
+          } else {
+            g.members.splice(idx, 1);
+            g.members.sort((a, b) => a.rank - b.rank);
+            g.members[0].rank = 1;
+            g.master = g.members[0].name;
+          }
+        } else {
+          g.members.splice(idx, 1);
+        }
+        saveGuilds();
+
+        for (const [_, p] of wsPlayers) {
+          if (p.name.toLowerCase() === charName.toLowerCase()) {
+            p.guildId = undefined;
+            p.guildName = undefined;
+            p.guildEmblem = undefined;
+          }
+        }
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to leave guild" }, { status: 500 });
+      }
+    },
+    "/api/guild/expel": async (req: any) => {
+      try {
+        const body = await req.json();
+        const actorName = String(body.actorName || "").trim();
+        const targetName = String(body.targetName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        const actor = g.members.find((m) => m.name.toLowerCase() === actorName.toLowerCase());
+        if (!actor || actor.rank > 2) {
+          return Response.json({ ok: false, error: "Only Master or Jr.Master can expel members" }, { status: 403 });
+        }
+        const target = g.members.find((m) => m.name.toLowerCase() === targetName.toLowerCase());
+        if (!target) return Response.json({ ok: false, error: "Member not in guild" }, { status: 404 });
+        if (target.rank <= actor.rank) {
+          return Response.json({ ok: false, error: "Cannot expel member with equal or higher rank" }, { status: 403 });
+        }
+        g.members = g.members.filter((m) => m.name.toLowerCase() !== targetName.toLowerCase());
+        saveGuilds();
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to expel member" }, { status: 500 });
+      }
+    },
+    "/api/guild/rank": async (req: any) => {
+      try {
+        const body = await req.json();
+        const actorName = String(body.actorName || "").trim();
+        const targetName = String(body.targetName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const rank = Number(body.rank || 4) as 1 | 2 | 3 | 4 | 5;
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        const actor = g.members.find((m) => m.name.toLowerCase() === actorName.toLowerCase());
+        if (!actor || actor.rank > 2) {
+          return Response.json({ ok: false, error: "Permission denied" }, { status: 403 });
+        }
+        const target = g.members.find((m) => m.name.toLowerCase() === targetName.toLowerCase());
+        if (!target) return Response.json({ ok: false, error: "Member not found" }, { status: 404 });
+        if (rank === 1 && actor.rank !== 1) {
+          return Response.json({ ok: false, error: "Only current Master can transfer leadership" }, { status: 403 });
+        }
+        if (rank === 1) {
+          actor.rank = 2;
+          target.rank = 1;
+          g.master = target.name;
+        } else {
+          target.rank = rank;
+        }
+        saveGuilds();
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to change rank" }, { status: 500 });
+      }
+    },
+    "/api/guild/notice": async (req: any) => {
+      try {
+        const body = await req.json();
+        const actorName = String(body.actorName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const notice = String(body.notice || "").trim().slice(0, 120);
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        const actor = g.members.find((m) => m.name.toLowerCase() === actorName.toLowerCase());
+        if (!actor || actor.rank > 2) {
+          return Response.json({ ok: false, error: "Only Master or Jr.Master can edit guild notice" }, { status: 403 });
+        }
+        g.notice = notice;
+        saveGuilds();
+
+        const alertMsg = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: g.name,
+          text: `[Guild Notice] ${notice}`,
+          kind: "guild",
+          guildId: g.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (p.guildId === g.id) c.send(alertMsg);
+        }
+
+        return Response.json({ ok: true, notice });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to update notice" }, { status: 500 });
+      }
+    },
+    "/api/guild/emblem": async (req: any) => {
+      try {
+        const body = await req.json();
+        const actorName = String(body.actorName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const emblem = body.emblem;
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        const actor = g.members.find((m) => m.name.toLowerCase() === actorName.toLowerCase());
+        if (!actor || actor.rank !== 1) {
+          return Response.json({ ok: false, error: "Only Guild Master can alter the guild emblem" }, { status: 403 });
+        }
+        g.emblem = emblem;
+        saveGuilds();
+
+        for (const [_, p] of wsPlayers) {
+          if (p.guildId === g.id) p.guildEmblem = emblem;
+        }
+
+        return Response.json({ ok: true, emblem });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to update emblem" }, { status: 500 });
+      }
+    },
+    "/api/guild/expand": async (req: any) => {
+      try {
+        const body = await req.json();
+        const actorName = String(body.actorName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        const actor = g.members.find((m) => m.name.toLowerCase() === actorName.toLowerCase());
+        if (!actor || actor.rank !== 1) {
+          return Response.json({ ok: false, error: "Only Guild Master can expand guild capacity" }, { status: 403 });
+        }
+        if (g.capacity >= 100) {
+          return Response.json({ ok: false, error: "Guild is already at maximum capacity (100 members)" }, { status: 400 });
+        }
+        g.capacity += 10;
+        saveGuilds();
+        return Response.json({ ok: true, newCapacity: g.capacity });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to expand capacity" }, { status: 500 });
+      }
+    },
+    "/api/guild/ranks": async (req: any) => {
+      try {
+        const body = await req.json();
+        const actorName = String(body.actorName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const ranks = body.ranks;
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        const actor = g.members.find((m) => m.name.toLowerCase() === actorName.toLowerCase());
+        if (!actor || actor.rank !== 1) {
+          return Response.json({ ok: false, error: "Only Guild Master can rename rank titles" }, { status: 403 });
+        }
+        if (Array.isArray(ranks) && ranks.length === 5) {
+          g.ranks = ranks.map((r) => String(r || "").slice(0, 10)) as [string, string, string, string, string];
+          saveGuilds();
+        }
+        return Response.json({ ok: true, ranks: g.ranks });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to rename ranks" }, { status: 500 });
+      }
+    },
   },
   // Unmatched requests: upgrade websocket or serve static files
   async fetch(req, srv) {
@@ -2530,8 +2946,14 @@ const server = Bun.serve<{ id: string }>({
             frame: Number(msg.frame || 0),
             look: Array.isArray(msg.look) ? msg.look : [2000, 12000, 20000, 30030],
           };
+          const g = getGuildForPlayer(session.name);
+          if (g) {
+            session.guildId = g.id;
+            session.guildName = g.name;
+            session.guildEmblem = g.emblem;
+          }
           wsPlayers.set(ws, session);
-          ws.send(JSON.stringify({ t: "welcome", id: session.id }));
+          ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g }));
           const others = [...wsPlayers.entries()]
             .filter(([c, p]) => c !== ws && p.mapId === session.mapId)
             .map(([_, p]) => p);
@@ -2609,7 +3031,13 @@ const server = Bun.serve<{ id: string }>({
             if (msg.frame !== undefined) session.frame = Number(msg.frame);
             if (Array.isArray(msg.look)) session.look = msg.look;
           }
-          ws.send(JSON.stringify({ t: "welcome", id: session.id }));
+          const g = getGuildForPlayer(session.name);
+          if (g) {
+            session.guildId = g.id;
+            session.guildName = g.name;
+            session.guildEmblem = g.emblem;
+          }
+          ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g }));
           const others = [...wsPlayers.entries()]
             .filter(([c, p]) => c !== ws && p.mapId === session.mapId)
             .map(([_, p]) => p);
@@ -2651,7 +3079,23 @@ const server = Bun.serve<{ id: string }>({
           const clean = String(msg.name || "").trim().slice(0, 16);
           if (clean) {
             session.name = clean;
-            const renameMsg = JSON.stringify({ t: "player_name", id: session.id, name: clean });
+            const g = getGuildForPlayer(clean);
+            if (g) {
+              session.guildId = g.id;
+              session.guildName = g.name;
+              session.guildEmblem = g.emblem;
+            } else {
+              session.guildId = undefined;
+              session.guildName = undefined;
+              session.guildEmblem = undefined;
+            }
+            const renameMsg = JSON.stringify({
+              t: "player_name",
+              id: session.id,
+              name: clean,
+              guildName: session.guildName,
+              guildEmblem: session.guildEmblem,
+            });
             for (const [c, p] of wsPlayers) {
               if (p.mapId === session.mapId) c.send(renameMsg);
             }
@@ -2659,7 +3103,7 @@ const server = Bun.serve<{ id: string }>({
         } else if (msg.t === "chat") {
           const session = wsPlayers.get(ws);
           if (!session) return;
-          const text = String(msg.text || "").slice(0, 150);
+          const text = String(msg.text || "").slice(0, 200);
           if (!text) return;
           const kind = msg.kind || "say";
           const chatMsg = JSON.stringify({
@@ -2668,10 +3112,26 @@ const server = Bun.serve<{ id: string }>({
             name: session.name,
             text,
             kind,
+            itemLink: msg.itemLink || undefined,
+            guildName: session.guildName,
           });
           if (kind === "notice" || msg.broadcast) {
             for (const [c] of wsPlayers) {
               c.send(chatMsg);
+            }
+          } else if (kind === "guild") {
+            const gid = session.guildId || msg.guildId;
+            for (const [c, p] of wsPlayers) {
+              if (gid && p.guildId === gid) {
+                c.send(chatMsg);
+              }
+            }
+          } else if (kind === "whisper") {
+            const target = String(msg.target || "").trim().toLowerCase();
+            for (const [c, p] of wsPlayers) {
+              if (c === ws || (target && p.name.toLowerCase() === target)) {
+                c.send(chatMsg);
+              }
             }
           } else {
             for (const [c, p] of wsPlayers) {

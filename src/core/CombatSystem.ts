@@ -107,7 +107,7 @@ export class CombatSystem {
     return CombatSystem.startAttack(game, a.id);
   }
 
-  static startAttack(game: Game, id: string | null): boolean {
+  static startAttack(game: Game, id: string | null, fromAi = false): boolean {
     const p = game.p, s = game.stats;
     if (p.attack > 0 || p.ladder || game.loadingMap) return false;
     if (id) {
@@ -125,7 +125,7 @@ export class CombatSystem {
     }
     if (id) CombatSystem.triggerCooldown(game, id);
     p.skill = id;
-    p.attack = d ? 0.75 : 0.6; p.hitDone = false; p.alert = 3;
+    p.attack = d ? 0.75 : 0.6; p.aiAttack = fromAi; p.hitDone = false; p.alert = 3;
     p.attackAnim = d && d.kind !== "ranged" ? "swingO2" : "swingO1";
     p.frame = 0; p.ft = 0;
     const art = id ? game.skillArt[id] : null;

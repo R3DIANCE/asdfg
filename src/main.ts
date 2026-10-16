@@ -33,6 +33,31 @@ function attachDebugPanel() {
   setupDebugPanel();
 }
 
+declare global {
+  interface Window {
+    advanceTime: (ms: number) => void;
+    render_game_to_text: () => string;
+    __game?: Game;
+    __rafId?: number;
+    __bgm?: HTMLAudioElement;
+    __activeRenderer?: Renderer;
+    __activeRendererInitialized?: boolean;
+    __persist?: () => Promise<void>;
+  }
+}
+
+// Clean up any running instance from previous HMR evaluation
+if (window.__rafId) {
+  cancelAnimationFrame(window.__rafId);
+  window.__rafId = 0;
+}
+if (window.__game?.ws) {
+  try { window.__game.ws.close(); } catch {}
+}
+if (window.__bgm) {
+  try { window.__bgm.pause(); window.__bgm.src = ""; } catch {}
+}
+
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const title = document.getElementById("title")!;
 const loading = document.getElementById("loading")!;
@@ -40,8 +65,10 @@ const errorBox = document.getElementById("gpu-error")!;
 const bgm = new Audio();
 bgm.loop = true;
 bgm.volume = 0.35;
+window.__bgm = bgm;
 
-const r = new Renderer(canvas);
+const r = window.__activeRenderer ?? new Renderer(canvas);
+window.__activeRenderer = r;
 let gameEntity: Object3D | null = null;
 let game!: Game;
 let hudEntity: Object3D | null = null;
@@ -77,11 +104,31 @@ function keyName(e: KeyboardEvent): string {
   return map[c] ?? e.key;
 }
 
+function isTextInputEl(el: HTMLElement | null): boolean {
+  if (!el) return false;
+  if (el.tagName === "TEXTAREA") return true;
+  if (el.tagName === "INPUT") {
+    const t = ((el as HTMLInputElement).type || "text").toLowerCase();
+    return !["checkbox", "range", "radio", "button", "submit", "reset", "color", "file"].includes(t);
+  }
+  return false;
+}
+
 window.addEventListener("pointerdown", (e: PointerEvent) => {
   const target = e.target as HTMLElement | null;
   const active = document.activeElement as HTMLElement | null;
-  if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
-  if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+  if (isTextInputEl(target)) return;
+  if (active && active !== canvas) {
+    active.blur();
+  }
+  canvas.focus();
+});
+
+window.addEventListener("pointerup", (e: PointerEvent) => {
+  const target = e.target as HTMLElement | null;
+  if (isTextInputEl(target)) return;
+  const active = document.activeElement as HTMLElement | null;
+  if (active && active !== canvas && !isTextInputEl(active)) {
     active.blur();
   }
   canvas.focus();
@@ -90,13 +137,21 @@ window.addEventListener("pointerdown", (e: PointerEvent) => {
 addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") e.preventDefault();
   if (!running || !game) return;
-  const target = e.target as HTMLElement;
-  const isMoveKey = e.key.startsWith("Arrow") || e.code.startsWith("Arrow") || ["a", "d", "w", "s", "Alt", " ", "Space"].includes(e.key);
-  if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") {
+  const target = e.target as HTMLElement | null;
+  const isMoveKey = e.key.startsWith("Arrow") || e.code.startsWith("Arrow") || ["a", "A", "d", "D", "w", "W", "s", "S", "Alt", " ", "Space"].includes(e.key);
+
+  if (target && !isTextInputEl(target) && target !== canvas && target.tagName !== "BODY") {
+    target.blur();
+    canvas.focus();
+  } else if (target && isTextInputEl(target)) {
+    const val = (target as HTMLInputElement).value ?? "";
     if (target.closest(".hidden") || target.offsetParent === null) {
       target.blur();
       canvas.focus();
-    } else if (isMoveKey && target === hud?.chatInput && hud?.chatInput.value === "") {
+    } else if (isMoveKey && target === hud?.chatInput && val === "") {
+      target.blur();
+      canvas.focus();
+    } else if ((e.key.startsWith("Arrow") || e.code.startsWith("Arrow") || e.key === "Alt") && val === "") {
       target.blur();
       canvas.focus();
     } else {
@@ -121,7 +176,8 @@ addEventListener("keydown", (e: KeyboardEvent) => {
     else if (k === "e") w.ext.open("equip");
     else if (k === "j") w.ext.open("craft");
     else if (k === "h") w.ext.open("ah");
-    else if (k === "g") w.toggle(w.guideWin);
+    else if (k === "g") w.toggle(w.guildWin);
+    else if (k === "F3" || k === "f3") w.toggle(w.guideWin);
     else if (k === "l" || k === "`" || k === "~") {
       if (game.isGm()) w.ext.items.open();
     }
@@ -164,7 +220,10 @@ function setLoading(status: string | null, pct = 0, sub?: string) {
 async function boot() {
   setLoading("Starting Maple World…", 10, "Preparing world display");
   try {
-    await r.init();
+    if (!window.__activeRendererInitialized) {
+      await r.init();
+      window.__activeRendererInitialized = true;
+    }
     const isWebGPU = r.backend === "webgpu";
     setLoading(
       "Loading Maple World…",
@@ -207,7 +266,12 @@ async function boot() {
 async function start(char?: SpacetimeCharacter) {
   if (running) return;
   running = true;
+  if (document.activeElement instanceof HTMLElement && document.activeElement !== canvas) {
+    document.activeElement.blur();
+  }
+  title.innerHTML = "";
   title.classList.add("hidden");
+  canvas.focus();
 
   setLoading("Loading Game Interface…", 40, "Setting up interface & inventory layouts");
   const [ui, win, items] = await Promise.all([json("/wz/data/ui"), json("/wz/data/windows"), json("/wz/data/items")]);
@@ -220,9 +284,14 @@ async function start(char?: SpacetimeCharacter) {
     const src = m.bgmUrl;
     if (bgm.src !== src) { bgm.src = src; bgm.play().catch(() => {}); }
   };
-  game.onChat = (k, t) => {
-    const transient = new Set(["exp", "meso", "level", "item", "notice", "system"]);
-    if (transient.has(k)) hud?.wins.pushLog(k, t); else hud?.addChat(k, t);
+  game.onChat = (k, t, itemLink) => {
+    const transient = new Set(["exp", "meso", "level", "item"]);
+    if (transient.has(k)) {
+      hud?.wins.pushLog(k, t);
+    } else {
+      hud?.addChat(k, t, itemLink);
+      if (k === "notice" || k === "system") hud?.wins.pushLog(k, t);
+    }
   };
   game.onGain = (k, t) => { hud?.showGain(k, t); hud?.wins.pushLog(k as ChatKind, t); };
   game.onLog = (k, t) => hud?.wins.pushLog(k, t);
@@ -235,6 +304,7 @@ async function start(char?: SpacetimeCharacter) {
   } catch {}
 
   let targetMap = FREE_MARKET_MAP;
+  let targetSpawnPos: { x: number; y: number } | undefined = undefined;
 
   if (char) {
     const fullSave = char.stats?.fullSave || (localSaved?.stats?.name === char.name ? localSaved : null);
@@ -263,9 +333,20 @@ async function start(char?: SpacetimeCharacter) {
       localStorage.setItem("ms_current_character", char.name);
     } catch {}
 
-    // Resolve last map from SpacetimeDB or fullSave
+    // Resolve last map and coordinates from SpacetimeDB or fullSave
     const savedMap = char.mapId || fullSave?.map || localSaved?.map;
     targetMap = savedMap ? Number(savedMap) : FREE_MARKET_MAP;
+
+    const savedX = (typeof char.x === "number" && (char.x !== 0 || char.y !== 0))
+      ? char.x
+      : (typeof fullSave?.p?.x === "number" ? fullSave.p.x : (typeof localSaved?.p?.x === "number" ? localSaved.p.x : null));
+    const savedY = (typeof char.y === "number" && (char.x !== 0 || char.y !== 0))
+      ? char.y
+      : (typeof fullSave?.p?.y === "number" ? fullSave.p.y : (typeof localSaved?.p?.y === "number" ? localSaved.p.y : null));
+
+    if (savedX !== null && savedY !== null && !isNaN(Number(savedX)) && !isNaN(Number(savedY))) {
+      targetSpawnPos = { x: Number(savedX), y: Number(savedY) };
+    }
   } else {
     game.stats.name = charName;
     if (localSaved?.stats?.name === charName || localSaved) {
@@ -274,6 +355,19 @@ async function start(char?: SpacetimeCharacter) {
       game.applyClassDefaults("beginner");
     }
     targetMap = localSaved?.map ? Number(localSaved.map) : FREE_MARKET_MAP;
+    if (localSaved?.p && typeof localSaved.p.x === "number" && typeof localSaved.p.y === "number") {
+      targetSpawnPos = { x: Number(localSaved.p.x), y: Number(localSaved.p.y) };
+    }
+  }
+
+  // Also check ms_last_saved_pos fallback
+  if (!targetSpawnPos) {
+    try {
+      const lastPos = JSON.parse(localStorage.getItem("ms_last_saved_pos") || "null");
+      if (lastPos && lastPos.mapId === targetMap && typeof lastPos.x === "number" && typeof lastPos.y === "number") {
+        targetSpawnPos = { x: Number(lastPos.x), y: Number(lastPos.y) };
+      }
+    } catch {}
   }
 
   // Ensure default fallback if not in saved state
@@ -282,7 +376,7 @@ async function start(char?: SpacetimeCharacter) {
 
   setLoading("Loading Map & Footholds…", 72, "Loading map background, tiles & platforms");
   try {
-    await game.init(targetMap);
+    await game.init(targetMap, targetSpawnPos);
   } catch (err) {
     console.warn("Failed to initialize target map, falling back to Free Market:", err);
     try {
@@ -317,6 +411,7 @@ async function start(char?: SpacetimeCharacter) {
   }
   if (!hud.wins) hud.setup(ui, game, win);
   hud.setMap(game.map);
+  game.loadGuild().catch(() => null);
 
   // Mount the real-time performance panel (FPS, Ping, JS Heap) right next to HP/MP bar on the right side.
   if (hud.perfContainer) {
@@ -337,13 +432,18 @@ async function start(char?: SpacetimeCharacter) {
   }
 
   game.ah.refresh(Date.now());
-  const persist = () => {
+  const persist = async () => {
     try {
       const full = game.save();
       const charSaveKey = game.stats.name ? `maple-wayfarer-save-${game.stats.name}` : SAVE_KEY;
       localStorage.setItem(charSaveKey, JSON.stringify(full));
       localStorage.setItem(SAVE_KEY, JSON.stringify(full));
-      spacetime.saveCharacter({
+      localStorage.setItem("ms_last_saved_pos", JSON.stringify({
+        mapId: game.map?.id || FREE_MARKET_MAP,
+        x: Math.round(game.p.x),
+        y: Math.round(game.p.y),
+      }));
+      await spacetime.saveCharacter({
         name: game.stats.name,
         level: game.stats.level,
         exp: game.stats.exp,
@@ -363,11 +463,16 @@ async function start(char?: SpacetimeCharacter) {
       }).catch(() => {});
     } catch {}
   };
+  window.__persist = persist;
+  (game as any).persist = persist;
   let saveT = 0;
   game.onChange = () => { clearTimeout(saveT); saveT = setTimeout(persist, 800) as unknown as number; };
   setInterval(persist, 10000);
   addEventListener("character-renamed", () => persist());
-  addEventListener("beforeunload", persist);
+  addEventListener("beforeunload", () => persist());
+  addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persist();
+  });
   bgm.src = game.map.bgmUrl;
   bgm.play().catch(() => {});
 
@@ -391,15 +496,19 @@ async function start(char?: SpacetimeCharacter) {
 let last = performance.now();
 let manual = false;
 function frame(now: number) {
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
-  if (running && !manual && game) game.update(dt);
-  if (running && game) { game.draw(); hud?.update(dt); }
-  requestAnimationFrame(frame);
+  try {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (running && !manual && game) game.update(dt);
+    if (running && game) { game.draw(); hud?.update(dt); }
+  } catch (err) {
+    console.error("Frame render error:", err);
+  } finally {
+    window.__rafId = requestAnimationFrame(frame);
+  }
 }
-requestAnimationFrame(frame);
+window.__rafId = requestAnimationFrame(frame);
 
-declare global { interface Window { advanceTime: (ms: number) => void; render_game_to_text: () => string; __game: Game } }
 window.__game = game;
 window.advanceTime = (ms: number) => {
   if (!game) return;
@@ -422,5 +531,7 @@ window.render_game_to_text = () => {
 
 boot();
 if ((import.meta as any).hot) {
-  (import.meta as any).hot.accept();
+  (import.meta as any).hot.accept(() => {
+    window.location.reload();
+  });
 }

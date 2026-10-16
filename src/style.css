@@ -739,14 +739,43 @@ button, a, select, [role="button"],
 .chat-badge.badge-exp { background: rgba(234, 179, 8, 0.25); color: #fde047; border: 1px solid rgba(234, 179, 8, 0.4); }
 .chat-badge.badge-reward { background: rgba(132, 204, 22, 0.25); color: #bef264; border: 1px solid rgba(132, 204, 22, 0.4); }
 .chat-badge.badge-whisper { background: rgba(168, 85, 247, 0.25); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); }
+.chat-badge.badge-guild { background: rgba(34, 197, 94, 0.25); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4); text-shadow: 0 0 6px rgba(34, 197, 94, 0.4); }
+.chat-badge.badge-party { background: rgba(59, 130, 246, 0.25); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.4); text-shadow: 0 0 6px rgba(59, 130, 246, 0.4); }
 
 .chat-name { color: #f8fafc !important; font-weight: 700; }
 .chat-text { color: #ffffff !important; }
 .chat-line.say { color: #ffffff !important; }
 .chat-line.notice { color: #bae6fd !important; }
+.chat-line.guild { color: #86efac !important; }
+.chat-line.party { color: #93c5fd !important; }
+.chat-line.whisper { color: #d8b4fe !important; }
 .chat-line.exp { color: #fef08a !important; }
 .chat-line.meso { color: #bbf7d0 !important; }
 .chat-line.level { color: #bef264 !important; font-weight: 700; }
+
+.chat-item-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5px 5px;
+  margin: 0 2px;
+  background: rgba(250, 204, 21, 0.15);
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  border-radius: 4px;
+  color: #facc15 !important;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: all 0.15s ease;
+  user-select: none;
+  vertical-align: middle;
+}
+.chat-item-link:hover {
+  background: rgba(250, 204, 21, 0.35);
+  border-color: #fde047;
+  color: #ffffff !important;
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.5);
+}
 
 .chat-input-row {
   display: flex; align-items: center; gap: 4px; padding: 4px 6px;
@@ -4572,3 +4601,245 @@ button, a, select, [role="button"],
 .gm-act-btn:active {
   transform: translateY(0.5px);
 }
+
+/* ============================================================================
+   MapleStory Authentic Guild Window
+============================================================================ */
+.guild-body {
+  position: absolute;
+  left: 0; right: 0; top: 30px; bottom: 0;
+  display: flex; flex-direction: column;
+  background: rgba(15, 23, 42, 0.94);
+  border-radius: 0 0 7px 7px;
+  overflow: hidden;
+  color: #f1f5f9;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.guild-header-card {
+  padding: 10px 14px;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.guild-emblem-frame {
+  width: 44px; height: 44px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.guild-info-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.guild-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guild-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #f8fafc;
+  letter-spacing: 0.3px;
+}
+
+.guild-level-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(2, 132, 199, 0.3);
+  border: 1px solid #38bdf8;
+  color: #38bdf8;
+  text-transform: uppercase;
+}
+
+.guild-sub-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  display: flex;
+  gap: 12px;
+}
+
+.guild-notice-banner {
+  margin: 8px 12px 4px;
+  padding: 6px 10px;
+  background: rgba(22, 101, 52, 0.2);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.guild-notice-text {
+  color: #86efac;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guild-tab-strip {
+  display: flex;
+  gap: 2px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.guild-tab-btn {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.guild-tab-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.guild-tab-btn.active {
+  color: #38bdf8;
+  background: rgba(30, 41, 59, 0.9);
+  border-color: rgba(56, 189, 248, 0.4);
+  font-weight: 700;
+  box-shadow: inset 0 -2px 0 #38bdf8;
+}
+
+.guild-content-pane {
+  flex: 1;
+  padding: 10px 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.guild-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.guild-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.guild-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: middle;
+}
+
+.guild-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.guild-rank-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.guild-rank-1 { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); }
+.guild-rank-2 { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+.guild-rank-3 { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+.guild-rank-4 { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+.guild-rank-5 { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.4); }
+
+.guild-online-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+}
+.guild-online-dot.online { background: #22c55e; box-shadow: 0 0 5px #22c55e; }
+.guild-online-dot.offline { background: #64748b; }
+
+.guild-btn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.guild-act-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  border: 1px solid transparent;
+}
+
+.guild-act-btn.primary {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+}
+.guild-act-btn.primary:hover { background: #0369a1; }
+
+.guild-act-btn.danger {
+  background: rgba(220, 38, 38, 0.25);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.guild-act-btn.danger:hover { background: rgba(220, 38, 38, 0.4); color: #fff; }
+
+.guild-act-btn.secondary {
+  background: rgba(30, 41, 59, 0.8);
+  color: #cbd5e1;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.guild-act-btn.secondary:hover { background: rgba(51, 65, 85, 0.9); color: #fff; }
+
+.guild-color-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.guild-color-swatch {
+  width: 22px; height: 22px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+.guild-color-swatch:hover { transform: scale(1.1); border-color: #ffffff; }
+.guild-color-swatch.selected { outline: 2px solid #38bdf8; outline-offset: 1px; }
+

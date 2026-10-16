@@ -2,8 +2,11 @@
 // Translucent WebGPU glass aesthetic, persistent message & command history, channel filters, auto-scroll on new messages
 import { ComponentBase } from "@orillusion/core";
 import type { ChatKind, Game } from "../game.ts";
-import { el } from "../util.ts";
+import { el, esc } from "../util.ts";
 import { lucideIcon } from "../lucide.ts";
+import { GEAR, MATS } from "../items.ts";
+import { ITEMS } from "../skills.ts";
+import { renderGearTooltip, renderUseTooltip, renderMatTooltip } from "../tooltip.ts";
 
 export type ChatFilter = "all" | "say" | "party" | "guild" | "whisper" | "notice";
 
@@ -16,6 +19,41 @@ export interface ChatEntry {
   time: string;
   badge: string;
   badgeClass: string;
+  itemLink?: any;
+}
+
+let chatTooltipEl: HTMLElement | null = null;
+function getChatTooltip(): HTMLElement {
+  if (!chatTooltipEl) {
+    chatTooltipEl = document.createElement("div");
+    chatTooltipEl.className = "tooltip hidden";
+    chatTooltipEl.style.position = "fixed";
+    chatTooltipEl.style.zIndex = "100000";
+    chatTooltipEl.style.pointerEvents = "none";
+    document.body.appendChild(chatTooltipEl);
+  }
+  return chatTooltipEl;
+}
+
+function showChatTooltip(html: string, x: number, y: number) {
+  const tip = getChatTooltip();
+  tip.innerHTML = html;
+  tip.classList.remove("hidden");
+  if (html.includes("ms-tooltip-card")) {
+    tip.classList.add("card-mode");
+  } else {
+    tip.classList.remove("card-mode");
+  }
+  tip.style.zIndex = "100000";
+  const r = tip.getBoundingClientRect();
+  const posX = x + 14 + r.width > innerWidth - 8 ? Math.max(8, x - r.width - 12) : x + 14;
+  const posY = Math.max(8, Math.min(innerHeight - r.height - 8, y + 14));
+  tip.style.left = `${posX}px`;
+  tip.style.top = `${posY}px`;
+}
+
+function hideChatTooltip() {
+  if (chatTooltipEl) chatTooltipEl.classList.add("hidden");
 }
 
 export class ChatComponent extends ComponentBase {
@@ -34,6 +72,11 @@ export class ChatComponent extends ComponentBase {
   cmdHistory: string[] = [];
   cmdHistoryIdx = -1;
   draftInput = "";
+
+  // Registered item links waiting to be sent
+  pendingItemLinks: Map<string, any> = new Map();
+  // Sent or received item links cache by id
+  itemLinkStore: Map<string, any> = new Map();
 
   private parentEl!: HTMLElement;
   private game!: Game;
@@ -69,7 +112,22 @@ export class ChatComponent extends ComponentBase {
   public override destroy(force?: boolean): void {
     super.destroy(force);
     clearTimeout(this.idleTimer);
+    hideChatTooltip();
     this.root?.remove();
+  }
+
+  public insertItemLink(link: { name: string; kind: "gear" | "use" | "mat"; gear?: any; itemId?: number; count?: number }) {
+    if (!link || !link.name) return;
+    const tag = `[${link.name}]`;
+    this.pendingItemLinks.set(link.name.toLowerCase(), link);
+    if (this.input.value.length > 0 && !this.input.value.endsWith(" ")) {
+      this.input.value += " ";
+    }
+    this.input.value += tag + " ";
+    this.expand();
+    this.input.focus();
+    const len = this.input.value.length;
+    this.input.setSelectionRange(len, len);
   }
 
   private initComponent() {
@@ -78,10 +136,31 @@ export class ChatComponent extends ComponentBase {
     this.root.addEventListener("pointerleave", () => this.collapse(2500));
     this.root.addEventListener("click", () => this.expand());
 
-    // Clean Chat Header with Title & Minimize button
+    // Clean Chat Header with Tabs & Controls
     this.header = el("div", "chat-header", this.root);
-    const titleEl = el("div", "chat-title select-none", this.header);
-    titleEl.innerHTML = `<span class="chat-title-icon">${lucideIcon("message", 12)}</span> <span>Chat</span>`;
+    
+    // Dedicated Chat Tabs
+    this.tabs = el("div", "chat-tabs", this.header);
+    const tabList: { id: ChatFilter; label: string }[] = [
+      { id: "all", label: "All" },
+      { id: "say", label: "Chat" },
+      { id: "whisper", label: "Friends" },
+      { id: "guild", label: "Guild" },
+      { id: "party", label: "Party" },
+      { id: "notice", label: "Notice" },
+    ];
+    for (const t of tabList) {
+      const tabBtn = el("button", `chat-tab ${t.id === this.filter ? "active" : ""}`, this.tabs) as HTMLButtonElement;
+      tabBtn.type = "button";
+      tabBtn.textContent = t.label;
+      tabBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.tabs.querySelectorAll(".chat-tab").forEach((b) => b.classList.remove("active"));
+        tabBtn.classList.add("active");
+        this.setFilter(t.id);
+        this.updatePlaceholder();
+      });
+    }
 
     const ctrls = el("div", "chat-ctrls", this.header);
     this.minBtn = el("button", "chat-ctrl-btn chat-min-btn", ctrls) as HTMLButtonElement;
@@ -99,7 +178,7 @@ export class ChatComponent extends ComponentBase {
     const inpRow = el("div", "chat-input-row", this.root);
 
     this.input = el("input", "chat-field", inpRow) as HTMLInputElement;
-    this.input.placeholder = "Press Enter to chat · ↑/↓ for history";
+    this.updatePlaceholder();
     this.input.maxLength = 100;
     this.input.addEventListener("focus", () => {
       this.isFocused = true;
@@ -109,7 +188,7 @@ export class ChatComponent extends ComponentBase {
       this.isFocused = false;
       this.collapse(2500);
     });
-    this.input.addEventListener("keydown", (e) => {
+    this.input.addEventListener("keydown", async (e) => {
       e.stopPropagation();
       if (e.key === "ArrowUp") {
         e.preventDefault();
@@ -145,6 +224,39 @@ export class ChatComponent extends ComponentBase {
           }
           this.cmdHistoryIdx = -1;
           this.draftInput = "";
+
+          // Check if message references a pending item link [ItemName]
+          let matchedItemLink: any = undefined;
+          const linkMatch = t.match(/\[(.*?)\]/);
+          if (linkMatch) {
+            const rawName = linkMatch[1].trim().toLowerCase();
+            matchedItemLink = this.pendingItemLinks.get(rawName);
+            if (!matchedItemLink) {
+              // Try finding gear or use item by name
+              for (const [_, b] of GEAR) {
+                if (b.name.toLowerCase() === rawName) {
+                  matchedItemLink = { name: b.name, kind: "gear", gear: { id: b.id, uid: "g_" + b.id, star: 0, rarity: 0 } };
+                  break;
+                }
+              }
+              if (!matchedItemLink) {
+                for (const [id, it] of Object.entries(ITEMS)) {
+                  if (it.name.toLowerCase() === rawName) {
+                    matchedItemLink = { name: it.name, kind: "use", itemId: Number(id), count: 1 };
+                    break;
+                  }
+                }
+              }
+              if (!matchedItemLink) {
+                for (const [id, name] of MATS) {
+                  if (name.toLowerCase() === rawName) {
+                    matchedItemLink = { name, kind: "mat", itemId: id, count: 1 };
+                    break;
+                  }
+                }
+              }
+            }
+          }
 
           const cmd = t.toLowerCase();
           // Secret commands to open GM Debug Tool and set GM status
@@ -188,6 +300,9 @@ export class ChatComponent extends ComponentBase {
             const gmTab = document.querySelector(".gm-collapse-tab") as HTMLElement;
             gmTab?.click();
           } else if (cmd === "/logout" || cmd === "/switchchar" || cmd === "/relog" || cmd === "/changechar") {
+            if (window.__persist) {
+              try { await window.__persist(); } catch {}
+            }
             sessionStorage.setItem("ms_skip_autologin", "1");
             location.reload();
           } else if (t === "/sync" || t === "/resync" || t === "/reconnect") {
@@ -200,11 +315,37 @@ export class ChatComponent extends ComponentBase {
             } else {
               this.game.onChat("system", "Usage: /name <newName>");
             }
+          } else if (t.startsWith("/g ") || t.startsWith("/guild ")) {
+            const msg = t.replace(/^\/(g|guild)\s+/, "").trim();
+            if (msg) {
+              this.game.sendChat(msg, "guild", matchedItemLink);
+            }
+          } else if (t.startsWith("/p ") || t.startsWith("/party ")) {
+            const msg = t.replace(/^\/(p|party)\s+/, "").trim();
+            if (msg) {
+              this.game.sendChat(msg, "party", matchedItemLink);
+            }
+          } else if (t.startsWith("/w ") || t.startsWith("/whisper ") || t.startsWith("/f ") || t.startsWith("/friend ")) {
+            const parts = t.replace(/^\/(w|whisper|f|friend)\s+/, "").trim().split(/\s+/);
+            const target = parts[0];
+            const msg = parts.slice(1).join(" ");
+            if (target && msg) {
+              this.game.sendChat(`@${target}: ${msg}`, "whisper", matchedItemLink);
+            } else {
+              this.game.onChat("system", "Usage: /w <name> <message>");
+            }
           } else if (t === "/help" || t === "/commands") {
-            const baseHelp = "[Commands] /name <newName> | /sync | /switchchar | /logout";
-            this.game.onChat("system", `${baseHelp} | /gm or /setgm - Open GM Panel & Grant GM Role | /gmonline - Online Roster | /gmoff - Relinquish GM`);
+            const baseHelp = "[Commands] /name <newName> | /g <msg> (guild) | /p <msg> (party) | /w <player> <msg> (whisper)";
+            this.game.onChat("system", `${baseHelp} | /gm or /setgm - GM Panel | /sync | /logout`);
           } else {
-            this.game.say(t);
+            // Check active channel routing
+            if (this.filter === "guild") {
+              this.game.sendChat(t, "guild", matchedItemLink);
+            } else if (this.filter === "party") {
+              this.game.sendChat(t, "party", matchedItemLink);
+            } else {
+              this.game.say(t, matchedItemLink);
+            }
           }
         }
         this.input.value = "";
@@ -213,6 +354,35 @@ export class ChatComponent extends ComponentBase {
         this.input.blur();
       }
     });
+
+    // Global listener for linking items into chat
+    window.addEventListener("chat-insert-link", ((e: CustomEvent) => {
+      if (e.detail) this.insertItemLink(e.detail);
+    }) as EventListener);
+  }
+
+  private updatePlaceholder() {
+    switch (this.filter) {
+      case "guild":
+        this.input.placeholder = "Guild chat (/g message)...";
+        break;
+      case "party":
+        this.input.placeholder = "Party chat (/p message)...";
+        break;
+      case "whisper":
+        this.input.placeholder = "Friends: /w [player] [msg]...";
+        break;
+      case "say":
+        this.input.placeholder = "Chat: message or /w [player]...";
+        break;
+      case "notice":
+        this.input.placeholder = "System announcements";
+        break;
+      case "all":
+      default:
+        this.input.placeholder = "Press Enter to chat · ↑/↓ for history";
+        break;
+    }
   }
 
   expand() {
@@ -269,7 +439,7 @@ export class ChatComponent extends ComponentBase {
     });
   }
 
-  addMessage(kind: ChatKind, text: string) {
+  addMessage(kind: ChatKind, text: string, itemLink?: any) {
     // Only accept chat-related messages: player conversation, whisper, party, guild, GM announcements
     if (kind === "exp" || kind === "meso" || kind === "item" || kind === "level") {
       return;
@@ -312,8 +482,9 @@ export class ChatComponent extends ComponentBase {
       badgeClass = "badge-gm";
     }
 
+    const entryId = "c_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const entry: ChatEntry = {
-      id: "c_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      id: entryId,
       kind,
       text,
       name: speaker || undefined,
@@ -321,9 +492,14 @@ export class ChatComponent extends ComponentBase {
       time,
       badge: badgeLabel,
       badgeClass,
+      itemLink,
     };
     this.history.push(entry);
     if (this.history.length > 500) this.history.shift();
+
+    if (itemLink) {
+      this.itemLinkStore.set(entryId, itemLink);
+    }
 
     const line = el("div", `chat-line ${kind} ${badgeClass}`, this.log);
     line.dataset.kind = kind;
@@ -341,7 +517,44 @@ export class ChatComponent extends ComponentBase {
     }
 
     const contentEl = el("span", "chat-text", line);
-    contentEl.textContent = speaker ? content : ` ${content}`;
+
+    // Parse item link [ItemName] inside content
+    const linkMatch = content.match(/\[(.*?)\]/);
+    if (linkMatch && (itemLink || this.pendingItemLinks.has(linkMatch[1].toLowerCase()))) {
+      const matchedName = linkMatch[1];
+      const linkData = itemLink || this.pendingItemLinks.get(matchedName.toLowerCase());
+      const parts = content.split(`[${matchedName}]`);
+      
+      if (speaker && !parts[0].startsWith(" ")) {
+        contentEl.appendChild(document.createTextNode(" "));
+      }
+      contentEl.appendChild(document.createTextNode(parts[0]));
+      
+      const pill = el("span", "chat-item-link", contentEl);
+      pill.textContent = `[${matchedName}]`;
+      pill.title = "Click or hover to inspect item stats";
+
+      pill.addEventListener("mouseenter", (ev) => {
+        const tooltipHtml = this.renderItemLinkTooltip(linkData);
+        if (tooltipHtml) showChatTooltip(tooltipHtml, ev.clientX, ev.clientY);
+      });
+      pill.addEventListener("mousemove", (ev) => {
+        const tooltipHtml = this.renderItemLinkTooltip(linkData);
+        if (tooltipHtml) showChatTooltip(tooltipHtml, ev.clientX, ev.clientY);
+      });
+      pill.addEventListener("mouseleave", () => hideChatTooltip());
+      pill.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const tooltipHtml = this.renderItemLinkTooltip(linkData);
+        if (tooltipHtml) showChatTooltip(tooltipHtml, ev.clientX, ev.clientY);
+      });
+
+      if (parts[1]) {
+        contentEl.appendChild(document.createTextNode(parts[1]));
+      }
+    } else {
+      contentEl.textContent = speaker ? content : ` ${content}`;
+    }
 
     // Apply active filter
     if (this.filter !== "all") {
@@ -367,5 +580,19 @@ export class ChatComponent extends ComponentBase {
     if (this.minimized) {
       this.minBtn.classList.add("has-unread");
     }
+  }
+
+  private renderItemLinkTooltip(link: any): string {
+    if (!link) return "";
+    if (link.gear) {
+      return renderGearTooltip(link.gear, false, "Linked in Chat", this.game?.stats?.level ?? 200);
+    }
+    if (link.kind === "use" && link.itemId) {
+      return renderUseTooltip(link.itemId, link.count ?? 1, "Linked in Chat");
+    }
+    if (link.kind === "mat" && link.itemId) {
+      return renderMatTooltip(link.itemId, link.count ?? 1, "Linked in Chat");
+    }
+    return `<div class="ms-tooltip-card"><div class="tt-title">${esc(link.name || "Item")}</div></div>`;
   }
 }

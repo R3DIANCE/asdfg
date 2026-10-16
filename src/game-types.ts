@@ -3,6 +3,7 @@ import type { Tex } from "./gpu.ts";
 import type { Foothold, Ladder } from "./physics.ts";
 import type { Gear, Slot } from "./items.ts";
 import type { Action, ClassId } from "./skills.ts";
+import type { GuildEmblem } from "./guild.ts";
 
 export interface Back {
   sprite: Sprite;
@@ -43,6 +44,7 @@ export interface MapData {
   spawns: { id: number; x: number; y: number; fh: number; rx0: number; rx1: number }[];
   backs: Back[];
   aniObjs?: AniObj[];
+  portals?: Portal[];
 }
 
 export interface MobData {
@@ -136,6 +138,9 @@ export interface RemotePlayer {
   lastTex?: Tex | null;
   attackTimer?: number;
   animTimer?: number;
+  guildId?: string;
+  guildName?: string;
+  guildEmblem?: GuildEmblem;
 }
 
 export const BODY = [2000, 12000, 20000, 30030];
@@ -260,8 +265,30 @@ export interface Portal {
   x: number;
   y: number;
   to: number;
-  side: "left" | "right";
+  side: "left" | "right" | "market" | "secret" | "teleport" | "door";
   custom?: boolean;
+  label?: string;
+  pn?: string;
+  tn?: string;
+  pt?: number;
+  targetX?: number;
+  targetY?: number;
+  secret?: boolean;
+  secretType?: "tree" | "chimney" | "pipe" | "door" | "shortcut" | "springboard" | "portal";
+  hint?: string;
+}
+
+export interface SecretObject {
+  id: string;
+  type: "chest" | "crate" | "barrel" | "springboard";
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  broken: boolean;
+  respawnTimer: number;
+  hitTimer: number;
+  label?: string;
 }
 
 export interface Stats {

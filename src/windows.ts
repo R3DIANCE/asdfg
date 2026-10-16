@@ -18,6 +18,10 @@ import { el, bg, fmt, esc } from "./util.ts";
 import { lucideIcon } from "./lucide.ts";
 import { makeGear } from "./items.ts";
 import type { Sprite } from "./assets.ts";
+import {
+  type Guild, type GuildMember, type GuildEmblem,
+  EMBLEM_COLORS, EMBLEM_BG_SHAPES, EMBLEM_SYMBOLS, renderEmblemSvg, GuildClient
+} from "./guild.ts";
 export { el, bg };
 type Btn = Record<"normal" | "mouseOver" | "pressed" | "disabled", Sprite | null>;
 
@@ -68,6 +72,11 @@ export class Windows {
   debugWin!: HTMLElement;
   guideWin!: HTMLElement;
   guideTab: "roadmap" | "overview" | "progression" | "social" | "enchanting" | "crafting" = "roadmap";
+  guildWin!: HTMLElement;
+  guildTab: "members" | "emblem" | "settings" | "create" | "directory" = "members";
+  guildDraftEmblem: GuildEmblem = { bgShape: 0, bgColor: 0, symbolShape: 0, symbolColor: 0 };
+  guildDirectorySearch = "";
+  guildCachedDirectory: Guild[] = [];
   buffBar: HTMLElement;
   autoBtn: HTMLElement;
   autoBossBtn!: HTMLElement;
@@ -99,6 +108,8 @@ export class Windows {
       this.game.auto.boss = !this.game.auto.boss;
       this.game.onChat("notice", this.game.auto.boss ? "Auto Boss is ON. Stage boss will be challenged automatically." : "Auto Boss is OFF.");
       this.game.onChange();
+      this.autoBossBtn.blur();
+      document.getElementById("game")?.focus();
     });
     this.autoBossBtn.addEventListener("contextmenu", (e) => { e.preventDefault(); this.toggle(this.autoWin); });
     this.buildLogs();
@@ -113,6 +124,7 @@ export class Windows {
     this.buildAuto();
     this.buildDebug();
     this.buildGuide();
+    this.buildGuild();
     this.ext = new ExtWindows(this);
 
     // All windows start closed by default; toggled via dedicated menu buttons or hotkeys
@@ -138,7 +150,22 @@ export class Windows {
   toggleAutoBattle() {
     const a = this.game.auto;
     a.battle = !a.battle;
-    this.game.onChat("notice", a.battle ? "Auto Battle is ON. Your character will hunt, loot and heal on its own. Press B or any arrow key to take over." : "Auto Battle is OFF.");
+    if (!a.battle) {
+      this.game.ai.keys.clear();
+      this.game.ai.pressed.clear();
+      this.game.ai.retreatTime = 0;
+      this.game.ai.ladderIntent = null;
+      this.game.ai.ladderTopStuckTimer = 0;
+      this.game.ai.target = null;
+      if (this.game.p.aiAttack && this.game.p.attack > 0) {
+        this.game.p.attack = 0;
+        this.game.p.aiAttack = false;
+      }
+    }
+    this.autoBtn.classList.toggle("on", a.battle);
+    this.autoBtn.blur();
+    document.getElementById("game")?.focus();
+    this.game.onChat("notice", a.battle ? "Auto Combat is ON. Your character will hunt, loot and heal on its own. Press B or any arrow key to take over." : "Auto Combat is OFF.");
     this.game.onChange();
   }
 
@@ -1864,6 +1891,647 @@ export class Windows {
     }
   }
 
+  // ------------------------------------------------------------- MapleStory Guild Window
+  buildGuild() {
+    this.guildWin = this.makeWindow("guild-win", 540, 560, "GUILD (G)", Math.max(20, Math.round(innerWidth / 2 - 270)), 65);
+    el("div", "guild-body", this.guildWin);
+    this.guildWin.addEventListener("click", async (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>("[data-guildact]");
+      if (!t) return;
+      const g = this.game;
+      const act = t.dataset.guildact;
+      const myName = g.stats.name;
+
+      if (act === "tab-members") {
+        this.guildTab = "members";
+        this.renderGuild();
+      } else if (act === "tab-emblem") {
+        this.guildTab = "emblem";
+        if (g.guild?.emblem) this.guildDraftEmblem = { ...g.guild.emblem };
+        this.renderGuild();
+      } else if (act === "tab-settings") {
+        this.guildTab = "settings";
+        this.renderGuild();
+      } else if (act === "tab-create") {
+        this.guildTab = "create";
+        this.renderGuild();
+      } else if (act === "tab-directory") {
+        this.guildTab = "directory";
+        this.renderGuild();
+        GuildClient.getGuildList().then((list) => {
+          this.guildCachedDirectory = list;
+          this.renderGuild();
+        });
+      } else if (act === "create-guild") {
+        const inp = this.guildWin.querySelector(".guild-create-name-input") as HTMLInputElement;
+        const name = (inp?.value || "").trim();
+        if (!name) {
+          alert("Please enter a guild name.");
+          return;
+        }
+        if (name.length < 2 || name.length > 12) {
+          alert("Guild name must be between 2 and 12 characters.");
+          return;
+        }
+        if (g.stats.level < 10) {
+          alert("Character must be at least Level 10 to create a guild.");
+          return;
+        }
+        if ((g.stats.meso || 0) < 5000000) {
+          alert("Guild registration requires 5,000,000 mesos.");
+          return;
+        }
+        const res = await GuildClient.createGuild(myName, name, this.guildDraftEmblem);
+        if (res.ok && res.guild) {
+          g.stats.meso -= 5000000;
+          g.guild = res.guild;
+          g.guildId = res.guild.id;
+          g.guildName = res.guild.name;
+          g.guildEmblem = res.guild.emblem;
+          g.onChat("notice", `★ Congratulations! Guild [${res.guild.name}] has been created.`);
+          this.guildTab = "members";
+          this.renderGuild();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to create guild.");
+        }
+      } else if (act === "join-guild") {
+        const gid = t.dataset.guildId;
+        if (!gid) return;
+        const res = await GuildClient.joinGuild(myName, gid, g.stats.level, g.stats.job);
+        if (res.ok && res.guild) {
+          g.guild = res.guild;
+          g.guildId = res.guild.id;
+          g.guildName = res.guild.name;
+          g.guildEmblem = res.guild.emblem;
+          g.onChat("notice", `★ You have joined guild [${res.guild.name}]!`);
+          this.guildTab = "members";
+          this.renderGuild();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to join guild.");
+        }
+      } else if (act === "leave-guild") {
+        if (!g.guild) return;
+        if (!confirm(`Are you sure you want to leave guild [${g.guild.name}]?`)) return;
+        const res = await GuildClient.leaveGuild(myName, g.guild.id);
+        if (res.ok) {
+          g.onChat("notice", `You have left guild [${g.guild.name}].`);
+          g.guild = null;
+          g.guildId = undefined;
+          g.guildName = undefined;
+          g.guildEmblem = undefined;
+          this.guildTab = "directory";
+          this.renderGuild();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to leave guild.");
+        }
+      } else if (act === "expel-member") {
+        if (!g.guild) return;
+        const target = t.dataset.targetName;
+        if (!target) return;
+        if (!confirm(`Are you sure you want to expel ${target} from the guild?`)) return;
+        const res = await GuildClient.expelMember(myName, target, g.guild.id);
+        if (res.ok) {
+          await g.loadGuild();
+          this.renderGuild();
+          g.onChat("notice", `[Guild] ${target} has been expelled from the guild.`);
+        } else {
+          alert(res.error || "Failed to expel member.");
+        }
+      } else if (act === "change-rank") {
+        if (!g.guild) return;
+        const target = t.dataset.targetName;
+        const rank = Number(t.dataset.rank) as 1 | 2 | 3 | 4 | 5;
+        if (!target || !rank) return;
+        const res = await GuildClient.setRank(myName, target, g.guild.id, rank);
+        if (res.ok) {
+          await g.loadGuild();
+          this.renderGuild();
+          g.onChat("notice", `[Guild] ${target}'s rank changed to ${g.guild?.ranks[rank - 1] ?? "new rank"}.`);
+        } else {
+          alert(res.error || "Failed to change rank.");
+        }
+      } else if (act === "edit-notice") {
+        if (!g.guild) return;
+        const newNotice = prompt("Enter new Guild Notice:", g.guild.notice);
+        if (newNotice === null) return;
+        const res = await GuildClient.updateNotice(myName, g.guild.id, newNotice.trim());
+        if (res.ok) {
+          await g.loadGuild();
+          this.renderGuild();
+          g.onChat("notice", `[Guild] Notice updated.`);
+        } else {
+          alert(res.error || "Failed to update notice.");
+        }
+      } else if (act === "save-emblem") {
+        if (!g.guild) return;
+        const res = await GuildClient.updateEmblem(myName, g.guild.id, this.guildDraftEmblem);
+        if (res.ok) {
+          await g.loadGuild();
+          this.renderGuild();
+          g.onChat("notice", `[Guild] Guild emblem updated.`);
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to update emblem.");
+        }
+      } else if (act === "expand-capacity") {
+        if (!g.guild) return;
+        if ((g.stats.meso || 0) < 1000000) {
+          alert("Guild capacity expansion requires 1,000,000 mesos.");
+          return;
+        }
+        const res = await GuildClient.expandCapacity(myName, g.guild.id);
+        if (res.ok) {
+          g.stats.meso -= 1000000;
+          await g.loadGuild();
+          this.renderGuild();
+          g.onChat("notice", `[Guild] Guild capacity expanded to ${g.guild?.capacity ?? 25} members.`);
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to expand capacity.");
+        }
+      } else if (act === "save-ranks") {
+        if (!g.guild) return;
+        const r1 = (this.guildWin.querySelector(".rank-inp-1") as HTMLInputElement)?.value.trim() || g.guild.ranks[0];
+        const r2 = (this.guildWin.querySelector(".rank-inp-2") as HTMLInputElement)?.value.trim() || g.guild.ranks[1];
+        const r3 = (this.guildWin.querySelector(".rank-inp-3") as HTMLInputElement)?.value.trim() || g.guild.ranks[2];
+        const r4 = (this.guildWin.querySelector(".rank-inp-4") as HTMLInputElement)?.value.trim() || g.guild.ranks[3];
+        const r5 = (this.guildWin.querySelector(".rank-inp-5") as HTMLInputElement)?.value.trim() || g.guild.ranks[4];
+        const rankArr: [string, string, string, string, string] = [r1, r2, r3, r4, r5];
+        const res = await GuildClient.renameRanks(myName, g.guild.id, rankArr);
+        if (res.ok) {
+          await g.loadGuild();
+          this.renderGuild();
+          g.onChat("notice", `[Guild] Guild rank titles updated.`);
+        } else {
+          alert(res.error || "Failed to update ranks.");
+        }
+      } else if (act === "refresh-guild") {
+        g.loadGuild().then(() => this.renderGuild());
+      }
+    });
+
+    this.renderGuild();
+  }
+
+  renderGuild() {
+    const body = this.guildWin.querySelector(".guild-body") as HTMLElement;
+    if (!body) return;
+    const g = this.game;
+    const myName = g.stats.name;
+    const guild = g.guild;
+
+    // If player has a guild
+    if (guild) {
+      if (this.guildTab === "create") this.guildTab = "members";
+
+      const myMember = guild.members.find((m) => m.name.toLowerCase() === myName.toLowerCase());
+      const isMaster = myMember?.rank === 1 || guild.master.toLowerCase() === myName.toLowerCase();
+      const isJrMaster = myMember?.rank === 2;
+      const canManage = isMaster || isJrMaster;
+
+      const tabs = [
+        { id: "members", label: "Members" },
+        { id: "emblem", label: "Emblem Editor" },
+        { id: "settings", label: "Settings" },
+        { id: "directory", label: "Guild Directory" },
+      ];
+
+      const tabStrip = tabs.map((t) =>
+        `<button type="button" class="guild-tab-btn ${t.id === this.guildTab ? "active" : ""}" data-guildact="tab-${t.id}">${t.label}</button>`
+      ).join("");
+
+      let contentHtml = "";
+
+      if (this.guildTab === "members") {
+        const sortedMembers = [...guild.members].sort((a, b) => a.rank - b.rank || b.contribution - a.contribution);
+        const rows = sortedMembers.map((m) => {
+          const isSelf = m.name.toLowerCase() === myName.toLowerCase();
+          const rankTitle = guild.ranks[m.rank - 1] ?? `Rank ${m.rank}`;
+          const isOnline = m.online;
+
+          let actBtns = "";
+          if (isMaster && !isSelf) {
+            actBtns = `
+              <div class="flex items-center gap-1 justify-end">
+                ${m.rank > 2 ? `<button type="button" class="guild-act-btn secondary px-1.5 py-0.5 text-[9px]" title="Promote Rank" data-guildact="change-rank" data-target-name="${m.name}" data-rank="${m.rank - 1}">▲</button>` : ""}
+                ${m.rank < 5 ? `<button type="button" class="guild-act-btn secondary px-1.5 py-0.5 text-[9px]" title="Demote Rank" data-guildact="change-rank" data-target-name="${m.name}" data-rank="${m.rank + 1}">▼</button>` : ""}
+                <button type="button" class="guild-act-btn danger px-1.5 py-0.5 text-[9px]" title="Expel from Guild" data-guildact="expel-member" data-target-name="${m.name}">✕</button>
+              </div>
+            `;
+          } else if (isJrMaster && !isSelf && m.rank > 2) {
+            actBtns = `
+              <div class="flex items-center gap-1 justify-end">
+                <button type="button" class="guild-act-btn danger px-1.5 py-0.5 text-[9px]" title="Expel from Guild" data-guildact="expel-member" data-target-name="${m.name}">✕</button>
+              </div>
+            `;
+          }
+
+          return `
+            <tr>
+              <td><span class="guild-rank-tag guild-rank-${m.rank}">${esc(rankTitle)}</span></td>
+              <td class="font-bold ${isSelf ? "text-amber-300" : "text-white"}">${esc(m.name)}${isSelf ? " (You)" : ""}</td>
+              <td>Lv. ${m.level} ${esc(m.job)}</td>
+              <td class="text-amber-300 font-mono">${m.contribution.toLocaleString()} GP</td>
+              <td>
+                <span class="guild-online-dot ${isOnline ? "online" : "offline"}"></span>
+                <span class="${isOnline ? "text-emerald-400 font-bold" : "text-slate-400"}">${isOnline ? "Online" : "Offline"}</span>
+              </td>
+              <td>${actBtns}</td>
+            </tr>
+          `;
+        }).join("");
+
+        contentHtml = `
+          <div class="flex-1 flex flex-col overflow-hidden">
+            <div class="flex-1 overflow-y-auto">
+              <table class="guild-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Name</th>
+                    <th>Level & Job</th>
+                    <th>GP Contribution</th>
+                    <th>Status</th>
+                    <th class="text-right">Manage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows}
+                </tbody>
+              </table>
+            </div>
+            <div class="guild-btn-row">
+              <button type="button" class="guild-act-btn secondary" data-guildact="refresh-guild">↻ Refresh</button>
+              <div class="flex-1"></div>
+              <button type="button" class="guild-act-btn danger" data-guildact="leave-guild">${isMaster ? "Disband Guild" : "Leave Guild"}</button>
+            </div>
+          </div>
+        `;
+      } else if (this.guildTab === "emblem") {
+        const d = this.guildDraftEmblem;
+        const shapesOptions = EMBLEM_BG_SHAPES.map((s, idx) =>
+          `<option value="${idx}" ${d.bgShape === idx ? "selected" : ""}>${idx + 1}. ${s}</option>`
+        ).join("");
+        const symbolsOptions = EMBLEM_SYMBOLS.map((s, idx) =>
+          `<option value="${idx}" ${d.symbolShape === idx ? "selected" : ""}>${idx + 1}. ${s}</option>`
+        ).join("");
+
+        const bgSwatches = EMBLEM_COLORS.map((c, idx) =>
+          `<div class="guild-color-swatch ${d.bgColor === idx ? "selected" : ""}" style="background:${c.hex}" title="${c.name}" data-guildact="set-bg-color" data-color-idx="${idx}"></div>`
+        ).join("");
+
+        const symSwatches = EMBLEM_COLORS.map((c, idx) =>
+          `<div class="guild-color-swatch ${d.symbolColor === idx ? "selected" : ""}" style="background:${c.hex}" title="${c.name}" data-guildact="set-sym-color" data-color-idx="${idx}"></div>`
+        ).join("");
+
+        contentHtml = `
+          <div class="flex gap-4 flex-1 overflow-y-auto p-1">
+            <div class="w-40 flex flex-col items-center justify-center p-4 bg-slate-900/60 rounded-lg border border-white/10 gap-3">
+              <span class="text-xs font-bold text-slate-400">Emblem Preview</span>
+              <div class="p-3 bg-black/60 rounded-xl border border-white/20 shadow-xl">
+                ${renderEmblemSvg(d, 64)}
+              </div>
+              <span class="text-[10px] text-center text-slate-400">16x16 Authentic MapleStory Guild Crest</span>
+            </div>
+            <div class="flex-1 flex flex-col gap-3">
+              <div>
+                <label class="block text-xs font-bold text-slate-300 mb-1">Background Shape</label>
+                <select class="w-full bg-slate-900 border border-white/20 rounded p-1.5 text-xs text-white" onchange="window.__setGuildDraftShape(Number(this.value))">
+                  ${shapesOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-300 mb-1">Background Color</label>
+                <div class="guild-color-grid">${bgSwatches}</div>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-300 mb-1">Symbol Icon</label>
+                <select class="w-full bg-slate-900 border border-white/20 rounded p-1.5 text-xs text-white" onchange="window.__setGuildDraftSymbol(Number(this.value))">
+                  ${symbolsOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-300 mb-1">Symbol Color</label>
+                <div class="guild-color-grid">${symSwatches}</div>
+              </div>
+              <div class="guild-btn-row mt-2">
+                <button type="button" class="guild-act-btn primary" data-guildact="save-emblem" ${!isMaster ? "disabled title='Only Master can change emblem'" : ""}>Save Guild Emblem</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (this.guildTab === "settings") {
+        contentHtml = `
+          <div class="flex-1 flex flex-col gap-4 overflow-y-auto p-2">
+            <div class="p-3 bg-slate-900/60 border border-white/10 rounded-lg">
+              <h4 class="text-xs font-bold text-amber-300 mb-1">Expand Guild Capacity</h4>
+              <p class="text-[11px] text-slate-300 mb-3 leading-relaxed">
+                Increase guild capacity by +5 members. Maximum 100 members.
+                <br>Current: <b class="text-white">${guild.capacity} Members</b> · Cost: <b class="text-amber-300">1,000,000 Mesos</b>
+              </p>
+              <button type="button" class="guild-act-btn primary" data-guildact="expand-capacity" ${!isMaster ? "disabled" : ""}>Expand (+5 Members)</button>
+            </div>
+
+            <div class="p-3 bg-slate-900/60 border border-white/10 rounded-lg">
+              <h4 class="text-xs font-bold text-amber-300 mb-2">Customize Rank Titles</h4>
+              <div class="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 1 (Guild Master)</label>
+                  <input type="text" class="rank-inp-1 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[0])}" ${!isMaster ? "disabled" : ""} />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 2 (Jr. Master)</label>
+                  <input type="text" class="rank-inp-2 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[1])}" ${!isMaster ? "disabled" : ""} />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 3</label>
+                  <input type="text" class="rank-inp-3 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[2])}" ${!isMaster ? "disabled" : ""} />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 4</label>
+                  <input type="text" class="rank-inp-4 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[3])}" ${!isMaster ? "disabled" : ""} />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 5</label>
+                  <input type="text" class="rank-inp-5 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[4])}" ${!isMaster ? "disabled" : ""} />
+                </div>
+              </div>
+              <button type="button" class="guild-act-btn primary mt-3" data-guildact="save-ranks" ${!isMaster ? "disabled" : ""}>Save Rank Titles</button>
+            </div>
+          </div>
+        `;
+      } else if (this.guildTab === "directory") {
+        const query = this.guildDirectorySearch.toLowerCase().trim();
+        const filtered = this.guildCachedDirectory.filter((gItem) =>
+          !query || gItem.name.toLowerCase().includes(query) || gItem.master.toLowerCase().includes(query)
+        );
+
+        const dirRows = filtered.map((gItem) => `
+          <tr>
+            <td class="w-9">${renderEmblemSvg(gItem.emblem, 22)}</td>
+            <td class="font-bold text-white">${esc(gItem.name)}</td>
+            <td><span class="guild-level-badge">Lv. ${gItem.level}</span></td>
+            <td>${esc(gItem.master)}</td>
+            <td class="font-mono text-amber-300">${gItem.gp.toLocaleString()} GP</td>
+            <td>${gItem.members.length} / ${gItem.capacity}</td>
+            <td class="text-right">
+              ${gItem.id === guild.id ? `<span class="text-emerald-400 font-bold text-[10px]">Current</span>` : ""}
+            </td>
+          </tr>
+        `).join("");
+
+        contentHtml = `
+          <div class="flex-1 flex flex-col overflow-hidden">
+            <div class="mb-2">
+              <input type="text" placeholder="Search guilds by name or master..." class="w-full bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" value="${esc(this.guildDirectorySearch)}" oninput="window.__setGuildDirSearch(this.value)" />
+            </div>
+            <div class="flex-1 overflow-y-auto">
+              <table class="guild-table">
+                <thead>
+                  <tr>
+                    <th>Emblem</th>
+                    <th>Guild Name</th>
+                    <th>Level</th>
+                    <th>Master</th>
+                    <th>GP</th>
+                    <th>Members</th>
+                    <th class="text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${dirRows || `<tr><td colspan="7" class="text-center text-slate-400 py-6">No guilds found.</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+
+      body.innerHTML = `
+        <div class="guild-header-card">
+          <div class="guild-emblem-frame">
+            ${renderEmblemSvg(guild.emblem, 34)}
+          </div>
+          <div class="guild-info-meta">
+            <div class="guild-title-row">
+              <span class="guild-name">${esc(guild.name)}</span>
+              <span class="guild-level-badge">Lv. ${guild.level}</span>
+            </div>
+            <div class="guild-sub-meta">
+              <span>Master: <b class="text-white">${esc(guild.master)}</b></span>
+              <span>Guild Points: <b class="text-amber-300 font-mono">${guild.gp.toLocaleString()}</b></span>
+              <span>Members: <b class="text-white">${guild.members.length} / ${guild.capacity}</b></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="guild-notice-banner">
+          <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wide">Notice:</span>
+          <span class="guild-notice-text flex-1">"${esc(guild.notice || "No notice set.")}"</span>
+          ${canManage ? `<button type="button" class="guild-act-btn secondary px-2 py-0.5 text-[10px]" data-guildact="edit-notice">Edit</button>` : ""}
+        </div>
+
+        <div class="guild-tab-strip">
+          ${tabStrip}
+        </div>
+
+        <div class="guild-content-pane">
+          ${contentHtml}
+        </div>
+      `;
+
+    } else {
+      // Player is NOT in a guild
+      const tabs = [
+        { id: "create", label: "Found Guild" },
+        { id: "directory", label: "Guild Directory" },
+      ];
+
+      const tabStrip = tabs.map((t) =>
+        `<button type="button" class="guild-tab-btn ${t.id === this.guildTab ? "active" : ""}" data-guildact="tab-${t.id}">${t.label}</button>`
+      ).join("");
+
+      let contentHtml = "";
+
+      if (this.guildTab === "create") {
+        const d = this.guildDraftEmblem;
+        const shapesOptions = EMBLEM_BG_SHAPES.map((s, idx) =>
+          `<option value="${idx}" ${d.bgShape === idx ? "selected" : ""}>${idx + 1}. ${s}</option>`
+        ).join("");
+        const symbolsOptions = EMBLEM_SYMBOLS.map((s, idx) =>
+          `<option value="${idx}" ${d.symbolShape === idx ? "selected" : ""}>${idx + 1}. ${s}</option>`
+        ).join("");
+
+        const bgSwatches = EMBLEM_COLORS.map((c, idx) =>
+          `<div class="guild-color-swatch ${d.bgColor === idx ? "selected" : ""}" style="background:${c.hex}" title="${c.name}" data-guildact="set-bg-color" data-color-idx="${idx}"></div>`
+        ).join("");
+
+        const symSwatches = EMBLEM_COLORS.map((c, idx) =>
+          `<div class="guild-color-swatch ${d.symbolColor === idx ? "selected" : ""}" style="background:${c.hex}" title="${c.name}" data-guildact="set-sym-color" data-color-idx="${idx}"></div>`
+        ).join("");
+
+        const hasMeso = (g.stats.meso || 0) >= 5000000;
+        const hasLevel = (g.stats.level || 1) >= 10;
+
+        contentHtml = `
+          <div class="flex-1 flex flex-col gap-3 overflow-y-auto p-1">
+            <div class="p-3 bg-slate-900/70 border border-white/10 rounded-lg">
+              <h3 class="text-sm font-black text-amber-300 mb-1">Found a MapleStory Guild</h3>
+              <p class="text-xs text-slate-300 leading-relaxed mb-2">Create your own guild, recruit fellow adventurers, design your custom 16x16 guild crest, and conquer Victoria Island together!</p>
+              <div class="flex gap-4 text-xs font-semibold">
+                <span class="${hasLevel ? "text-emerald-400" : "text-rose-400"}">Level: Lv. ${g.stats.level} / 10 required</span>
+                <span class="${hasMeso ? "text-emerald-400" : "text-rose-400"}">Fee: 5,000,000 Mesos (${(g.stats.meso || 0).toLocaleString()} owned)</span>
+              </div>
+            </div>
+
+            <div class="flex gap-4">
+              <div class="w-40 flex flex-col items-center justify-center p-3 bg-slate-900/60 rounded-lg border border-white/10 gap-2">
+                <span class="text-xs font-bold text-slate-400">Emblem Preview</span>
+                <div class="p-2.5 bg-black/60 rounded-xl border border-white/20 shadow-xl">
+                  ${renderEmblemSvg(d, 56)}
+                </div>
+                <span class="text-[9px] text-center text-slate-400">Custom Guild Crest</span>
+              </div>
+
+              <div class="flex-1 flex flex-col gap-2">
+                <div>
+                  <label class="block text-xs font-bold text-slate-300 mb-1">Guild Name</label>
+                  <input type="text" class="guild-create-name-input w-full bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" placeholder="2-12 letters (e.g. MapleHeroes)" maxlength="12" />
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-300 mb-0.5">Background Shape</label>
+                  <select class="w-full bg-slate-900 border border-white/20 rounded p-1 text-xs text-white" onchange="window.__setGuildDraftShape(Number(this.value))">
+                    ${shapesOptions}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-300 mb-0.5">Background Color</label>
+                  <div class="guild-color-grid">${bgSwatches}</div>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-300 mb-0.5">Symbol Icon</label>
+                  <select class="w-full bg-slate-900 border border-white/20 rounded p-1 text-xs text-white" onchange="window.__setGuildDraftSymbol(Number(this.value))">
+                    ${symbolsOptions}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-300 mb-0.5">Symbol Color</label>
+                  <div class="guild-color-grid">${symSwatches}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="guild-btn-row mt-2">
+              <button type="button" class="guild-act-btn primary flex-1 py-1.5 text-xs font-bold" data-guildact="create-guild">Found Guild (5,000,000 Mesos)</button>
+            </div>
+          </div>
+        `;
+      } else {
+        const query = this.guildDirectorySearch.toLowerCase().trim();
+        const filtered = this.guildCachedDirectory.filter((gItem) =>
+          !query || gItem.name.toLowerCase().includes(query) || gItem.master.toLowerCase().includes(query)
+        );
+
+        const dirRows = filtered.map((gItem) => `
+          <tr>
+            <td class="w-9">${renderEmblemSvg(gItem.emblem, 22)}</td>
+            <td class="font-bold text-white">${esc(gItem.name)}</td>
+            <td><span class="guild-level-badge">Lv. ${gItem.level}</span></td>
+            <td>${esc(gItem.master)}</td>
+            <td class="font-mono text-amber-300">${gItem.gp.toLocaleString()} GP</td>
+            <td>${gItem.members.length} / ${gItem.capacity}</td>
+            <td class="text-right">
+              <button type="button" class="guild-act-btn primary px-2 py-0.5 text-[10px]" data-guildact="join-guild" data-guild-id="${gItem.id}">Join</button>
+            </td>
+          </tr>
+        `).join("");
+
+        contentHtml = `
+          <div class="flex-1 flex flex-col overflow-hidden">
+            <div class="mb-2">
+              <input type="text" placeholder="Search guilds by name or master..." class="w-full bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" value="${esc(this.guildDirectorySearch)}" oninput="window.__setGuildDirSearch(this.value)" />
+            </div>
+            <div class="flex-1 overflow-y-auto">
+              <table class="guild-table">
+                <thead>
+                  <tr>
+                    <th>Emblem</th>
+                    <th>Guild Name</th>
+                    <th>Level</th>
+                    <th>Master</th>
+                    <th>GP</th>
+                    <th>Members</th>
+                    <th class="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${dirRows || `<tr><td colspan="7" class="text-center text-slate-400 py-6">No guilds found. Click 'Found Guild' to create the first!</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+
+      body.innerHTML = `
+        <div class="guild-header-card">
+          <div class="guild-emblem-frame">
+            <svg width="34" height="34" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#334155"/><text x="12" y="16" font-size="12" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="#94a3b8">G</text></svg>
+          </div>
+          <div class="guild-info-meta">
+            <div class="guild-title-row">
+              <span class="guild-name">Guild Registry</span>
+            </div>
+            <div class="guild-sub-meta">
+              <span>You are currently not in a guild.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="guild-tab-strip">
+          ${tabStrip}
+        </div>
+
+        <div class="guild-content-pane">
+          ${contentHtml}
+        </div>
+      `;
+    }
+
+    // Attach global swatch helpers for reactive emblem color picking
+    (window as any).__setGuildDraftShape = (val: number) => {
+      this.guildDraftEmblem.bgShape = val;
+      this.renderGuild();
+    };
+    (window as any).__setGuildDraftSymbol = (val: number) => {
+      this.guildDraftEmblem.symbolShape = val;
+      this.renderGuild();
+    };
+    (window as any).__setGuildDirSearch = (val: string) => {
+      this.guildDirectorySearch = val;
+      this.renderGuild();
+    };
+
+    body.querySelectorAll<HTMLElement>("[data-guildact='set-bg-color']").forEach((el) => {
+      el.addEventListener("click", () => {
+        const idx = Number(el.dataset.colorIdx);
+        this.guildDraftEmblem.bgColor = idx;
+        this.renderGuild();
+      });
+    });
+
+    body.querySelectorAll<HTMLElement>("[data-guildact='set-sym-color']").forEach((el) => {
+      el.addEventListener("click", () => {
+        const idx = Number(el.dataset.colorIdx);
+        this.guildDraftEmblem.symbolColor = idx;
+        this.renderGuild();
+      });
+    });
+  }
+
   update(dt: number) {
     this.renderCharacterInfo();
     this.renderStat();
@@ -1971,9 +2639,10 @@ export class ExtWindows {
       { label: "Skills", key: "K", fn: () => w.toggle(w.skill) },
       { label: "Equipment", key: "E", fn: () => this.open("equip") },
       { label: "Inventory", key: "I", fn: () => this.open("inv") },
+      { label: "Guild", key: "G", fn: () => w.toggle(w.guildWin) },
       { label: "Crafting", key: "J", fn: () => this.open("craft") },
       { label: "Auction House", key: "H", fn: () => this.open("ah") },
-      { label: "Game Guide", key: "G", fn: () => w.toggle(w.guideWin) },
+      { label: "Game Guide", key: "F3", fn: () => w.toggle(w.guideWin) },
       { label: "Auto Settings", key: "B·RMB", fn: () => w.toggle(w.autoWin) },
     ];
     if (isGm) {
@@ -1987,7 +2656,10 @@ export class ExtWindows {
     entries.push({
       label: "Switch Character",
       key: "Relog",
-      fn: () => {
+      fn: async () => {
+        if (window.__persist) {
+          try { await window.__persist(); } catch {}
+        }
         sessionStorage.setItem("ms_skip_autologin", "1");
         location.reload();
       },
@@ -1995,7 +2667,10 @@ export class ExtWindows {
     entries.push({
       label: "Log Out Account",
       key: "Exit",
-      fn: () => {
+      fn: async () => {
+        if (window.__persist) {
+          try { await window.__persist(); } catch {}
+        }
         try {
           localStorage.removeItem("ms_current_user");
           localStorage.removeItem("ms_current_character");
@@ -2039,6 +2714,26 @@ export class ExtWindows {
     if (!t) return;
     const g = this.w.game, a = t.dataset.act!, uid = t.dataset.uid ?? "";
     this.w.hideTip();
+
+    if (e.shiftKey) {
+      if (a === "equip" || a === "equip-visual") {
+        const item = g.findGear(uid);
+        if (item) {
+          const name = GEAR.get(item.id)?.name ?? "Gear";
+          window.dispatchEvent(new CustomEvent("chat-insert-link", { detail: { name, kind: "gear", gear: item } }));
+          return;
+        }
+      } else if (a === "unequip" || a === "unequip-visual") {
+        const slot = t.dataset.slot as Slot;
+        const item = a === "unequip-visual" ? g.visualEq[slot] : g.eq[slot];
+        if (item) {
+          const name = GEAR.get(item.id)?.name ?? "Gear";
+          window.dispatchEvent(new CustomEvent("chat-insert-link", { detail: { name, kind: "gear", gear: item } }));
+          return;
+        }
+      }
+    }
+
     switch (a) {
       case "unequip":
         g.unequip(t.dataset.slot as Slot);
@@ -2403,7 +3098,7 @@ export class ExtWindows {
       if (q) entries = entries.filter(([id]) => (MATS.get(+id) ?? "").toLowerCase().includes(q));
       curCount = entries.length;
       for (const [id, n] of entries) {
-        grid += `<div class="gcell" ${this.tip("m" + id, () => renderMatTooltip(+id, n))}>${icon(matIcon(+id))}<span class="cnt">${n}</span></div>`;
+        grid += `<div class="gcell" data-mat="${id}" ${this.tip("m" + id, () => renderMatTooltip(+id, n))}>${icon(matIcon(+id))}<span class="cnt">${n}</span></div>`;
       }
       const targetPad = Math.max(32, Math.ceil(entries.length / 4) * 4 + 8);
       for (let i = entries.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
@@ -2481,7 +3176,27 @@ export class ExtWindows {
 
     for (const c of body.querySelectorAll<HTMLElement>("[data-use]")) {
       const id = Number(c.dataset.use);
+      c.addEventListener("click", (e) => {
+        if (e.shiftKey) {
+          e.stopPropagation();
+          const it = ITEMS[id];
+          if (it) {
+            window.dispatchEvent(new CustomEvent("chat-insert-link", { detail: { name: it.name, kind: "use", itemId: id, count: g.inv[id] } }));
+          }
+        }
+      });
       this.w.draggable(c, () => ({ t: "item", id }), undefined, () => g.useAction({ t: "item", id }));
+    }
+
+    for (const c of body.querySelectorAll<HTMLElement>("[data-mat]")) {
+      const id = Number(c.dataset.mat);
+      c.addEventListener("click", (e) => {
+        if (e.shiftKey) {
+          e.stopPropagation();
+          const name = MATS.get(id) ?? "Material";
+          window.dispatchEvent(new CustomEvent("chat-insert-link", { detail: { name, kind: "mat", itemId: id, count: g.mats[id] } }));
+        }
+      });
     }
 
     this.setupInventoryDrag(body);

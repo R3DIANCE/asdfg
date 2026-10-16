@@ -149,6 +149,12 @@ export class NetworkSystem {
       if (!activeName && msg.id) {
         activeName = msg.id.length > 8 ? `P-${msg.id.slice(0, 4).toUpperCase()}` : msg.id;
       }
+      if (msg.guild) {
+        game.guild = msg.guild;
+        game.guildId = msg.guild.id;
+        game.guildName = msg.guild.name;
+        game.guildEmblem = msg.guild.emblem;
+      }
       if (activeName) {
         game.stats.name = activeName;
         try { localStorage.setItem("ms_player_name", activeName); } catch {}
@@ -260,7 +266,7 @@ export class NetworkSystem {
       if (rp) {
         rp.balloon = { text: msg.text, t: 5 };
       }
-      game.onChat((msg.kind as ChatKind) || "say", msg.kind === "say" ? `${msg.name} : ${msg.text}` : msg.text);
+      game.onChat((msg.kind as ChatKind) || "say", msg.kind === "say" ? `${msg.name} : ${msg.text}` : msg.text, msg.itemLink);
       if (msg.kind === "notice") {
         window.dispatchEvent(new CustomEvent("gm-broadcast-notice", { detail: { text: msg.text.replace(/^\[Notice\]\s*/, "") } }));
       }

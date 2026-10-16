@@ -268,8 +268,8 @@ export class Hud extends ComponentBase {
     this.layout();
   }
 
-  addChat(kind: ChatKind | "say", text: string) {
-    this.chat.addMessage(kind, text);
+  addChat(kind: ChatKind | "say", text: string, itemLink?: any) {
+    this.chat.addMessage(kind, text, itemLink);
   }
 
   showGain(kind: "level" | "meso" | "exp", text: string) {

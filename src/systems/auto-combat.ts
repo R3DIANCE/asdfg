@@ -1,11 +1,20 @@
 import type { Game } from "../game.ts";
 import { FootholdTree, type Foothold } from "../physics.ts";
 import { SKILL, SKILL_DEFS, type SkillDef } from "../skills.ts";
-import type { Mob } from "../game-types.ts";
+import { type Mob, BOSSES, FREE_MARKET_MAP } from "../game-types.ts";
 
 export class AutoCombatSystem {
+  public static isBoss(game: Game, m: Mob | null | undefined): boolean {
+    if (!m) return false;
+    if (game.boss === m) return true;
+    if (m.boss) return true;
+    if (m.data?.meta?.boss === 1 || m.data?.meta?.boss === true) return true;
+    if (m.data?.id && BOSSES.includes(m.data.id)) return true;
+    return false;
+  }
+
   public static liveMobs(game: Game): Mob[] {
-    return game.mobs.filter((m) => m.state !== "dead" && m.state !== "die1" && m.alpha >= 1);
+    return game.mobs.filter((m) => m.state !== "dead" && m.state !== "die1" && (m.alpha >= 1 || AutoCombatSystem.isBoss(game, m)));
   }
 
   public static hotbarSkills(game: Game): SkillDef[] {
@@ -80,10 +89,11 @@ export class AutoCombatSystem {
           if (m.hp <= expectedDmg) kills++;
         }
 
+        const hitsBoss = hitMobs.some((m) => AutoCombatSystem.isBoss(game, m));
         const dirBonus = dir === preferredDir ? 15 : 0;
         let score = 0;
         if (hitCount > 0) {
-          score = (hitCount * 250) + (kills * 400) + (totalDmg * 0.1) - (cand.mp * 0.2) + dirBonus;
+          score = (hitCount * 250) + (kills * 400) + (totalDmg * 0.1) - (cand.mp * 0.2) + dirBonus + (hitsBoss ? 50000 : 0);
         } else {
           score = (cand.targets * 15) + (expectedDmg * 0.05) + (range * 0.05) - (cand.mp * 0.1) + dirBonus;
         }
@@ -166,12 +176,48 @@ export class AutoCombatSystem {
     const ai = game.ai, p = game.p, tree = game.tree;
     ai.keys.clear();
 
-    if (
-      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "a", "A", "d", "D", "w", "W", "s", "S", "Alt", " ", "c", "C", "x", "X", "z", "Z"].some((k) => game.keys.has(k)) ||
-      Object.keys(game.quick).some((k) => game.pressed.has(k))
-    ) {
-      ai.hold = 1.2;
+    const manualMove = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Left", "Right", "Up", "Down", "a", "A", "d", "D", "w", "W", "s", "S", "Alt", " ", "Space"].some(
+      (k) => game.keys.has(k) || game.pressed.has(k)
+    );
+    const manualHoriz = ["ArrowLeft", "ArrowRight", "Left", "Right", "a", "A", "d", "D"].some(
+      (k) => game.keys.has(k) || game.pressed.has(k)
+    );
+    const manualAct = ["c", "C", "x", "X", "z", "Z"].some((k) => game.keys.has(k) || game.pressed.has(k)) ||
+      Object.keys(game.quick).some((k) => game.pressed.has(k) || game.keys.has(k));
+
+    if (manualMove) {
+      // Immediately cancel any AI-initiated attack lock so player movement / jumping is instant
+      if (p.aiAttack && p.attack > 0) {
+        if (!p.hitDone) {
+          p.hitDone = true;
+          game.resolveAttack(p.skill);
+        }
+        p.attack = 0;
+        p.aiAttack = false;
+      }
+      // If AI had grabbed a ladder/rope and player presses Left/Right, release ladder immediately
+      if (ai.ladderIntent !== null && p.ladder && manualHoriz) {
+        p.ladder = null;
+      }
+      ai.hold = 1.5;
+      ai.retreatTime = 0;
+      ai.ladderIntent = null;
+      ai.ladderTopStuckTimer = 0;
+    } else if (manualAct) {
+      ai.hold = 1.5;
+      ai.retreatTime = 0;
+      ai.ladderIntent = null;
+      ai.ladderTopStuckTimer = 0;
     }
+
+    if (!game.auto.battle || game.map?.id === FREE_MARKET_MAP) {
+      ai.pressed.clear();
+      ai.retreatTime = 0;
+      ai.ladderIntent = null;
+      ai.ladderTopStuckTimer = 0;
+      return;
+    }
+
     ai.hold = Math.max(0, ai.hold - dt);
     ai.jumpCooldown = Math.max(0, ai.jumpCooldown - dt);
     if (ai.hold > 0 || p.attack > 0) return;
@@ -182,6 +228,10 @@ export class AutoCombatSystem {
     if (ai.retreatTime > 0) {
       ai.retreatTime -= dt;
       ai.keys.add(ai.retreatDir > 0 ? "ArrowRight" : "ArrowLeft");
+      if (ai.jumpCooldown <= 0 && ai.retreatTime < 0.4) {
+        ai.pressed.add(" ");
+        ai.jumpCooldown = 0.35;
+      }
       return;
     }
 
@@ -205,49 +255,70 @@ export class AutoCombatSystem {
     }
 
     ai.think -= dt;
-    const alive = AutoCombatSystem.liveMobs(game).filter((m) => !ai.ban.has(m));
+    const allAlive = AutoCombatSystem.liveMobs(game);
+    if (allAlive.length === 0) return;
 
-    // Target Selection: lock target while on rope/ladder unless dead
-    const currentPlat = p.fh ? AutoCombatSystem.platformBounds(tree, p.fh) : null;
-    const shouldRetarget = !p.ladder && (!ai.target || ai.target.state === "dead" || ai.target.state === "die1" || ai.think <= 0);
-    const targetDeadOnLadder = p.ladder && (!ai.target || ai.target.state === "dead" || ai.target.state === "die1");
-    if (shouldRetarget || targetDeadOnLadder) {
-      ai.think = 0.35;
-      let pool = alive;
-      if (currentPlat) {
-        const onCurrentPlat = alive.filter(
-          (m) => m.x >= currentPlat.minX - 15 && m.x <= currentPlat.maxX + 15 && Math.abs(m.y - p.y) < 30
-        );
-        if (onCurrentPlat.length > 0) pool = onCurrentPlat;
+    // Check for active boss monster
+    const activeBoss = (game.boss && game.boss.state !== "dead" && game.boss.state !== "die1")
+      ? game.boss
+      : allAlive.find((m) => AutoCombatSystem.isBoss(game, m));
+
+    if (activeBoss) {
+      ai.ban.delete(activeBoss);
+      if (ai.target !== activeBoss) {
+        ai.target = activeBoss;
+        ai.stuck = 0;
       }
-      if (pool === alive) {
-        const sameBand = alive.filter((m) => Math.abs(m.y - p.y) < 65);
-        pool = sameBand.length ? sameBand : alive;
+      ai.think = 0.5;
+    } else {
+      let alive = allAlive.filter((m) => !ai.ban.has(m));
+      if (alive.length === 0) {
+        ai.ban.clear();
+        alive = allAlive;
       }
-      let best: Mob | null = null, bs = Infinity;
-      for (const m of pool) {
-        const sc = Math.abs(m.x - p.x) + Math.abs(m.y - p.y) * 2.8;
-        if (sc < bs) { bs = sc; best = m; }
+
+      // Target Selection: prioritize current platform mobs, then closest across entire map
+      const currentPlat = p.fh ? AutoCombatSystem.platformBounds(tree, p.fh) : null;
+      const shouldRetarget = !p.ladder && (!ai.target || ai.target.state === "dead" || ai.target.state === "die1" || ai.think <= 0);
+      const targetDeadOnLadder = p.ladder && (!ai.target || ai.target.state === "dead" || ai.target.state === "die1");
+      if (shouldRetarget || targetDeadOnLadder) {
+        ai.think = 0.35;
+        let pool = alive;
+        if (currentPlat) {
+          const onCurrentPlat = alive.filter(
+            (m) => m.x >= currentPlat.minX - 15 && m.x <= currentPlat.maxX + 15 && Math.abs(m.y - p.y) < 30
+          );
+          if (onCurrentPlat.length > 0) pool = onCurrentPlat;
+        }
+
+        let best: Mob | null = null, bs = Infinity;
+        for (const m of pool) {
+          const sc = Math.abs(m.x - p.x) + Math.abs(m.y - p.y) * 2.0;
+          if (sc < bs) { bs = sc; best = m; }
+        }
+        if (best !== ai.target) ai.stuck = 0;
+        ai.target = best;
       }
-      if (best !== ai.target) ai.stuck = 0;
-      ai.target = best;
     }
 
-    // Loot drops
-    const drop = game.auto.loot ? game.drops.find((d) => !d.picked && d.fh && Math.abs(d.y - p.y) < 30 && Math.abs(d.x - p.x) < 220) : null;
+    // Target and Goal determination
     const t = ai.target;
+    const isTargetBoss = AutoCombatSystem.isBoss(game, t);
+    const drop = (game.auto.loot && !isTargetBoss) ? game.drops.find((d) => !d.picked && d.fh && Math.abs(d.y - p.y) < 30 && Math.abs(d.x - p.x) < 220) : null;
     const near = t && Math.abs(t.x - p.x) < 140 && Math.abs(t.y - p.y) < 60;
     const goal = drop && !near ? { x: drop.x, y: drop.y } : t ? { x: t.x, y: t.y } : null;
     if (!goal) return;
     const dx = goal.x - p.x, dy = goal.y - p.y;
     const dir = (dx >= 0 ? 1 : -1) as -1 | 1;
 
-    // Instant AoE attack trigger
+    // Instant attack trigger: if boss is prioritized, sprint to it before pausing to attack
     const bestCombat = AutoCombatSystem.findBestSkillAttack(game, dir);
     if (bestCombat.hitCount > 0) {
-      p.face = bestCombat.face;
-      game.startAttack(bestCombat.id);
-      return;
+      if (!isTargetBoss || Math.abs(dx) <= bestCombat.range * 1.1) {
+        p.face = bestCombat.face;
+        game.startAttack(bestCombat.id, true);
+        return;
+      }
     }
 
     // Jump loop detection
@@ -255,13 +326,13 @@ export class AutoCombatSystem {
       if (Math.abs(p.x - ai.lastJumpX) < 18 && Math.abs(p.y - ai.lastJumpY) < 15) {
         ai.jumpLoopCount++;
         if (ai.jumpLoopCount >= 2) {
-          if (t) {
-            ai.ban.set(t, game.time + 6);
+          if (t && !AutoCombatSystem.isBoss(game, t) && allAlive.filter((m) => !ai.ban.has(m) && m !== t).length > 0) {
+            ai.ban.set(t, game.time + 3);
             ai.target = null;
           }
           ai.jumpLoopCount = 0;
           ai.stuck = 0;
-          ai.retreatTime = 1.0;
+          ai.retreatTime = 0.8;
           ai.retreatDir = -dir as -1 | 1;
           ai.lastJumpTime = 0;
           return;
@@ -281,11 +352,13 @@ export class AutoCombatSystem {
     // Stuck detection
     if (Math.abs(p.x - ai.lastX) < 1.5 && !p.ladder) ai.stuck += dt; else ai.stuck = Math.max(0, ai.stuck - dt * 2);
     ai.lastX = p.x;
-    if (ai.stuck > 3.0 && t) {
-      ai.ban.set(t, game.time + 6);
-      ai.target = null;
+    if (ai.stuck > 2.5 && t) {
+      if (!AutoCombatSystem.isBoss(game, t) && allAlive.filter((m) => !ai.ban.has(m) && m !== t).length > 0) {
+        ai.ban.set(t, game.time + 3);
+        ai.target = null;
+      }
       ai.stuck = 0;
-      ai.retreatTime = 0.9;
+      ai.retreatTime = 0.8;
       ai.retreatDir = -dir as -1 | 1;
       return;
     }
@@ -363,21 +436,23 @@ export class AutoCombatSystem {
         return;
       }
 
-      const leapOnHotbar = Object.values(game.quick).some((a) => a?.t === "skill" && a.id === "1001008");
-      if (leapOnHotbar && !p.leapt && game.lv("1001008") > 0 && p.airTime >= 0.08 && (Math.abs(dx) > 35 || dy < -15)) {
+      const jumpSkills = ["4001014", "4001011", "1001008", "3001007", "3000008", "5001010", "2001009"];
+      const hasJumpSkill = jumpSkills.some((sid) => game.lv(sid) > 0);
+      if (hasJumpSkill && !p.leapt && p.airTime >= 0.08 && (Math.abs(dx) > 35 || dy < -15)) {
         ai.pressed.add(" ");
       }
       return;
     }
 
     // Platform navigation
+    const currentPlat = p.fh ? AutoCombatSystem.platformBounds(tree, p.fh) : null;
     const plat = currentPlat ?? AutoCombatSystem.platformBounds(tree, p.fh);
     const onSamePlat = t && (t.x >= plat.minX - 15 && t.x <= plat.maxX + 15 && Math.abs(t.y - p.y) < 30);
 
-    if (onSamePlat) {
+    if (onSamePlat || (t && Math.abs(dx) <= bestCombat.range * 0.9 && Math.abs(dy) < 25)) {
       if (Math.abs(dx) <= bestCombat.range * 0.9) {
         p.face = dir;
-        game.startAttack(bestCombat.id);
+        game.startAttack(bestCombat.id, true);
         return;
       }
       ai.keys.add(dir > 0 ? "ArrowRight" : "ArrowLeft");
@@ -392,12 +467,14 @@ export class AutoCombatSystem {
     }
 
     // Target is NOT on the same platform
-    if (dy > 25) {
+    // 1. Target is BELOW the player (dy > 20)
+    if (dy > 20) {
       const below = tree.below(p.x, p.y + 4, p.fh.id);
-      if (below && FootholdTree.yAt(below, p.x) - p.y < 350 && Math.abs(dx) < 180) {
+      if (below && FootholdTree.yAt(below, p.x) - p.y < 500) {
         ai.keys.add("ArrowDown");
         ai.pressed.add(" ");
         ai.jumpCooldown = 0.35;
+        if (Math.abs(dx) > 15) ai.keys.add(dir > 0 ? "ArrowRight" : "ArrowLeft");
         return;
       }
 
@@ -423,7 +500,8 @@ export class AutoCombatSystem {
       }
     }
 
-    if (dy < -25) {
+    // 2. Target is ABOVE the player (dy < -20)
+    if (dy < -20) {
       const accessibleLadder = game.map.ladders
         .filter((L) => {
           if (L.y1 >= p.y - 15) return false;
@@ -454,9 +532,9 @@ export class AutoCombatSystem {
           if (f.id === p.fh?.id) return false;
           const fy = (f.y1 + f.y2) / 2;
           const deltaY = fy - p.y;
-          if (deltaY > -20 || deltaY < -135) return false;
-          const minOverlap = Math.max(plat.minX - 40, f.x1 - 40);
-          const maxOverlap = Math.min(plat.maxX + 40, f.x2 + 40);
+          if (deltaY > -15 || deltaY < -180) return false;
+          const minOverlap = Math.max(plat.minX - 45, f.x1 - 45);
+          const maxOverlap = Math.min(plat.maxX + 45, f.x2 + 45);
           return minOverlap <= maxOverlap;
         })
         .sort((a, b) => {
@@ -470,7 +548,7 @@ export class AutoCombatSystem {
         if (Math.abs(distToLanding) > 15) {
           ai.keys.add(distToLanding > 0 ? "ArrowRight" : "ArrowLeft");
         }
-        if (p.x >= overhead.x1 - 25 && p.x <= overhead.x2 + 25 && ai.jumpCooldown <= 0) {
+        if (p.x >= overhead.x1 - 35 && p.x <= overhead.x2 + 35 && ai.jumpCooldown <= 0) {
           ai.pressed.add(" ");
           ai.jumpCooldown = 0.35;
           ai.lastJumpX = p.x;
@@ -479,18 +557,41 @@ export class AutoCombatSystem {
           return;
         }
       }
+
+      // 3. If no ladder or overhead on this platform, navigate toward nearest ladder in the map that goes UP
+      if (!accessibleLadder && !overhead) {
+        const anyLadderUp = game.map.ladders
+          .filter((L) => L.y1 < p.y - 20 && p.y >= L.y1 - 10 && p.y <= L.y2 + 25)
+          .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))[0];
+        if (anyLadderUp) {
+          const distToLadder = anyLadderUp.x - p.x;
+          if (Math.abs(distToLadder) > 10) {
+            ai.keys.add(distToLadder > 0 ? "ArrowRight" : "ArrowLeft");
+            if (ai.jumpCooldown <= 0 && ((distToLadder > 0 && p.x >= plat.maxX - 14) || (distToLadder < 0 && p.x <= plat.minX + 14) || ai.stuck > 0.8)) {
+              ai.pressed.add(" ");
+              ai.jumpCooldown = 0.35;
+              ai.lastJumpX = p.x;
+              ai.lastJumpY = p.y;
+              ai.lastJumpTime = game.time;
+            }
+            return;
+          }
+        }
+      }
     }
 
-    // Default horizontal traversal across platform
+    // Default horizontal traversal across platform towards goal
     if (dir > 0) {
       if (AutoCombatSystem.isWallBlocking(tree, p.x, p.y, 1)) {
-        if (t) ai.ban.set(t, game.time + 5);
-        ai.retreatTime = 0.9;
+        if (t && !AutoCombatSystem.isBoss(game, t) && allAlive.filter((m) => !ai.ban.has(m) && m !== t).length > 0) {
+          ai.ban.set(t, game.time + 3);
+        }
+        ai.retreatTime = 0.8;
         ai.retreatDir = -1;
         return;
       }
       ai.keys.add("ArrowRight");
-      if (p.x >= plat.maxX - 14 && ai.jumpCooldown <= 0) {
+      if ((p.x >= plat.maxX - 14 || ai.stuck > 0.8) && ai.jumpCooldown <= 0) {
         ai.pressed.add(" ");
         ai.jumpCooldown = 0.35;
         ai.lastJumpX = p.x;
@@ -499,13 +600,15 @@ export class AutoCombatSystem {
       }
     } else {
       if (AutoCombatSystem.isWallBlocking(tree, p.x, p.y, -1)) {
-        if (t) ai.ban.set(t, game.time + 5);
-        ai.retreatTime = 0.9;
+        if (t && !AutoCombatSystem.isBoss(game, t) && allAlive.filter((m) => !ai.ban.has(m) && m !== t).length > 0) {
+          ai.ban.set(t, game.time + 3);
+        }
+        ai.retreatTime = 0.8;
         ai.retreatDir = 1;
         return;
       }
       ai.keys.add("ArrowLeft");
-      if (p.x <= plat.minX + 14 && ai.jumpCooldown <= 0) {
+      if ((p.x <= plat.minX + 14 || ai.stuck > 0.8) && ai.jumpCooldown <= 0) {
         ai.pressed.add(" ");
         ai.jumpCooldown = 0.35;
         ai.lastJumpX = p.x;
