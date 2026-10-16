@@ -163,8 +163,8 @@ export class CombatSystem {
     const [lo, hi] = game.damageRange();
     const mobLv = mob.data.meta?.level ?? 1;
     const missChance = Math.max(0.02, Math.min(0.5, 0.06 + (mobLv - game.stats.level) * 0.03 - game.totalDex() * 0.002 - game.lv("1100000") * 0.004));
-    if (Math.random() < missChance) return { dmg: 0, miss: true, critical: false };
-    const def = (mob.data.meta?.PDDamage ?? 0) * 0.5;
+    const stageDef = game.stageMul().def || 0;
+    const def = ((mob.data.meta?.PDDamage ?? 0) * 0.5 + stageDef) * (mob.boss ? 1.6 : 1);
     const bossMul = mob.boss ? 1 + game.gt.boss / 100 : 1;
 
     let critRate = 0.08;
@@ -310,7 +310,7 @@ export class CombatSystem {
       const dropMul = 1 + game.gt.drop / 100, mat = MOB_MAT[m.data.id];
       if (mat && Math.random() < 0.45 * dropMul) game.spawnDrop({ mat }, m.x + rand(-10, 10), m.y - 20, rand(-50, 50));
       if (Math.random() < 0.05 * dropMul) game.spawnDrop({ mat: ORES[Math.floor(Math.random() * Math.min(ORES.length, 2 + Math.floor(game.stage.n / 4)))] }, m.x, m.y - 20, rand(-50, 50), -420);
-      if (Math.random() < 0.035 * dropMul) game.spawnDrop({ gear: makeGear(randomGearFor(game.stats.level)) }, m.x, m.y - 20, rand(-50, 50), -420);
+      if (Math.random() < 0.045 * dropMul) game.spawnDrop({ gear: makeGear(randomGearFor(game.stats.level, game.stats.classId)) }, m.x, m.y - 20, rand(-50, 50), -420);
       if (Math.random() < 0.14) {
         const pool = [2000000, 2000000, 2000000, 2000003, 2000003, 2000001, 2000002, 2000006];
         game.spawnDrop({ item: pool[Math.floor(Math.random() * pool.length)] }, m.x, m.y - 20, rand(-40, 40), -380);

@@ -292,10 +292,37 @@ export function makeGear(id: number, luck = 0, minRarity = 0): Gear {
   return { uid: newUid(), id, rarity, star: 0, pot: rollPotential(b.slot, rarity) };
 }
 
-/** Picks a random gear base appropriate for a level. */
-export function randomGearFor(level: number) {
-  const list = [...GEAR.values()].filter((g) => g.req <= level + 5 && g.req >= Math.max(0, level - 25) && g.id !== 1302000);
-  return pick(list.length ? list : [...GEAR.values()]).id;
+/** Picks a random gear base in player's level range up to player level + 10 for exciting progression upgrades */
+export function randomGearFor(level: number, classId?: string) {
+  const minReq = Math.max(0, level - 10);
+  const maxReq = level + 10;
+  
+  // Filter gear in the range [level - 10, level + 10], ignoring basic starter weapon (1302000) and cosmetics
+  let list = [...GEAR.values()].filter(
+    (g) => g.req <= maxReq && g.req >= minReq && g.id !== 1302000 && !g.cosmetic
+  );
+  
+  // If list is small, widen lower bound
+  if (list.length < 5) {
+    list = [...GEAR.values()].filter((g) => g.req <= maxReq && g.id !== 1302000 && !g.cosmetic);
+  }
+
+  // Weight items closer to or ahead of current level (upcoming upgrades level..level+10)
+  const weighted: number[] = [];
+  for (const g of list) {
+    let weight = 1;
+    if (g.req >= level && g.req <= maxReq) {
+      weight = 4; // 4x chance for upcoming upgrade gear in [level, level + 10]!
+    } else if (g.req >= level - 5) {
+      weight = 2;
+    }
+    for (let i = 0; i < weight; i++) weighted.push(g.id);
+  }
+
+  if (weighted.length) {
+    return weighted[Math.floor(Math.random() * weighted.length)];
+  }
+  return pick([...GEAR.values()]).id;
 }
 
 export interface GearStats { watk: number; str: number; dex: number; int: number; luk: number; hp: number; def: number }

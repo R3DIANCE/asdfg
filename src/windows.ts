@@ -2612,7 +2612,7 @@ export class Windows {
 
   // ------------------------------------------------------------- MapleStory Party Window
   buildParty() {
-    this.partyWin = this.makeWindow("party-win", 460, 520, "PARTY (P)", Math.max(20, Math.round(innerWidth / 2 - 230)), 80);
+    this.partyWin = this.makeWindow("party-win", 370, 430, "PARTY (P)", Math.max(20, Math.round(innerWidth / 2 - 185)), 75);
     el("div", "party-body", this.partyWin);
     this.partyWin.addEventListener("click", async (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>("[data-partyact]");
@@ -2738,6 +2738,24 @@ export class Windows {
       } else if (act === "refresh-party") {
         await g.loadParty();
         this.renderParty();
+      } else if (act === "copy-party-id") {
+        if (g.partyId) {
+          try {
+            await navigator.clipboard.writeText(g.partyId);
+            g.onChat("notice", `[Party] Copied Party ID: ${g.partyId}`);
+          } catch {
+            prompt("Party ID:", g.partyId);
+          }
+        }
+      } else if (act === "warp-party-member") {
+        const targetMap = Number(t.dataset.mapId);
+        if (!targetMap) return;
+        if (g.map?.id !== targetMap) {
+          await g.loadMap(targetMap, "spawn");
+          g.onChat("notice", `[Party] Traveled to party member map.`);
+        } else {
+          g.onChat("notice", `[Party] You are already on the same map.`);
+        }
       }
     });
 
@@ -2757,42 +2775,43 @@ export class Windows {
 
     if (!party) {
       body.innerHTML = `
-        <div class="p-4 flex flex-col gap-4 text-slate-200">
-          <div class="p-4 bg-white/[0.04] border border-white/10 rounded-lg flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
-              ${lucideIcon("users", 20)}
+        <div class="p-3 flex flex-col gap-2.5 text-slate-200">
+          <div class="p-2.5 bg-white/[0.04] border border-white/10 rounded flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 flex-shrink-0">
+              ${lucideIcon("users", 15)}
             </div>
-            <div>
-              <h3 class="text-sm font-bold text-white">No Party Joined</h3>
-              <p class="text-[11px] text-slate-400">Hunt together with friends and share bonus EXP on the same map.</p>
+            <div class="min-w-0">
+              <h3 class="text-xs font-bold text-white">No Party Joined</h3>
+              <p class="text-[10px] text-slate-400 leading-tight">Hunt together and share bonus EXP on the same map.</p>
             </div>
           </div>
 
-          <div class="p-4 bg-white/[0.02] border border-white/10 rounded-lg flex flex-col gap-3">
-            <h4 class="text-xs font-bold text-amber-300">Create New Party</h4>
-            <p class="text-[11px] text-slate-400">Form your own party as leader (up to 6 members). Invite anyone online.</p>
-            <button type="button" class="guild-act-btn primary py-1.5 text-xs font-bold" data-partyact="create-party">
-              Create Party
+          <div class="p-2.5 bg-white/[0.02] border border-white/10 rounded flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-bold text-amber-300">Create Party</span>
+              <span class="text-[9.5px] text-slate-400">Up to 6 members</span>
+            </div>
+            <button type="button" class="guild-act-btn primary py-1 text-xs font-bold w-full" data-partyact="create-party">
+              Create New Party
             </button>
           </div>
 
-          <div class="p-4 bg-white/[0.02] border border-white/10 rounded-lg flex flex-col gap-2.5">
-            <h4 class="text-xs font-bold text-sky-300">Join Existing Party</h4>
-            <div class="flex items-center gap-2">
-              <input type="text" placeholder="Enter Party ID (e.g. PT-123456)..." class="party-join-id-inp flex-1 bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white uppercase font-mono placeholder:normal-case" />
+          <div class="p-2.5 bg-white/[0.02] border border-white/10 rounded flex flex-col gap-1.5">
+            <span class="text-[11px] font-bold text-sky-300">Join by Party ID</span>
+            <div class="flex items-center gap-1.5">
+              <input type="text" placeholder="Enter ID (e.g. PT-1234)..." class="party-join-id-inp flex-1 bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white uppercase font-mono placeholder:normal-case placeholder:text-slate-500" />
               <button type="button" class="guild-act-btn secondary px-3 py-1 text-xs font-bold" data-partyact="join-party">Join</button>
             </div>
           </div>
 
-          <div class="p-3 bg-indigo-950/30 border border-indigo-500/20 rounded-lg text-[10.5px] text-slate-300 flex flex-col gap-1 leading-relaxed">
-            <div class="font-bold text-indigo-300 flex items-center gap-1.5">
-              ${lucideIcon("sparkles", 12)}
-              <span>Party Hunting Benefits</span>
+          <div class="p-2 bg-indigo-950/25 border border-indigo-500/20 rounded text-[10px] text-slate-300 flex flex-col gap-1 leading-snug">
+            <div class="font-bold text-indigo-300 flex items-center gap-1">
+              ${lucideIcon("sparkles", 11)}
+              <span>Party Perks</span>
             </div>
-            <div>• Up to 6 players per party.</div>
-            <div>• <strong>50% Shared Bonus EXP:</strong> When any party member defeats a monster, all same-map party members receive a 50% bonus EXP share!</div>
-            <div>• Real-time HP status indicators and map location sync.</div>
-            <div>• Dedicated Party Chat channel (/p &lt;message&gt;).</div>
+            <div>• <strong>50% Shared Bonus EXP:</strong> Slaying mobs grants a 50% EXP share to all same-map party members!</div>
+            <div>• Real-time dual HP/MP meters and 1-click map warp.</div>
+            <div>• Dedicated Party Chat channel (<span class="font-mono text-indigo-200">/p</span>).</div>
           </div>
         </div>
       `;
@@ -2821,25 +2840,28 @@ export class Windows {
       const inSameMap = (m.mapId || 910000000) === myMapId;
       const mapName = MAP_NAMES_LOCAL[m.mapId || 910000000] || `Map ${m.mapId || 910000000}`;
       const hpPct = Math.max(0, Math.min(100, Math.round(((m.hp ?? 50) / (m.maxHp ?? 50)) * 100)));
+      const maxMpVal = m.maxMp ?? 50;
+      const mpVal = m.mp ?? maxMpVal;
+      const mpPct = Math.max(0, Math.min(100, Math.round((mpVal / maxMpVal) * 100)));
       const avatarUrl = `/wz/char?eq=${(m.look || [2000, 12000, 20000, 30030]).join(",")}&action=stand1&frame=0`;
 
       return `
-        <div class="bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 rounded-lg p-2.5 transition-colors flex flex-col gap-1.5">
-          <div class="flex items-center gap-2.5">
-            <div class="relative w-9 h-9 rounded bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+        <div class="bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 rounded p-1.5 transition-colors flex flex-col gap-1">
+          <div class="flex items-center gap-2">
+            <div class="relative w-7 h-7 rounded bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
               <img src="${avatarUrl}" class="w-full h-full object-contain image-rendering-pixelated" alt="${esc(m.name)}" onerror="this.src='/wz/sprite/Mob/0100100/stand/0'" />
-              ${isMemLeader ? `<span class="absolute top-0 right-0 p-0.5 bg-amber-500/80 rounded-bl text-amber-200" title="Party Leader">${lucideIcon("crown", 9)}</span>` : ""}
+              ${isMemLeader ? `<span class="absolute top-0 right-0 p-0.5 bg-amber-500/80 rounded-bl text-amber-200" title="Party Leader">${lucideIcon("crown", 8)}</span>` : ""}
             </div>
 
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5">
-                <span class="font-bold text-xs text-white truncate">${esc(m.name)}</span>
-                ${isSelf ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[8px] border border-amber-500/30">YOU</span>` : ""}
-                ${isMemLeader ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[8px] border border-amber-500/30">LEADER</span>` : ""}
+              <div class="flex items-center gap-1">
+                <span class="font-bold text-[11px] text-white truncate">${esc(m.name)}</span>
+                ${isSelf ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">YOU</span>` : ""}
+                ${isMemLeader ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">LEADER</span>` : ""}
               </div>
-              <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                <span class="text-amber-200/90 font-semibold">Lv. ${m.level ?? 1}</span>
-                <span>${esc(m.job || "Beginner")}</span>
+              <div class="flex items-center gap-1.5 text-[9px] text-slate-400 leading-tight">
+                <span class="text-amber-200/90 font-semibold">Lv.${m.level ?? 1}</span>
+                <span class="truncate">${esc(m.job || "Beginner")}</span>
                 <span class="${inSameMap ? "text-emerald-300 font-semibold flex items-center gap-0.5" : "text-slate-500"} truncate">
                   ${inSameMap ? `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>` : ""}
                   ${esc(mapName)}
@@ -2848,77 +2870,94 @@ export class Windows {
             </div>
 
             <div class="flex items-center gap-1 flex-shrink-0">
-              ${isLeader && !isSelf ? `
-                <button type="button" class="guild-act-btn secondary p-1 text-[10px]" title="Transfer Party Leadership" data-partyact="pass-leader" data-target-name="${esc(m.name)}">
-                  ${lucideIcon("crown", 11)}
+              ${!inSameMap ? `
+                <button type="button" class="guild-act-btn secondary p-1 text-[9px]" title="Warp to Member's Map" data-partyact="warp-party-member" data-map-id="${m.mapId}">
+                  ${lucideIcon("zap", 10)}
                 </button>
-                <button type="button" class="guild-act-btn danger p-1 text-[10px]" title="Expel Member" data-partyact="expel-member" data-target-name="${esc(m.name)}">
-                  ${lucideIcon("x", 11)}
+              ` : ""}
+              ${isLeader && !isSelf ? `
+                <button type="button" class="guild-act-btn secondary p-1 text-[9px]" title="Transfer Party Leadership" data-partyact="pass-leader" data-target-name="${esc(m.name)}">
+                  ${lucideIcon("crown", 10)}
+                </button>
+                <button type="button" class="guild-act-btn danger p-1 text-[9px]" title="Expel Member" data-partyact="expel-member" data-target-name="${esc(m.name)}">
+                  ${lucideIcon("x", 10)}
                 </button>
               ` : ""}
             </div>
           </div>
 
-          <!-- Live HP Gauge -->
-          <div class="flex items-center gap-2 text-[9.5px]">
-            <span class="font-mono text-slate-400 flex-shrink-0 w-5">HP</span>
-            <div class="flex-1 h-2 rounded bg-black/50 border border-white/10 overflow-hidden relative">
-              <div class="h-full bg-gradient-to-r from-rose-500 to-rose-400 transition-all duration-300 rounded" style="width: ${hpPct}%"></div>
+          <!-- Dual Micro Gauges (HP & MP) -->
+          <div class="grid grid-cols-2 gap-1.5 text-[8.5px]">
+            <div class="flex items-center gap-1">
+              <span class="font-mono text-rose-300/80 flex-shrink-0">HP</span>
+              <div class="flex-1 h-1.5 rounded bg-black/50 border border-white/10 overflow-hidden relative">
+                <div class="h-full bg-gradient-to-r from-rose-500 to-rose-400 rounded transition-all duration-300" style="width: ${hpPct}%"></div>
+              </div>
+              <span class="font-mono text-slate-300 flex-shrink-0 text-right">${hpPct}%</span>
             </div>
-            <span class="font-mono text-slate-300 flex-shrink-0 text-right w-16">${(m.hp ?? 50).toLocaleString()} / ${(m.maxHp ?? 50).toLocaleString()}</span>
+            <div class="flex items-center gap-1">
+              <span class="font-mono text-sky-300/80 flex-shrink-0">MP</span>
+              <div class="flex-1 h-1.5 rounded bg-black/50 border border-white/10 overflow-hidden relative">
+                <div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded transition-all duration-300" style="width: ${mpPct}%"></div>
+              </div>
+              <span class="font-mono text-slate-300 flex-shrink-0 text-right">${mpPct}%</span>
+            </div>
           </div>
         </div>
       `;
     }).join("");
 
     body.innerHTML = `
-      <div class="p-3.5 flex flex-col gap-3 h-full overflow-hidden text-slate-200">
+      <div class="p-2.5 flex flex-col gap-2 h-full overflow-hidden text-slate-200">
         <!-- Top Party Status Banner -->
-        <div class="flex items-center justify-between p-2.5 bg-white/[0.04] border border-white/10 rounded-lg flex-shrink-0">
-          <div class="flex items-center gap-2 min-w-0">
-            <div class="w-8 h-8 rounded bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 flex-shrink-0">
-              ${lucideIcon("users", 16)}
+        <div class="flex items-center justify-between p-2 bg-white/[0.04] border border-white/10 rounded flex-shrink-0">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <div class="w-7 h-7 rounded bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 flex-shrink-0">
+              ${lucideIcon("users", 13)}
             </div>
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="font-bold text-xs text-white truncate font-mono">${esc(party.id)}</span>
-                <span class="text-[10px] text-slate-400">(${membersList.length}/6 Members)</span>
+              <div class="flex items-center gap-1">
+                <span class="font-bold text-[11px] text-white truncate font-mono">${esc(party.id)}</span>
+                <button type="button" class="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="Copy Party ID" data-partyact="copy-party-id">
+                  ${lucideIcon("copy", 10)}
+                </button>
+                <span class="text-[9px] text-slate-400">(${membersList.length}/6)</span>
               </div>
-              <div class="text-[10px] text-amber-300/90 flex items-center gap-1 truncate">
-                ${lucideIcon("crown", 10)}
+              <div class="text-[9px] text-amber-300/90 flex items-center gap-1 truncate">
+                ${lucideIcon("crown", 9)}
                 <span>Leader: <strong>${esc(party.leaderName)}</strong></span>
               </div>
             </div>
           </div>
 
-          <div class="flex items-center gap-1.5 flex-shrink-0">
-            <button type="button" class="guild-act-btn secondary p-1.5 text-xs" title="Refresh Party" data-partyact="refresh-party">
-              ${lucideIcon("rotate", 12)}
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button type="button" class="guild-act-btn secondary p-1 text-xs" title="Refresh Party" data-partyact="refresh-party">
+              ${lucideIcon("rotate", 11)}
             </button>
           </div>
         </div>
 
         <!-- Shared EXP Indicator -->
-        <div class="px-2.5 py-1.5 bg-emerald-950/30 border border-emerald-500/25 rounded-md text-[10px] text-emerald-300 flex items-center gap-1.5 flex-shrink-0">
-          ${lucideIcon("sparkles", 11, "flex-shrink-0 text-emerald-400")}
-          <span><strong>Party Hunting Bonus:</strong> Same-map members share +50% monster EXP!</span>
+        <div class="px-2 py-1 bg-emerald-950/30 border border-emerald-500/25 rounded text-[9.5px] text-emerald-300 flex items-center gap-1.5 flex-shrink-0">
+          ${lucideIcon("sparkles", 10, "flex-shrink-0 text-emerald-400")}
+          <span><strong>EXP Share:</strong> +50% monster EXP to all same-map members!</span>
         </div>
 
         <!-- Member List -->
-        <div class="flex-1 overflow-y-auto flex flex-col gap-2 pr-0.5">
+        <div class="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
           ${memberCards}
         </div>
 
         <!-- Bottom Controls -->
-        <div class="flex flex-col gap-2 pt-2 border-t border-white/10 flex-shrink-0">
+        <div class="flex flex-col gap-1.5 pt-1.5 border-t border-white/10 flex-shrink-0">
           ${membersList.length < 6 ? `
-            <div class="flex items-center gap-1.5">
-              <input type="text" placeholder="Invite player by character name..." class="party-invite-name-inp flex-1 bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white placeholder:text-slate-500" />
-              <button type="button" class="guild-act-btn primary px-3 py-1 text-xs font-bold" data-partyact="invite-member">Invite</button>
+            <div class="flex items-center gap-1">
+              <input type="text" placeholder="Invite player by name..." class="party-invite-name-inp flex-1 bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white placeholder:text-slate-500" />
+              <button type="button" class="guild-act-btn primary px-2.5 py-1 text-xs font-bold" data-partyact="invite-member">Invite</button>
             </div>
-          ` : `<div class="text-center text-[10px] text-slate-500">Party is currently full (6/6).</div>`}
+          ` : `<div class="text-center text-[9px] text-slate-500">Party is full (6/6).</div>`}
 
-          <div class="flex items-center justify-between gap-2 pt-1">
+          <div class="flex items-center justify-between gap-1.5">
             <button type="button" class="guild-act-btn secondary py-1 text-xs flex-1 text-center" data-partyact="leave-party">
               Leave Party
             </button>

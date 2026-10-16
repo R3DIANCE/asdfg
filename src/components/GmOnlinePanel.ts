@@ -100,7 +100,7 @@ export class GmOnlinePanel extends ComponentBase {
     // Expanded Translucent Panel Box
     this.panelBox = el(
       "div",
-      "gm-panel-box flex flex-col w-[268px] max-h-[calc(100vh-130px)] bg-slate-950/65 border-l border-t border-b border-white/10 rounded-l-lg backdrop-blur-[16px] shadow-[0_12px_40px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.08)] overflow-hidden hidden",
+      "gm-panel-box flex flex-col w-[250px] max-h-[calc(100vh-130px)] bg-slate-950/70 border-l border-t border-b border-white/10 rounded-l-lg backdrop-blur-[16px] shadow-[0_12px_40px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.08)] overflow-hidden hidden",
       this.root
     );
 
@@ -287,45 +287,56 @@ export class GmOnlinePanel extends ComponentBase {
     this.playerListEl.innerHTML = "";
 
     for (const p of filtered) {
-      const card = el("div", "gm-player-card bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 rounded p-1.5 transition-colors flex flex-col gap-1", this.playerListEl);
+      const card = el("div", "gm-player-card bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 rounded p-1.5 transition-colors flex flex-col gap-1", this.playerListEl);
 
       const mapName = MAP_NAMES[p.mapId] || `Map ${p.mapId}`;
       const avatarUrl = `/wz/char?eq=${(p.look || [2000, 12000, 20000, 30030]).join(",")}&action=stand1&frame=0`;
 
       const topRow = el("div", "flex items-center gap-1.5", card);
       topRow.innerHTML = `
-        <div class="relative w-7 h-7 rounded bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+        <div class="relative w-6 h-6 rounded bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
           <img src="${avatarUrl}" class="w-full h-full object-contain image-rendering-pixelated" alt="${p.name}" onerror="this.src='/wz/sprite/Mob/0100100/stand/0'" />
-          ${p.isLocal ? `<span class="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full bg-amber-400"></span>` : ""}
+          ${p.isLocal ? `<span class="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full ${this.game.godMode ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}"></span>` : ""}
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1">
-            <span class="font-bold text-[11px] text-slate-100 truncate">${p.name}</span>
-            ${p.isLocal ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[8px] border border-amber-500/30">YOU</span>` : ""}
+            <span class="font-bold text-[10.5px] text-slate-100 truncate">${p.name}</span>
+            ${p.isLocal ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">YOU</span>` : ""}
+            ${p.isLocal && this.game.godMode ? `<span class="px-1 py-0 rounded bg-yellow-500/20 text-yellow-300 font-mono text-[7px] border border-yellow-500/30">GOD</span>` : ""}
           </div>
-          <div class="text-[9px] text-slate-400 flex items-center gap-1 truncate">
+          <div class="text-[8.5px] text-slate-400 flex items-center gap-1 truncate">
             <span class="text-cyan-300 truncate">${mapName}</span>
             <span class="text-slate-500 font-mono">(${p.x},${p.y})</span>
           </div>
         </div>
       `;
 
-      // Compact Lucide Icon Action Buttons (No clunky labels)
-      const actionsRow = el("div", "flex items-center justify-end gap-1 pt-0.5 border-t border-white/5", card);
+      // Compact Lucide Icon Action Buttons Grid
+      const actionsRow = el("div", "w-full pt-1 border-t border-white/5", card);
 
       if (p.isLocal) {
         actionsRow.innerHTML = `
-          <button type="button" class="gm-act-btn heal p-1 rounded bg-white/5 hover:bg-emerald-500/25 text-emerald-300 border border-white/10" title="Full Heal">
-            ${lucideIcon("sparkles", 11)}
-          </button>
-          <button type="button" class="gm-act-btn meso p-1 rounded bg-white/5 hover:bg-amber-500/25 text-amber-300 border border-white/10" title="+1M Mesos">
-            ${lucideIcon("coins", 11)}
-          </button>
-          <button type="button" class="gm-act-btn switch-char p-1 rounded bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10" title="Switch Character">
-            ${lucideIcon("logout", 11)}
-          </button>
+          <div class="grid grid-cols-4 gap-1">
+            <button type="button" class="gm-act-btn heal h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-emerald-500/25 text-emerald-300 border border-white/10 transition-colors" title="Full Heal">
+              ${lucideIcon("sparkles", 10)}
+            </button>
+            <button type="button" class="gm-act-btn meso h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-amber-500/25 text-amber-300 border border-white/10 transition-colors" title="+1M Mesos">
+              ${lucideIcon("coins", 10)}
+            </button>
+            <button type="button" class="gm-act-btn godmode h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-yellow-500/25 ${this.game.godMode ? "text-yellow-300 border-yellow-400/50 bg-yellow-500/20" : "text-slate-400"} border border-white/10 transition-colors" title="Toggle God Mode (Invincible)">
+              ${lucideIcon("shield", 10)}
+            </button>
+            <button type="button" class="gm-act-btn switch-char h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10 transition-colors" title="Switch Character">
+              ${lucideIcon("logout", 10)}
+            </button>
+          </div>
         `;
 
+        actionsRow.querySelector(".godmode")?.addEventListener("click", () => {
+          this.game.godMode = !this.game.godMode;
+          this.game.onChat("notice", `[GM] God Mode (Invincible): ${this.game.godMode ? "ON" : "OFF"}`);
+          this.renderPlayers();
+        });
         actionsRow.querySelector(".heal")?.addEventListener("click", () => {
           this.game.stats.hp = this.game.stats.maxHp;
           this.game.stats.mp = this.game.stats.maxMp;
@@ -346,27 +357,29 @@ export class GmOnlinePanel extends ComponentBase {
         });
       } else {
         actionsRow.innerHTML = `
-          <button type="button" class="gm-act-btn warp p-1 rounded bg-white/5 hover:bg-sky-500/25 text-sky-300 border border-white/10" title="Warp to player">
-            ${lucideIcon("zap", 11)}
-          </button>
-          <button type="button" class="gm-act-btn summon p-1 rounded bg-white/5 hover:bg-purple-500/25 text-purple-300 border border-white/10" title="Summon to GM">
-            ${lucideIcon("map-pin", 11)}
-          </button>
-          <button type="button" class="gm-act-btn dm p-1 rounded bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10" title="Whisper">
-            ${lucideIcon("message", 11)}
-          </button>
-          <button type="button" class="gm-act-btn heal p-1 rounded bg-white/5 hover:bg-emerald-500/25 text-emerald-300 border border-white/10" title="Divine Heal">
-            ${lucideIcon("sparkles", 11)}
-          </button>
-          <button type="button" class="gm-act-btn meso p-1 rounded bg-white/5 hover:bg-amber-500/25 text-amber-300 border border-white/10" title="+1M Mesos">
-            ${lucideIcon("coins", 11)}
-          </button>
-          <button type="button" class="gm-act-btn force-party p-1 rounded bg-white/5 hover:bg-indigo-500/25 text-indigo-300 border border-white/10" title="Force into Party">
-            ${lucideIcon("user-plus", 11)}
-          </button>
-          <button type="button" class="gm-act-btn kick p-1 rounded bg-white/5 hover:bg-rose-500/25 text-rose-400 border border-white/10" title="Kick from server">
-            ${lucideIcon("kick", 11)}
-          </button>
+          <div class="grid grid-cols-7 gap-0.5">
+            <button type="button" class="gm-act-btn warp h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-sky-500/25 text-sky-300 border border-white/10 transition-colors" title="Warp to player">
+              ${lucideIcon("zap", 10)}
+            </button>
+            <button type="button" class="gm-act-btn summon h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-purple-500/25 text-purple-300 border border-white/10 transition-colors" title="Summon to GM">
+              ${lucideIcon("map-pin", 10)}
+            </button>
+            <button type="button" class="gm-act-btn dm h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10 transition-colors" title="Whisper">
+              ${lucideIcon("message", 10)}
+            </button>
+            <button type="button" class="gm-act-btn heal h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-emerald-500/25 text-emerald-300 border border-white/10 transition-colors" title="Divine Heal">
+              ${lucideIcon("sparkles", 10)}
+            </button>
+            <button type="button" class="gm-act-btn meso h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-amber-500/25 text-amber-300 border border-white/10 transition-colors" title="+1M Mesos">
+              ${lucideIcon("coins", 10)}
+            </button>
+            <button type="button" class="gm-act-btn force-party h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-indigo-500/25 text-indigo-300 border border-white/10 transition-colors" title="Force into Party">
+              ${lucideIcon("user-plus", 10)}
+            </button>
+            <button type="button" class="gm-act-btn kick h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-rose-500/25 text-rose-400 border border-white/10 transition-colors" title="Kick from server">
+              ${lucideIcon("kick", 10)}
+            </button>
+          </div>
         `;
 
         actionsRow.querySelector(".force-party")?.addEventListener("click", async () => {

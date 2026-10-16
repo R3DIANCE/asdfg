@@ -184,8 +184,16 @@ export const EXP_TABLE = [
   11040, 13716, 16680, 20216, 24402, 28980, 34320, 40512, 47216, 54900, 63666, 73080, 83720, 95700,
 ];
 
-export const expToLevel = (lv: number) =>
-  EXP_TABLE[Math.min(lv - 1, EXP_TABLE.length - 1)] * (lv > EXP_TABLE.length ? 1 + (lv - EXP_TABLE.length) * 0.15 : 1);
+export const expToLevel = (lv: number) => {
+  const safeLv = Math.max(1, Math.floor(lv));
+  if (safeLv <= EXP_TABLE.length) {
+    return EXP_TABLE[safeLv - 1];
+  }
+  // Infinite exponential progression beyond Lv. 30 with scaling exponent
+  const base = EXP_TABLE[EXP_TABLE.length - 1]; // 95,700 at Lv. 30
+  const diff = safeLv - EXP_TABLE.length;
+  return Math.round(base * Math.pow(1.085, diff) * (1 + Math.pow(diff / 8, 1.8)));
+};
 
 export const WALK = 135, JUMP = 560, CLIMB = 150;
 export const rand = (a: number, b: number) => a + Math.random() * (b - a);

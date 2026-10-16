@@ -6,12 +6,26 @@ import { BOSSES, STAGE_KILLS, rand, type MobData } from "../game-types.ts";
 
 export class StageSystem {
   public static stageMul(n: number) {
-    return {
-      hp: Math.pow(1.16, n - 1),
-      dmg: Math.pow(1.07, n - 1),
-      exp: Math.pow(1.11, n - 1),
-      meso: Math.pow(1.1, n - 1),
-    };
+    const stageIdx = Math.max(0, n - 1);
+    // Compound exponential & polynomial scaling: every stage gets meaningfully tougher to kill
+    const hpExp = Math.pow(1.22, stageIdx);
+    const hpPoly = 1 + stageIdx * 0.15 + Math.pow(stageIdx / 4, 1.8) * 0.1;
+    const hp = Math.max(1, Math.round(hpExp * hpPoly));
+
+    const dmgExp = Math.pow(1.10, stageIdx);
+    const dmgPoly = 1 + stageIdx * 0.05;
+    const dmg = dmgExp * dmgPoly;
+
+    const expExp = Math.pow(1.14, stageIdx);
+    const expPoly = 1 + stageIdx * 0.08;
+    const exp = expExp * expPoly;
+
+    const mesoExp = Math.pow(1.12, stageIdx);
+    const meso = mesoExp * (1 + stageIdx * 0.06);
+
+    const def = Math.round(stageIdx * 12 + Math.pow(stageIdx, 1.3) * 2);
+
+    return { hp, dmg, exp, meso, def };
   }
 
   public static bossFor(n: number) {
@@ -54,8 +68,8 @@ export class StageSystem {
 
       const m = game.makeMob(spawn)!;
       m.boss = true;
-      m.maxHp = m.hp = Math.round(refHp * 28 * (1 + game.stage.n * 0.04));
-      m.atk = Math.round((ref?.atk ?? 15) * 2.2);
+      m.maxHp = m.hp = Math.round(refHp * 40 * Math.pow(1.15, game.stage.n - 1) * (1 + game.stage.n * 0.12));
+      m.atk = Math.round((ref?.atk ?? 15) * (2.4 + game.stage.n * 0.08));
       m.mul = { exp: (ref?.mul.exp ?? 1) * 1, meso: ref?.mul.meso ?? 1 };
       m.aggro = 999;
       m.skillT = 3;
@@ -98,7 +112,7 @@ export class StageSystem {
       const gearN = 1 + (Math.random() < 0.5 ? 1 : 0);
       for (let i = 0; i < gearN; i++) {
         game.spawnDrop(
-          { gear: makeGear(randomGearFor(game.stats.level + 5), 1.6, 1) },
+          { gear: makeGear(randomGearFor(game.stats.level, game.stats.classId), 1.8, 1) },
           m.x + rand(-40, 40),
           m.y - 30,
           rand(-80, 80),
@@ -164,7 +178,7 @@ export class StageSystem {
         mats[ORES[Math.floor(Math.random() * 3)]] = Math.floor(kills * 0.04);
         const gear: Gear[] = [];
         for (let i = 0; i < Math.min(8, Math.floor(kills / 120)); i++) {
-          gear.push(makeGear(randomGearFor(game.stats.level), 0.4));
+          gear.push(makeGear(randomGearFor(game.stats.level, game.stats.classId), 0.4));
         }
 
         // Merge and accumulate onto any existing unclaimed rewards
