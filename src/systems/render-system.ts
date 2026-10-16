@@ -13,7 +13,7 @@ import {
   DEFAULT_LOOK,
   expToLevel,
 } from "../game-types.ts";
-import { itemIcon, itemIconRaw, QUICK_KEYS, KEY_LABEL, WEAPON_ICON, SKILL, ITEMS } from "../skills.ts";
+import { itemIcon, itemIconRaw, QUICK_KEYS, KEY_LABEL, WEAPON_ICON, SKILL, ITEMS, type Action } from "../skills.ts";
 import { PetSystem } from "./pet-system.ts";
 import { type GuildEmblem, EMBLEM_COLORS, guildEmblemUrl } from "../guild.ts";
 import { getWeaponType } from "../items.ts";
@@ -59,6 +59,120 @@ export function renderLabelTexture(r: Renderer, text: string, fontSize = 8, colo
 
     ctx.fillStyle = color;
     ctx.fillText(text, w / 2, h / 2);
+
+    createImageBitmap(canvas).then((bmp) => {
+      const tex = r.texture(bmp);
+      textTexCache.set(key, tex);
+      textTexPending.delete(key);
+    }).catch(() => {
+      textTexPending.delete(key);
+    });
+  } catch {
+    textTexPending.delete(key);
+  }
+
+  return null;
+}
+
+export function renderTooltipTexture(r: Renderer, title: string, subtitle?: string, desc?: string): Tex | null {
+  const key = `unified_tip:${title}:${subtitle ?? ""}:${desc ?? ""}`;
+  const hit = textTexCache.get(key);
+  if (hit) return hit;
+  if (textTexPending.has(key)) return null;
+  textTexPending.add(key);
+
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      textTexPending.delete(key);
+      return null;
+    }
+
+    ctx.font = "bold 11px Tahoma, 'Segoe UI', Arial, sans-serif";
+    const titleW = Math.ceil(ctx.measureText(title).width);
+
+    ctx.font = "bold 9px Tahoma, 'Segoe UI', Arial, sans-serif";
+    const subW = subtitle ? Math.ceil(ctx.measureText(subtitle).width) : 0;
+
+    const padX = 10;
+    let w = Math.min(280, Math.max(140, Math.max(titleW, subW) + padX * 2));
+
+    const descLines: string[] = [];
+    if (desc) {
+      ctx.font = "9.5px Tahoma, 'Segoe UI', Arial, sans-serif";
+      const words = desc.split(" ");
+      let curLine = "";
+      for (const word of words) {
+        const test = curLine ? `${curLine} ${word}` : word;
+        if (ctx.measureText(test).width > w - padX * 2) {
+          if (curLine) descLines.push(curLine);
+          curLine = word;
+        } else {
+          curLine = test;
+        }
+      }
+      if (curLine) descLines.push(curLine);
+    }
+
+    const headerH = 15;
+    const subH = subtitle ? 13 : 0;
+    const descH = descLines.length * 13;
+    const padY = 8;
+    const h = headerH + subH + descH + padY * 2;
+
+    canvas.width = w;
+    canvas.height = h;
+
+    // Dark sleek glassmorphic card matching theme
+    ctx.fillStyle = "rgba(10, 14, 22, 0.94)";
+    ctx.beginPath();
+    if ((ctx as any).roundRect) (ctx as any).roundRect(0, 0, w, h, 4);
+    else ctx.rect(0, 0, w, h);
+    ctx.fill();
+
+    // Subtle cyan/metallic border
+    ctx.strokeStyle = "rgba(70, 105, 145, 0.8)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if ((ctx as any).roundRect) (ctx as any).roundRect(0.5, 0.5, w - 1, h - 1, 4);
+    else ctx.rect(0.5, 0.5, w - 1, h - 1);
+    ctx.stroke();
+
+    // Inner subtle glow at top
+    const grad = ctx.createLinearGradient(0, 0, 0, 12);
+    grad.addColorStop(0, "rgba(255, 255, 255, 0.12)");
+    grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(1, 1, w - 2, 12);
+
+    let curY = padY + 8;
+
+    // Title
+    ctx.font = "bold 11px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.fillStyle = "#facc15";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(title, padX, curY);
+    curY += 13;
+
+    // Subtitle
+    if (subtitle) {
+      ctx.font = "bold 9px Tahoma, 'Segoe UI', Arial, sans-serif";
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillText(subtitle, padX, curY);
+      curY += 12;
+    }
+
+    // Description lines
+    if (descLines.length > 0) {
+      ctx.font = "9.5px Tahoma, 'Segoe UI', Arial, sans-serif";
+      ctx.fillStyle = "#cbd5e1";
+      for (const line of descLines) {
+        ctx.fillText(line, padX, curY);
+        curY += 13;
+      }
+    }
 
     createImageBitmap(canvas).then((bmp) => {
       const tex = r.texture(bmp);
@@ -527,11 +641,28 @@ export class WebGpuMenuInput {
   static mouseX = -1;
   static mouseY = -1;
   static isDown = false;
+  static downStartX = -1;
+  static downStartY = -1;
+  static isDragging = false;
+  static dragAction: Action | null = null;
+  static dragFromKey: string | null = null;
+
   static hoveredBtnId: string | null = null;
   static activeSubmenu: string | null = null;
   static hoveredSubmenuItem: string | null = null;
   static hoveredQuickKey: string | null = null;
   static hoveredAutoBtn: "battle" | "boss" | null = null;
+  static hoveredHp = false;
+  static hoveredMp = false;
+  static hoveredLevel = false;
+  static hoveredExp = false;
+
+  static activeTooltip: {
+    title: string;
+    subtitle?: string;
+    desc?: string;
+  } | null = null;
+
   static installed = false;
 
   static install(canvas: HTMLCanvasElement, game: Game) {
@@ -542,16 +673,83 @@ export class WebGpuMenuInput {
       const rect = canvas.getBoundingClientRect();
       this.mouseX = Math.round(e.clientX - rect.left);
       this.mouseY = Math.round(e.clientY - rect.top);
+
+      if (this.isDown && !this.isDragging && this.dragFromKey && this.dragAction) {
+        if (Math.hypot(this.mouseX - this.downStartX, this.mouseY - this.downStartY) > 5) {
+          this.isDragging = true;
+          let win = (game as any).hud?.wins ?? (game as any).windows ?? (window as any).__windows;
+          if (win && typeof win.toggle !== "function" && win.wins) win = win.wins;
+          if (win?.iconFor) {
+            win.ghost = document.createElement("div");
+            win.ghost.className = "drag-ghost";
+            const iconUrl = win.iconFor(this.dragAction);
+            if (iconUrl) win.ghost.style.backgroundImage = `url("${iconUrl}")`;
+            document.body.appendChild(win.ghost);
+            document.body.classList.add("cursor-grabbing");
+          }
+        }
+      }
+
+      if (this.isDragging) {
+        let win = (game as any).hud?.wins ?? (game as any).windows ?? (window as any).__windows;
+        if (win && typeof win.toggle !== "function" && win.wins) win = win.wins;
+        if (win?.moveGhost) {
+          win.moveGhost(e.clientX, e.clientY);
+        }
+      }
     });
 
     window.addEventListener("pointerdown", (e: PointerEvent) => {
       if (e.button !== 0) return;
       this.isDown = true;
+      this.downStartX = this.mouseX;
+      this.downStartY = this.mouseY;
+      this.isDragging = false;
+      if (this.hoveredQuickKey && game.quick[this.hoveredQuickKey]) {
+        this.dragFromKey = this.hoveredQuickKey;
+        this.dragAction = game.quick[this.hoveredQuickKey];
+      } else {
+        this.dragFromKey = null;
+        this.dragAction = null;
+      }
     });
 
     window.addEventListener("pointerup", (e: PointerEvent) => {
       if (e.button !== 0) return;
       this.isDown = false;
+
+      if (this.isDragging) {
+        let win = (game as any).hud?.wins ?? (game as any).windows ?? (window as any).__windows;
+        if (win && typeof win.toggle !== "function" && win.wins) win = win.wins;
+        if (win?.ghost) {
+          win.ghost.remove();
+          win.ghost = null;
+        }
+        document.body.classList.remove("cursor-grabbing");
+
+        const fromK = this.dragFromKey;
+        const toK = this.hoveredQuickKey;
+        if (fromK) {
+          if (toK && toK !== fromK) {
+            const tmp = game.quick[toK] ?? null;
+            game.quick[toK] = game.quick[fromK] ?? null;
+            game.quick[fromK] = tmp;
+            game.onChange();
+          } else if (!toK) {
+            delete game.quick[fromK];
+            game.onChat("system", "Removed from the quick slot.");
+            game.onChange();
+          }
+        }
+
+        this.isDragging = false;
+        this.dragFromKey = null;
+        this.dragAction = null;
+        return;
+      }
+
+      this.dragFromKey = null;
+      this.dragAction = null;
       this.handleClick(game);
     });
 
@@ -582,6 +780,13 @@ export class WebGpuMenuInput {
       game.onChat("notice", game.auto.boss ? "Auto Boss is ON. Stage boss will be challenged automatically." : "Auto Boss is OFF.");
       game.onChange();
       return;
+    }
+
+    if (this.hoveredLevel || this.hoveredHp || this.hoveredMp) {
+      if (win?.toggle && win.stat) {
+        win.toggle(win.stat);
+        return;
+      }
     }
 
     if (this.hoveredQuickKey) {
@@ -842,11 +1047,12 @@ export class WorldRenderer {
     if (game.fade > 0) r.rect(0, 0, r.width, r.height, [0, 0, 0, game.fade]);
     if (game.loadingMap) r.rect(0, 0, r.width, r.height, [0, 0, 0, 1]);
 
-    // Modern stylish Tailwind CSS HUD is rendered in DOM for full glassmorphism and responsiveness
-    // WorldRenderer.drawHpMpPanel(game);
-    // WorldRenderer.drawExpBar(game);
-    // WorldRenderer.drawMenuButtons(game);
-    // WorldRenderer.drawQuickBar(game);
+    // Unified WebGPU HUD rendered via WebGpuMenuInput with consistent theme across all panels
+    WorldRenderer.drawHpMpPanel(game);
+    WorldRenderer.drawExpBar(game);
+    WorldRenderer.drawMenuButtons(game);
+    WorldRenderer.drawQuickBar(game);
+    WorldRenderer.drawHudTooltips(game);
 
     r.end();
   }
@@ -861,6 +1067,13 @@ export class WorldRenderer {
     const panelH = 70;
     const x = Math.round((r.width - totalW) / 2);
     const y = Math.round(r.height - panelH - 10);
+
+    const mx = WebGpuMenuInput.mouseX;
+    const my = WebGpuMenuInput.mouseY;
+
+    WebGpuMenuInput.hoveredHp = false;
+    WebGpuMenuInput.hoveredMp = false;
+    WebGpuMenuInput.hoveredLevel = false;
 
     // 1. Panel Background
     const bgTex = game.assets.get(STATUS_UI.backgrnd);
@@ -995,9 +1208,36 @@ export class WorldRenderer {
       }
     };
 
-    // 6. Draw HP & MP Numbers
+    // 7. Draw HP & MP Numbers
     drawGaugeNumbers(`${hp} / ${maxHp}`, y + 30);
     drawGaugeNumbers(`${mp} / ${maxMp}`, y + 46);
+
+    // 8. Hover Highlight & Tooltip Trigger for Level, HP, and MP
+    if (mx >= x + 22 && mx <= curLvX + 4 && my >= y + 6 && my <= y + 20) {
+      WebGpuMenuInput.hoveredLevel = true;
+      r.rect(x + 22, y + 6, curLvX - x - 18, 14, [1, 0.85, 0.2, 0.25]);
+      WebGpuMenuInput.activeTooltip = {
+        title: `Lv. ${game.stats.level || 1} ${charName}`,
+        subtitle: `AP: ${game.stats.ap || 0} · SP: ${game.stats.sp || 0}`,
+        desc: "Click to open Character Stats & Attributes window.",
+      };
+    } else if (mx >= x + 24 && mx <= x + 195 && my >= y + 26 && my <= y + 41) {
+      WebGpuMenuInput.hoveredHp = true;
+      r.rect(x + 24, y + 28, 171, 13, [1, 0.3, 0.4, 0.22]);
+      WebGpuMenuInput.activeTooltip = {
+        title: "Hit Points (HP)",
+        subtitle: `${hp} / ${maxHp} (${(hpRatio * 100).toFixed(1)}%)`,
+        desc: "Your life vitality. Recovers automatically or via potions. Click to open Stats.",
+      };
+    } else if (mx >= x + 24 && mx <= x + 195 && my >= y + 42 && my <= y + 57) {
+      WebGpuMenuInput.hoveredMp = true;
+      r.rect(x + 24, y + 44, 171, 13, [0.2, 0.6, 1.0, 0.22]);
+      WebGpuMenuInput.activeTooltip = {
+        title: "Mana Points (MP)",
+        subtitle: `${mp} / ${maxMp} (${(mpRatio * 100).toFixed(1)}%)`,
+        desc: "Magical energy consumed when casting skills. Click to open Stats.",
+      };
+    }
   }
 
   public static drawExpBar(game: Game) {
@@ -1114,46 +1354,14 @@ export class WorldRenderer {
 
     // 6. EXP Bar Hover Tooltip
     if (WebGpuMenuInput.mouseY >= expY - 4 && WebGpuMenuInput.mouseY <= r.height) {
-      const tipText = `EXP: ${exp.toLocaleString()} / ${expNeed.toLocaleString()} (${expPct.toFixed(2)}%)`;
-      const tipW = tipText.length * 7 + 16;
-      const tipX = Math.max(10, Math.min(r.width - tipW - 10, WebGpuMenuInput.mouseX - tipW / 2));
-      const tipY = expY - 24;
-      r.rect(tipX, tipY, tipW, 18, [0.06, 0.09, 0.14, 0.92]);
-      r.rect(tipX, tipY, tipW, 1, [0.4, 0.5, 0.65, 0.7]);
-      r.rect(tipX, tipY + 17, tipW, 1, [0.4, 0.5, 0.65, 0.7]);
-      r.rect(tipX, tipY, 1, 18, [0.4, 0.5, 0.65, 0.7]);
-      r.rect(tipX + tipW - 1, tipY, 1, 18, [0.4, 0.5, 0.65, 0.7]);
-      let tx = tipX + 8;
-      for (let i = 0; i < tipText.length; i++) {
-        const ch = tipText[i];
-        if (ch >= "0" && ch <= "9") {
-          const dTex = game.assets.get(STATUS_UI.gaugeNum[Number(ch)]);
-          if (dTex) {
-            r.draw(dTex, tx, tipY + 4, dTex.w, dTex.h);
-            tx += dTex.w + 1;
-          } else {
-            tx += 7;
-          }
-        } else if (ch === "/") {
-          const sTex = game.assets.get(STATUS_UI.gaugeSlash);
-          if (sTex) {
-            r.draw(sTex, tx, tipY + 4, sTex.w, sTex.h);
-            tx += sTex.w + 1;
-          } else {
-            tx += 7;
-          }
-        } else if (ch === "%" || ch === ".") {
-          const sTex = game.assets.get(EXP_UI.num[ch]);
-          if (sTex) {
-            r.draw(sTex, tx, ch === "." ? tipY + 9 : tipY + 4, sTex.w, sTex.h);
-            tx += sTex.w + 1;
-          } else {
-            tx += 5;
-          }
-        } else {
-          tx += 4;
-        }
-      }
+      WebGpuMenuInput.hoveredExp = true;
+      WebGpuMenuInput.activeTooltip = {
+        title: "Experience Points (EXP)",
+        subtitle: `${exp.toLocaleString()} / ${expNeed.toLocaleString()} (${expPct.toFixed(2)}%)`,
+        desc: "Earn EXP by slaying monsters or completing quests to level up your character.",
+      };
+    } else {
+      WebGpuMenuInput.hoveredExp = false;
     }
   }
 
@@ -1179,6 +1387,78 @@ export class WorldRenderer {
     let activeBtnX = menuX;
     let activeBtnY = menuY;
 
+    const btnTooltips: Record<string, { title: string; subtitle: string; desc: string }> = {
+      character: { title: "Character", subtitle: "Hotkey: S / K / E / I", desc: "Inspect ability stats, skill tree, equipment, and inventory." },
+      community: { title: "Community", subtitle: "Hotkey: P / G", desc: "Party management, stage boss raids, and guild roster." },
+      setting: { title: "Key Settings", subtitle: "Hotkey: \\", desc: "Customize keyboard bindings and quickbar layout." },
+      menu: { title: "Game Menu", subtitle: "Hotkey: ESC", desc: "Game guide, system settings, quests, and exit." },
+      event: { title: "Event & Rewards", subtitle: "Daily Login", desc: "Claim daily attendance rewards and accumulated offline gains." },
+      cashShop: { title: "Cash Shop", subtitle: "Special Boutique", desc: "Browse exclusive costumes, hairstyles, faces, and pets." },
+    };
+
+    const subTooltips: Record<string, { title: string; subtitle: string; desc: string }> = {
+      stat: { title: "Character Stats", subtitle: "Hotkey: S", desc: "Distribute AP into STR, DEX, INT, and LUK." },
+      skill: { title: "Skill Tree", subtitle: "Hotkey: K", desc: "Learn and level up job skills using SP." },
+      equip: { title: "Equipment", subtitle: "Hotkey: E", desc: "Equip weapons, armor, accessories, and vanity items." },
+      item: { title: "Inventory", subtitle: "Hotkey: I", desc: "View Equip, Use, Etc, Set-up, and Cash item tabs." },
+      bossParty: { title: "Party & Raids", subtitle: "Hotkey: P", desc: "Form parties and challenge stage bosses together." },
+      guild: { title: "Guild", subtitle: "Hotkey: G", desc: "Guild members, guild level, emblem, and perks." },
+      keySetting: { title: "Key Config", subtitle: "Hotkey: \\", desc: "Customize quickbar slots and action shortcuts." },
+      guide: { title: "Game Guide", subtitle: "Hotkey: F1", desc: "Comprehensive tutorials, monsters, maps, and classes." },
+      quest: { title: "Quests & Rewards", subtitle: "Daily Gifts", desc: "Claim welcome back rewards and view active quests." },
+    };
+
+    // Draw active submenu popup first so buttons render cleanly
+    WebGpuMenuInput.hoveredSubmenuItem = null;
+    if (WebGpuMenuInput.activeSubmenu) {
+      const subItems = MENU_UI.submenu.items[WebGpuMenuInput.activeSubmenu as keyof typeof MENU_UI.submenu.items];
+      if (subItems && subItems.length) {
+        const bIdx = MENU_UI.buttons.findIndex((b) => b.id === WebGpuMenuInput.activeSubmenu);
+        if (bIdx >= 0) {
+          activeBtnX = menuX + bIdx * 35;
+          activeBtnY = menuY;
+        }
+
+        const subW = 109;
+        const subX = Math.round(activeBtnX + (34 - subW) / 2);
+        const totalItemsH = subItems.length * 27;
+        const subY = activeBtnY - totalItemsH - 8;
+
+        // Submenu background box with modern sleek glassmorphism
+        r.rect(subX - 4, subY - 4, subW + 8, totalItemsH + 8, [0.05, 0.08, 0.14, 0.96]);
+        r.rect(subX - 4, subY - 4, subW + 8, 1, [0.35, 0.48, 0.65, 0.85]);
+        r.rect(subX - 4, subY + totalItemsH + 3, subW + 8, 1, [0.35, 0.48, 0.65, 0.85]);
+        r.rect(subX - 4, subY - 4, 1, totalItemsH + 8, [0.35, 0.48, 0.65, 0.85]);
+        r.rect(subX + subW + 3, subY - 4, 1, totalItemsH + 8, [0.35, 0.48, 0.65, 0.85]);
+        r.rect(subX - 3, subY - 3, subW + 6, 1, [1, 1, 1, 0.08]);
+
+        for (let j = 0; j < subItems.length; j++) {
+          const item = subItems[j];
+          const itemY = subY + j * 27;
+          const isItemHover = mx >= subX && mx < subX + subW && my >= itemY && my < itemY + 26;
+
+          if (isItemHover) {
+            anyHovered = true;
+            WebGpuMenuInput.hoveredSubmenuItem = item.id;
+            const tipInfo = subTooltips[item.id];
+            if (tipInfo) {
+              WebGpuMenuInput.activeTooltip = tipInfo;
+            }
+            r.rect(subX, itemY, subW, 26, [0.2, 0.5, 0.9, 0.22]);
+          }
+
+          const itemState: "normal" | "mouseOver" = isItemHover ? "mouseOver" : "normal";
+          const itemUrl = MENU_UI.submenu.sprite(WebGpuMenuInput.activeSubmenu, item.label, itemState);
+          const itemTex = game.assets.get(itemUrl);
+          if (itemTex) {
+            r.draw(itemTex, subX, itemY, subW, 26);
+          } else {
+            game.assets.load(itemUrl);
+          }
+        }
+      }
+    }
+
     // Draw the 6 authentic StatusBar3 menu buttons
     for (let i = 0; i < MENU_UI.buttons.length; i++) {
       const btn = MENU_UI.buttons[i];
@@ -1189,11 +1469,9 @@ export class WorldRenderer {
       if (isHover) {
         anyHovered = true;
         WebGpuMenuInput.hoveredBtnId = btn.id;
-      }
-
-      if (btn.id === WebGpuMenuInput.activeSubmenu) {
-        activeBtnX = btnX;
-        activeBtnY = btnY;
+        if (!WebGpuMenuInput.hoveredSubmenuItem && btnTooltips[btn.id]) {
+          WebGpuMenuInput.activeTooltip = btnTooltips[btn.id];
+        }
       }
 
       let state: "normal" | "mouseOver" | "pressed" = "normal";
@@ -1221,54 +1499,6 @@ export class WorldRenderer {
         } else if (notifUrl) {
           game.assets.load(notifUrl);
         }
-      }
-    }
-
-    // Draw active submenu popup
-    WebGpuMenuInput.hoveredSubmenuItem = null;
-    if (WebGpuMenuInput.activeSubmenu) {
-      const subItems = MENU_UI.submenu.items[WebGpuMenuInput.activeSubmenu as keyof typeof MENU_UI.submenu.items];
-      if (subItems && subItems.length) {
-        const subW = 109;
-        const subX = Math.round(activeBtnX + (34 - subW) / 2);
-        const totalItemsH = subItems.length * 27;
-        const subY = activeBtnY - totalItemsH - 8;
-
-        // Submenu background box
-        r.rect(subX - 4, subY - 4, subW + 8, totalItemsH + 8, [0.08, 0.12, 0.18, 0.95]);
-        r.rect(subX - 4, subY - 4, subW + 8, 1, [0.38, 0.48, 0.62, 0.8]);
-        r.rect(subX - 4, subY + totalItemsH + 3, subW + 8, 1, [0.38, 0.48, 0.62, 0.8]);
-        r.rect(subX - 4, subY - 4, 1, totalItemsH + 8, [0.38, 0.48, 0.62, 0.8]);
-        r.rect(subX + subW + 3, subY - 4, 1, totalItemsH + 8, [0.38, 0.48, 0.62, 0.8]);
-
-        for (let j = 0; j < subItems.length; j++) {
-          const item = subItems[j];
-          const itemY = subY + j * 27;
-          const isItemHover = mx >= subX && mx < subX + subW && my >= itemY && my < itemY + 26;
-
-          if (isItemHover) {
-            anyHovered = true;
-            WebGpuMenuInput.hoveredSubmenuItem = item.id;
-          }
-
-          const itemState: "normal" | "mouseOver" = isItemHover ? "mouseOver" : "normal";
-          const itemUrl = MENU_UI.submenu.sprite(WebGpuMenuInput.activeSubmenu, item.label, itemState);
-          const itemTex = game.assets.get(itemUrl);
-          if (itemTex) {
-            r.draw(itemTex, subX, itemY, subW, 26);
-          } else {
-            game.assets.load(itemUrl);
-          }
-        }
-      }
-    }
-
-    // Set cursor style
-    if (r.canvas) {
-      if (anyHovered || WebGpuMenuInput.hoveredQuickKey || WebGpuMenuInput.hoveredAutoBtn) {
-        r.canvas.style.cursor = "pointer";
-      } else if (r.canvas.style.cursor === "pointer") {
-        r.canvas.style.cursor = "default";
       }
     }
   }
@@ -1314,7 +1544,7 @@ export class WorldRenderer {
             r.draw(selTex, sx - 4, sy - 4, 40, 40);
           } else {
             game.assets.load(QUICK_UI.selected);
-            r.rect(sx, sy, 32, 32, [1, 1, 1, 0.25]);
+            r.rect(sx, sy, 32, 32, [0.35, 0.65, 1, 0.3]);
           }
         }
 
@@ -1386,41 +1616,58 @@ export class WorldRenderer {
     }
 
     // 4. Auto Combat & Auto Boss Buttons directly above QuickSlots
-    const abY = qsY - 22;
+    const abY = qsY - 24;
 
-    // Auto Combat
+    // Auto Combat Button
     const abX = qsX + 336;
     const abW = 106;
     const abH = 20;
     const isAbHover = mx >= abX && mx < abX + abW && my >= abY && my < abY + abH;
-    if (isAbHover) WebGpuMenuInput.hoveredAutoBtn = "battle";
+    if (isAbHover) {
+      WebGpuMenuInput.hoveredAutoBtn = "battle";
+      WebGpuMenuInput.activeTooltip = {
+        title: "Auto Combat System",
+        subtitle: game.auto.battle ? "STATUS: ACTIVE [ON]" : "STATUS: OFF",
+        desc: "Character hunts, loots, and recovers automatically. Hotkey: B",
+      };
+    }
 
-    r.rect(abX, abY, abW, abH, game.auto.battle ? [0.1, 0.28, 0.18, 0.9] : [0.12, 0.16, 0.22, 0.85]);
-    r.rect(abX, abY, abW, 1, isAbHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
-    r.rect(abX, abY + abH - 1, abW, 1, isAbHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
-    r.rect(abX, abY, 1, abH, isAbHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
-    r.rect(abX + abW - 1, abY, 1, abH, isAbHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+    // Pill container matching HUD glassmorphism
+    r.rect(abX, abY, abW, abH, game.auto.battle ? [0.08, 0.22, 0.14, 0.94] : [0.07, 0.10, 0.16, 0.9]);
+    const abBorder: [number, number, number, number] = isAbHover ? [0.35, 0.85, 0.55, 0.95] : game.auto.battle ? [0.25, 0.65, 0.4, 0.8] : [0.3, 0.4, 0.52, 0.6];
+    r.rect(abX, abY, abW, 1, abBorder);
+    r.rect(abX, abY + abH - 1, abW, 1, abBorder);
+    r.rect(abX, abY, 1, abH, abBorder);
+    r.rect(abX + abW - 1, abY, 1, abH, abBorder);
 
-    r.rect(abX + 8, abY + 7, 6, 6, game.auto.battle ? [0.2, 0.9, 0.4, 1] : [0.6, 0.2, 0.2, 0.8]);
+    r.rect(abX + 7, abY + 6, 7, 7, game.auto.battle ? [0.2, 0.95, 0.4, 1] : [0.65, 0.2, 0.2, 0.75]);
     const abLabel = renderLabelTexture(r, "AUTO COMBAT", 9, game.auto.battle ? "#4ade80" : "#94a3b8");
-    if (abLabel) r.draw(abLabel, abX + 18, abY + 5, abLabel.w, abLabel.h);
+    if (abLabel) r.draw(abLabel, abX + 18, abY + 4, abLabel.w, abLabel.h);
 
-    // Auto Boss
+    // Auto Boss Button
     const bossX = qsX + 448;
-    const bossW = 100;
+    const bossW = 106;
     const bossH = 20;
     const isBossHover = mx >= bossX && mx < bossX + bossW && my >= abY && my < abY + bossH;
-    if (isBossHover) WebGpuMenuInput.hoveredAutoBtn = "boss";
+    if (isBossHover) {
+      WebGpuMenuInput.hoveredAutoBtn = "boss";
+      WebGpuMenuInput.activeTooltip = {
+        title: "Auto Boss Challenge",
+        subtitle: game.auto.boss ? "STATUS: ACTIVE [ON]" : "STATUS: OFF",
+        desc: "Stage bosses will be challenged automatically upon stage completion.",
+      };
+    }
 
-    r.rect(bossX, abY, bossW, bossH, game.auto.boss ? [0.1, 0.28, 0.18, 0.9] : [0.12, 0.16, 0.22, 0.85]);
-    r.rect(bossX, abY, bossW, 1, isBossHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
-    r.rect(bossX, abY + bossH - 1, bossW, 1, isBossHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
-    r.rect(bossX, abY, 1, bossH, isBossHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
-    r.rect(bossX + bossW - 1, abY, 1, bossH, isBossHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+    r.rect(bossX, abY, bossW, bossH, game.auto.boss ? [0.08, 0.22, 0.14, 0.94] : [0.07, 0.10, 0.16, 0.9]);
+    const bossBorder: [number, number, number, number] = isBossHover ? [0.35, 0.85, 0.55, 0.95] : game.auto.boss ? [0.25, 0.65, 0.4, 0.8] : [0.3, 0.4, 0.52, 0.6];
+    r.rect(bossX, abY, bossW, 1, bossBorder);
+    r.rect(bossX, abY + bossH - 1, bossW, 1, bossBorder);
+    r.rect(bossX, abY, 1, bossH, bossBorder);
+    r.rect(bossX + bossW - 1, abY, 1, bossH, bossBorder);
 
-    r.rect(bossX + 8, abY + 7, 6, 6, game.auto.boss ? [0.2, 0.9, 0.4, 1] : [0.6, 0.2, 0.2, 0.8]);
+    r.rect(bossX + 7, abY + 6, 7, 7, game.auto.boss ? [0.2, 0.95, 0.4, 1] : [0.65, 0.2, 0.2, 0.75]);
     const bossLabel = renderLabelTexture(r, "AUTO BOSS", 9, game.auto.boss ? "#4ade80" : "#94a3b8");
-    if (bossLabel) r.draw(bossLabel, bossX + 18, abY + 5, bossLabel.w, bossLabel.h);
+    if (bossLabel) r.draw(bossLabel, bossX + 18, abY + 4, bossLabel.w, bossLabel.h);
 
     if (!isAbHover && !isBossHover && !WebGpuMenuInput.hoveredBtnId && !WebGpuMenuInput.hoveredSubmenuItem && !WebGpuMenuInput.hoveredQuickKey) {
       WebGpuMenuInput.hoveredAutoBtn = null;
@@ -1429,29 +1676,94 @@ export class WorldRenderer {
     // 5. Tooltip on hovered QuickSlot
     if (WebGpuMenuInput.hoveredQuickKey) {
       const a = game.quick[WebGpuMenuInput.hoveredQuickKey];
+      const label = KEY_LABEL[WebGpuMenuInput.hoveredQuickKey] || WebGpuMenuInput.hoveredQuickKey;
       if (a) {
-        let title = "";
-        if (a.t === "attack") title = "Regular Attack";
-        else if (a.t === "item") title = ITEMS[a.id]?.name || `Item ${a.id}`;
-        else if (a.t === "skill") title = game.skillArt[a.id]?.name || `Skill ${a.id}`;
-
-        if (title) {
-          const tipTex = renderLabelTexture(r, title, 10, "#ffffff");
-          if (tipTex) {
-            const tipW = tipTex.w + 12;
-            const tipH = 18;
-            const tx = Math.max(10, Math.min(r.width - tipW - 10, mx - tipW / 2));
-            const ty = my - 24;
-            r.rect(tx, ty, tipW, tipH, [0.06, 0.09, 0.14, 0.92]);
-            r.rect(tx, ty, tipW, 1, [0.4, 0.5, 0.65, 0.7]);
-            r.rect(tx, ty + tipH - 1, tipW, 1, [0.4, 0.5, 0.65, 0.7]);
-            r.rect(tx, ty, 1, tipH, [0.4, 0.5, 0.65, 0.7]);
-            r.rect(tx + tipW - 1, ty, 1, tipH, [0.4, 0.5, 0.65, 0.7]);
-            r.draw(tipTex, tx + 6, ty + 4, tipTex.w, tipTex.h);
-          }
+        if (a.t === "attack") {
+          WebGpuMenuInput.activeTooltip = {
+            title: "Basic Attack",
+            subtitle: `Hotkey: [ ${label} ]`,
+            desc: "Strike nearby monsters with your equipped weapon. Drag to rebind.",
+          };
+        } else if (a.t === "item") {
+          const item = ITEMS[a.id];
+          const count = game.inv[a.id] ?? 0;
+          WebGpuMenuInput.activeTooltip = {
+            title: item?.name || `Item ${a.id}`,
+            subtitle: `Owned: ${count} · Hotkey: [ ${label} ]`,
+            desc: `${item?.hp ? `Recovers ${item.hp} HP. ` : ""}${item?.mp ? `Recovers ${item.mp} MP. ` : ""}Drag to move, right-click to clear.`,
+          };
+        } else if (a.t === "skill") {
+          const art = game.skillArt[a.id];
+          const d = SKILL[a.id];
+          const lv = game.lv(a.id);
+          const mpCost = d && d.kind !== "passive" ? d.mp(lv) : 0;
+          WebGpuMenuInput.activeTooltip = {
+            title: art?.name || `Skill ${a.id}`,
+            subtitle: `Mastery Lv. ${lv} · MP ${mpCost} · Hotkey: [ ${label} ]`,
+            desc: `${d?.summary(lv) || art?.desc || "Unleash combat technique."} Drag to move, right-click to clear.`,
+          };
         }
+      } else {
+        WebGpuMenuInput.activeTooltip = {
+          title: "Quick Slot",
+          subtitle: `Hotkey: [ ${label} ]`,
+          desc: "Drag skills or consumable items here from your inventory to assign shortcut.",
+        };
       }
     }
+  }
+
+  public static drawHudTooltips(game: Game) {
+    if (!game.stats || game.loadingMap) return;
+    const r = game.r;
+
+    const isAnyElementHovered =
+      WebGpuMenuInput.hoveredQuickKey ||
+      WebGpuMenuInput.hoveredAutoBtn ||
+      WebGpuMenuInput.hoveredBtnId ||
+      WebGpuMenuInput.hoveredSubmenuItem ||
+      WebGpuMenuInput.hoveredHp ||
+      WebGpuMenuInput.hoveredMp ||
+      WebGpuMenuInput.hoveredLevel ||
+      WebGpuMenuInput.hoveredExp;
+
+    if (!isAnyElementHovered) {
+      WebGpuMenuInput.activeTooltip = null;
+      if (r.canvas && r.canvas.style.cursor === "pointer") {
+        r.canvas.style.cursor = "default";
+      }
+      return;
+    }
+
+    if (r.canvas) {
+      r.canvas.style.cursor = "pointer";
+    }
+
+    const tip = WebGpuMenuInput.activeTooltip;
+    if (!tip) return;
+
+    const tipTex = renderTooltipTexture(r, tip.title, tip.subtitle, tip.desc);
+    if (!tipTex) return;
+
+    const mx = WebGpuMenuInput.mouseX;
+    const my = WebGpuMenuInput.mouseY;
+    if (mx < 0 || my < 0) return;
+
+    const tw = tipTex.w;
+    const th = tipTex.h;
+
+    let tx = mx + 14;
+    let ty = my + 14;
+
+    if (tx + tw > r.width - 8) {
+      tx = Math.max(8, mx - tw - 12);
+    }
+    if (ty + th > r.height - 18) {
+      ty = Math.max(8, my - th - 8);
+    }
+
+    r.rect(tx + 2, ty + 3, tw, th, [0, 0, 0, 0.45]);
+    r.draw(tipTex, tx, ty, tw, th);
   }
 
   public static drawAniObjs(game: Game, front: boolean, cx: number, cy: number) {
