@@ -235,9 +235,93 @@ export interface MenuItem {
   badge?: boolean;
 }
 
+export class MenuButtonComponent extends ComponentBase {
+  public root!: HTMLButtonElement;
+  public badgeEl?: HTMLElement;
+  public item!: MenuItem;
+  public key!: string;
+
+  constructor(parent?: HTMLElement | { parent: HTMLElement; key: string; item: MenuItem }, key?: string, item?: MenuItem) {
+    super();
+    if (parent instanceof HTMLElement && key && item) {
+      this.init({ parent, key, item });
+    } else if (parent && !(parent instanceof HTMLElement) && (parent as any).parent) {
+      this.init(parent as any);
+    }
+  }
+
+  public override init(param?: { parent: HTMLElement; key: string; item: MenuItem }): void {
+    super.init(param);
+    if (!param?.parent || !param?.key || !param?.item || this.root) return;
+    this.key = param.key;
+    this.item = param.item;
+    this.render(param.parent);
+  }
+
+  private render(parent: HTMLElement) {
+    const item = this.item;
+    this.root = el(
+      "button",
+      "ms-menu-btn relative w-8 h-8 rounded-md bg-white/5 hover:bg-white/15 active:translate-y-[1px] border border-white/10 hover:border-sky-400/50 flex items-center justify-center text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm group",
+      parent
+    ) as HTMLButtonElement;
+    this.root.type = "button";
+    this.root.dataset.menuKey = this.key;
+    this.root.title = item.title;
+    this.root.setAttribute("aria-label", item.title);
+    this.root.innerHTML = `
+      <span class="flex items-center justify-center group-hover:scale-110 transition-transform">${item.iconSvg}</span>
+      ${item.shortcut ? `<span class="absolute -bottom-1 -right-0.5 px-0.5 font-mono text-[7px] font-bold bg-black/85 rounded border border-white/15 text-slate-400 group-hover:text-slate-200 pointer-events-none leading-none">${item.shortcut}</span>` : ""}
+    `;
+    this.root.addEventListener("click", (e) => {
+      e.stopPropagation();
+      item.onClick(this.root);
+    });
+    if (item.badge) {
+      this.badgeEl = el(
+        "span",
+        "ms-badge-dot absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 border border-black shadow-[0_0_6px_#f59e0b] animate-pulse hidden pointer-events-none",
+        this.root
+      );
+    }
+  }
+
+  public setBadge(visible: boolean) {
+    if (this.badgeEl) {
+      this.badgeEl.classList.toggle("hidden", !visible);
+    }
+  }
+
+  public setActive(active: boolean) {
+    if (this.root) {
+      this.root.classList.toggle("ring-1", active);
+      this.root.classList.toggle("ring-sky-400", active);
+      this.root.classList.toggle("bg-white/20", active);
+    }
+  }
+
+  public trigger() {
+    this.item?.onClick(this.root);
+  }
+
+  public override start(): void {}
+  public override onUpdate(): void {}
+  public override destroy(force?: boolean): void {
+    super.destroy(force);
+    this.root?.remove();
+  }
+}
+
+export class ChatMenuButton extends MenuButtonComponent {}
+export class InventoryMenuButton extends MenuButtonComponent {}
+export class EquipmentMenuButton extends MenuButtonComponent {}
+export class StatsMenuButton extends MenuButtonComponent {}
+export class PartyMenuButton extends MenuButtonComponent {}
+
 export class MenuButtons extends ComponentBase {
   root!: HTMLElement;
   badges: Record<string, HTMLElement> = {};
+  buttonComponents: Map<string, MenuButtonComponent> = new Map();
 
   private parentEl!: HTMLElement;
   private items!: Record<string, MenuItem>;
@@ -265,15 +349,23 @@ export class MenuButtons extends ComponentBase {
   }
 
   public override start(): void {
-    // Orillusion lifecycle hook
+    for (const btn of this.buttonComponents.values()) {
+      btn.start();
+    }
   }
 
   public override onUpdate(): void {
-    // Orillusion lifecycle hook
+    for (const btn of this.buttonComponents.values()) {
+      btn.onUpdate();
+    }
   }
 
   public override destroy(force?: boolean): void {
     super.destroy(force);
+    for (const btn of this.buttonComponents.values()) {
+      btn.destroy(force);
+    }
+    this.buttonComponents.clear();
     this.root?.remove();
   }
 
@@ -285,35 +377,54 @@ export class MenuButtons extends ComponentBase {
     );
 
     for (const [key, item] of Object.entries(this.items)) {
-      const b = el(
-        "button",
-        "ms-menu-btn relative w-8 h-8 rounded-md bg-white/5 hover:bg-white/15 active:translate-y-[1px] border border-white/10 hover:border-sky-400/50 flex items-center justify-center text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm group",
-        this.root
-      ) as HTMLButtonElement;
-      b.type = "button";
-      b.title = item.title;
-      b.setAttribute("aria-label", item.title);
-      b.innerHTML = `
-        <span class="flex items-center justify-center group-hover:scale-110 transition-transform">${item.iconSvg}</span>
-        ${item.shortcut ? `<span class="absolute -bottom-1 -right-0.5 px-0.5 font-mono text-[7px] font-bold bg-black/85 rounded border border-white/15 text-slate-400 group-hover:text-slate-200 pointer-events-none leading-none">${item.shortcut}</span>` : ""}
-      `;
-      b.addEventListener("click", (e) => {
-        e.stopPropagation();
-        item.onClick(b);
-      });
-      if (item.badge) {
-        this.badges[key] = el(
-          "span",
-          "ms-badge-dot absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 border border-black shadow-[0_0_6px_#f59e0b] animate-pulse hidden pointer-events-none",
-          b
-        );
+      let btnComp: MenuButtonComponent;
+      if (key === "chat") btnComp = new ChatMenuButton({ parent: this.root, key, item });
+      else if (key === "inv") btnComp = new InventoryMenuButton({ parent: this.root, key, item });
+      else if (key === "equip") btnComp = new EquipmentMenuButton({ parent: this.root, key, item });
+      else if (key === "stat") btnComp = new StatsMenuButton({ parent: this.root, key, item });
+      else if (key === "party") btnComp = new PartyMenuButton({ parent: this.root, key, item });
+      else btnComp = new MenuButtonComponent({ parent: this.root, key, item });
+
+      this.buttonComponents.set(key, btnComp);
+      if (btnComp.badgeEl) {
+        this.badges[key] = btnComp.badgeEl;
       }
     }
   }
 
+  getButton(key: string): MenuButtonComponent | undefined {
+    return this.buttonComponents.get(key);
+  }
+
+  get chatBtn(): ChatMenuButton | undefined {
+    return this.buttonComponents.get("chat") as ChatMenuButton | undefined;
+  }
+
+  get invBtn(): InventoryMenuButton | undefined {
+    return this.buttonComponents.get("inv") as InventoryMenuButton | undefined;
+  }
+
+  get equipBtn(): EquipmentMenuButton | undefined {
+    return this.buttonComponents.get("equip") as EquipmentMenuButton | undefined;
+  }
+
+  get statBtn(): StatsMenuButton | undefined {
+    return this.buttonComponents.get("stat") as StatsMenuButton | undefined;
+  }
+
+  get partyBtn(): PartyMenuButton | undefined {
+    return this.buttonComponents.get("party") as PartyMenuButton | undefined;
+  }
+
   setBadge(key: string, visible: boolean) {
+    this.buttonComponents.get(key)?.setBadge(visible);
     if (this.badges[key]) {
       this.badges[key].classList.toggle("hidden", !visible);
     }
   }
+
+  setActive(key: string, active: boolean) {
+    this.buttonComponents.get(key)?.setActive(active);
+  }
 }
+

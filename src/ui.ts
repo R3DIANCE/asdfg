@@ -5,7 +5,21 @@ import { expToLevel } from "./game.ts";
 import { Windows } from "./windows.ts";
 import { ChatComponent } from "./components/chat.ts";
 import { MinimapComponent } from "./components/minimap.ts";
-import { StatusCapsule, MenuButtons, PlayerStatusTag } from "./components/hud.ts";
+import {
+  StatusCapsule,
+  MenuButtons,
+  PlayerStatusTag,
+  MenuButtonComponent,
+  ChatMenuButton,
+  InventoryMenuButton,
+  EquipmentMenuButton,
+  StatsMenuButton,
+  PartyMenuButton,
+} from "./components/hud.ts";
+import { StatsComponent } from "./components/stats.ts";
+import { InventoryComponent } from "./components/inventory.ts";
+import { EquipmentComponent } from "./components/equipment.ts";
+import { PartyComponent } from "./components/party.ts";
 import { QuickBarComponent } from "./components/quick-bar.ts";
 import { GmOnlinePanel } from "./components/GmOnlinePanel.ts";
 import { PartyWidget } from "./components/PartyWidget.ts";
@@ -46,6 +60,10 @@ export class Hud extends ComponentBase {
   mini!: MinimapComponent;
   gmPanel!: GmOnlinePanel;
   partyWidget!: PartyWidget;
+  statsComp!: StatsComponent;
+  invComp!: InventoryComponent;
+  equipComp!: EquipmentComponent;
+  partyComp!: PartyComponent;
   wins!: Windows;
   gain!: HTMLElement;
   noticeBanner!: HTMLElement;
@@ -88,13 +106,49 @@ export class Hud extends ComponentBase {
     // Center: Modern Stylish Status Capsule (HP/MP) + Modern Menu Buttons
     this.status = createUIEntity("StatusCapsule", StatusCapsule, { parent: this.dockCenter }, this.childEntities, canOrillusion);
 
+    // Core Orillusion System Components
+    this.statsComp = createUIEntity(
+      "StatsComponent",
+      StatsComponent,
+      { game, wins: this.wins },
+      this.childEntities,
+      canOrillusion
+    );
+    this.invComp = createUIEntity(
+      "InventoryComponent",
+      InventoryComponent,
+      { game, wins: this.wins },
+      this.childEntities,
+      canOrillusion
+    );
+    this.equipComp = createUIEntity(
+      "EquipmentComponent",
+      EquipmentComponent,
+      { game, wins: this.wins },
+      this.childEntities,
+      canOrillusion
+    );
+    this.partyComp = createUIEntity(
+      "PartyComponent",
+      PartyComponent,
+      { game, wins: this.wins },
+      this.childEntities,
+      canOrillusion
+    );
+
     const menuItems: Record<string, any> = {
+      chat: {
+        iconSvg: lucideIcon("message-square", 13),
+        title: "Chat (Enter / C)",
+        shortcut: "Enter",
+        onClick: () => this.chat.toggle(),
+      },
       stat: {
         iconSvg: lucideIcon("user", 13),
         title: "Character Stats (S)",
         shortcut: "S",
         badge: true,
-        onClick: () => this.wins.toggle(this.wins.stat),
+        onClick: () => this.statsComp.toggle(),
       },
       skill: {
         iconSvg: lucideIcon("sparkles", 13),
@@ -107,19 +161,19 @@ export class Hud extends ComponentBase {
         iconSvg: lucideIcon("shield", 13),
         title: "Equipment (E)",
         shortcut: "E",
-        onClick: () => this.wins.ext.open("equip"),
+        onClick: () => this.equipComp.toggle(),
       },
       inv: {
         iconSvg: lucideIcon("package", 13),
         title: "Inventory (I)",
         shortcut: "I",
-        onClick: () => this.wins.ext.open("inv"),
+        onClick: () => this.invComp.toggle(),
       },
       party: {
         iconSvg: lucideIcon("users", 13),
         title: "Party (P)",
         shortcut: "P",
-        onClick: () => this.wins.toggle(this.wins.partyWin),
+        onClick: () => this.partyComp.toggle(),
       },
       guild: {
         iconSvg: lucideIcon("flag", 13),
@@ -342,6 +396,14 @@ export class Hud extends ComponentBase {
     this.quick.render();
     this.gmPanel?.update(dt);
     this.partyWidget?.update();
+
+    if (this.menu) {
+      this.menu.setActive("chat", this.chat?.isOpen ?? false);
+      this.menu.setActive("stat", this.statsComp?.isOpen ?? false);
+      this.menu.setActive("equip", this.equipComp?.isOpen ?? false);
+      this.menu.setActive("inv", this.invComp?.isOpen ?? false);
+      this.menu.setActive("party", this.partyComp?.isOpen ?? false);
+    }
   }
 
   public override start(): void {
@@ -361,6 +423,10 @@ export class Hud extends ComponentBase {
     super.destroy(force);
     this.gmPanel?.destroy(force);
     this.partyWidget?.destroy(force);
+    this.statsComp?.destroy(force);
+    this.invComp?.destroy(force);
+    this.equipComp?.destroy(force);
+    this.partyComp?.destroy(force);
     for (const child of this.childEntities) {
       child.destroy(force);
     }

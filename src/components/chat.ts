@@ -512,6 +512,28 @@ export class ChatComponent extends ComponentBase {
     }
   }
 
+  get isOpen(): boolean {
+    return !this.minimized && !this.root.classList.contains("idle");
+  }
+
+  focus() {
+    if (this.minimized) this.toggleMinimize();
+    this.expand();
+    this.input.focus();
+  }
+
+  toggle() {
+    if (this.minimized) {
+      this.toggleMinimize();
+      this.focus();
+    } else if (document.activeElement === this.input) {
+      this.input.blur();
+      this.collapse(0);
+    } else {
+      this.focus();
+    }
+  }
+
   expand() {
     clearTimeout(this.idleTimer);
     this.root.classList.remove("idle");

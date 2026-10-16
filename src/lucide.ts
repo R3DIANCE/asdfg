@@ -81,6 +81,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   megaphone: Megaphone,
   broadcast: Megaphone,
   message: MessageSquare,
+  "message-square": MessageSquare,
   whisper: MessageSquare,
   pin: MapPin,
   "map-pin": MapPin,

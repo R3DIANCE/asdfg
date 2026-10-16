@@ -812,17 +812,28 @@ export class WebGpuMenuInput {
     if (this.hoveredSubmenuItem) {
       const it = this.hoveredSubmenuItem;
       this.activeSubmenu = null;
-      if (it === "stat" && win?.toggle) win.toggle(win.stat);
+      if (it === "stat") {
+        if ((game as any).hud?.statsComp) (game as any).hud.statsComp.toggle();
+        else if (win?.toggle) win.toggle(win.stat);
+      }
       else if (it === "skill" && win?.toggle) win.toggle(win.skill);
-      else if (it === "equip" && win) {
-        if (win.ext?.open) win.ext.open("equip");
-        else if (win.toggle && win.ext?.equipWin) win.toggle(win.ext.equipWin);
+      else if (it === "equip") {
+        if ((game as any).hud?.equipComp) (game as any).hud.equipComp.toggle();
+        else if (win?.ext?.open) win.ext.open("equip");
+        else if (win?.toggle && win.ext?.equipWin) win.toggle(win.ext.equipWin);
       }
-      else if (it === "item" && win) {
-        if (win.ext?.open) win.ext.open("inv");
-        else if (win.toggle && win.ext?.invWin) win.toggle(win.ext.invWin);
+      else if (it === "item") {
+        if ((game as any).hud?.invComp) (game as any).hud.invComp.toggle();
+        else if (win?.ext?.open) win.ext.open("inv");
+        else if (win?.toggle && win.ext?.invWin) win.toggle(win.ext.invWin);
       }
-      else if (it === "bossParty" && win?.toggle) win.toggle(win.partyWin);
+      else if (it === "bossParty") {
+        if ((game as any).hud?.partyComp) (game as any).hud.partyComp.toggle();
+        else if (win?.toggle) win.toggle(win.partyWin);
+      }
+      else if (it === "chat") {
+        (game as any).hud?.chat?.toggle?.();
+      }
       else if (it === "guild" && win?.toggle) win.toggle(win.guildWin);
       else if (it === "keySetting" && win?.toggle) {
         if (win.guideWin) {
