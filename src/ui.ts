@@ -11,6 +11,7 @@ import { GmOnlinePanel } from "./components/GmOnlinePanel.ts";
 import { PartyWidget } from "./components/PartyWidget.ts";
 import type { Action } from "./skills.ts";
 import { el, esc } from "./util.ts";
+import { lucideIcon } from "./lucide.ts";
 
 export type UiData = Record<string, any>;
 
@@ -73,20 +74,80 @@ export class Hud extends ComponentBase {
 
     this.root = el("div", "hud", document.body);
 
-    // Floating Bottom Dock (Legacy HTML HUD suppressed in favor of pure WebGPU rendering)
-    this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] min-h-[70px] flex items-end justify-between px-2.5 pb-0.5 pointer-events-none select-none z-[12]", this.root);
-    this.dock.style.display = "none";
+    // Floating Bottom Dock (Modern Tailwind CSS Glassmorphic HUD)
+    this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] min-h-[64px] flex items-end justify-between px-3 pb-0.5 pointer-events-none select-none z-[12]", this.root);
     this.dockLeft = el("div", "dock-left pointer-events-auto flex items-end gap-2 min-w-0 mb-0.5", this.dock);
-    this.dockCenter = el("div", "dock-center pointer-events-auto flex items-center justify-center gap-1.5 min-w-0", this.dock);
-    this.dockRight = el("div", "dock-right pointer-events-auto flex flex-col items-end gap-0.5 min-w-0", this.dock);
+    this.dockCenter = el("div", "dock-center pointer-events-auto flex items-center justify-center gap-2 min-w-0", this.dock);
+    this.dockRight = el("div", "dock-right pointer-events-auto flex flex-col items-end gap-1 min-w-0", this.dock);
 
     // Windows Manager initialized before slots & menus
     this.wins = new Windows(game, win, this.root);
 
     const canOrillusion = (game as any)?.r?.backend === "webgpu" && !!(game as any)?.r?.scene;
 
-    // Center: Dual HP/MP Stacked Bars + Menu Buttons drawn via WebGPU directly from WZ
+    // Center: Modern Stylish Status Capsule (HP/MP) + Modern Menu Buttons
     this.status = createUIEntity("StatusCapsule", StatusCapsule, { parent: this.dockCenter }, this.childEntities, canOrillusion);
+
+    const menuItems: Record<string, any> = {
+      stat: {
+        iconSvg: lucideIcon("user", 13),
+        title: "Character Stats (S)",
+        shortcut: "S",
+        badge: true,
+        onClick: () => this.wins.toggle(this.wins.stat),
+      },
+      skill: {
+        iconSvg: lucideIcon("sparkles", 13),
+        title: "Skills (K)",
+        shortcut: "K",
+        badge: true,
+        onClick: () => this.wins.toggle(this.wins.skill),
+      },
+      equip: {
+        iconSvg: lucideIcon("shield", 13),
+        title: "Equipment (E)",
+        shortcut: "E",
+        onClick: () => this.wins.ext.open("equip"),
+      },
+      inv: {
+        iconSvg: lucideIcon("package", 13),
+        title: "Inventory (I)",
+        shortcut: "I",
+        onClick: () => this.wins.ext.open("inv"),
+      },
+      party: {
+        iconSvg: lucideIcon("users", 13),
+        title: "Party (P)",
+        shortcut: "P",
+        onClick: () => this.wins.toggle(this.wins.partyWin),
+      },
+      guild: {
+        iconSvg: lucideIcon("flag", 13),
+        title: "Guild (G)",
+        shortcut: "G",
+        onClick: () => this.wins.toggle(this.wins.guildWin),
+      },
+      craft: {
+        iconSvg: lucideIcon("hammer", 13),
+        title: "Crafting (J)",
+        shortcut: "J",
+        onClick: () => this.wins.ext.open("craft"),
+      },
+      ah: {
+        iconSvg: lucideIcon("shopping-bag", 13),
+        title: "Auction House (H)",
+        shortcut: "H",
+        onClick: () => this.wins.ext.open("ah"),
+      },
+      menu: {
+        iconSvg: lucideIcon("menu", 13),
+        title: "Game Menu (ESC)",
+        shortcut: "ESC",
+        onClick: (btn: HTMLElement) => this.wins.ext.toggleMenu(btn),
+      },
+    };
+
+    this.menu = createUIEntity("MenuButtons", MenuButtons, { parent: this.dockCenter, items: menuItems }, this.childEntities, canOrillusion);
     this.perfContainer = el("div", "dock-perf-container select-none pointer-events-none fixed top-2.5 right-4 z-50", this.root);
 
     // Right: Action Controls Header + Quick Slots Keyboard
@@ -260,6 +321,7 @@ export class Hud extends ComponentBase {
       this.status.update({
         level: s.level,
         name: s.name,
+        job: s.job,
         hp: s.hp,
         maxHp: s.maxHp,
         mp: s.mp,
@@ -269,7 +331,8 @@ export class Hud extends ComponentBase {
       });
 
       // Orange dot badge when AP/SP available
-      this.menu?.setBadge?.("char", s.ap > 0 || s.sp > 0);
+      this.menu?.setBadge?.("stat", s.ap > 0);
+      this.menu?.setBadge?.("skill", s.sp > 0);
     }
 
     // Dynamic player marker tracking

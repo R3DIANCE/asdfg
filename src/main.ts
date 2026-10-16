@@ -8,30 +8,16 @@ import { Hud } from "./ui.ts";
 import { CLASSES, QUICK_KEYS, type ClassId } from "./skills.ts";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { DebugPanel } from "./components/Debug";
 import { AuthUI } from "./components/AuthUI";
 import { spacetime, type SpacetimeCharacter } from "./spacetimedb";
+import { StatsManager } from "./systems/stats-manager.ts";
+import { GmDatGui } from "./components/GmDatGui.ts";
 
 let root: HTMLElement | null = null;
+let statsMgr: StatsManager = new StatsManager();
+let gmGui: GmDatGui | null = null;
 
-/** Install the debug panel on top of the game window. */
-let debugContainer: HTMLElement | null = null;
 
-function setupDebugPanel() {
-  if (debugContainer) return;
-  if (hud?.perfContainer) {
-    debugContainer = hud.perfContainer;
-    createRoot(debugContainer).render(createElement(DebugPanel));
-  }
-}
-
-let debugAttach = false;
-
-function attachDebugPanel() {
-  if (debugAttach) return;
-  debugAttach = true;
-  setupDebugPanel();
-}
 
 declare global {
   interface Window {
@@ -394,11 +380,12 @@ async function start(char?: SpacetimeCharacter) {
   (window as any).__game = game;
   game.loadGuild().catch(() => null);
 
-  // Mount the real-time performance panel (FPS, Ping, JS Heap) right next to HP/MP bar on the right side.
-  if (hud.perfContainer) {
-    debugContainer = hud.perfContainer;
-    createRoot(debugContainer).render(createElement(DebugPanel));
-  }
+  // Connect stats.js real-time performance monitor and dat.gui GM tools
+  statsMgr.setGame(game);
+  (window as any).__stats = statsMgr;
+
+  gmGui = new GmDatGui(game);
+  (window as any).__gmGui = gmGui;
 
   hud.addChat("system", "Arrows / WASD move · Alt/C/Space jump · Ctrl/X attack · Shift, Ins, Home, PgUp skills · Del/End potions · Z loot · Up/W at a portal");
   hud.addChat("system", "U stats · K skills · E equipment · I inventory · J crafting · H auction house · B auto battle. Drag icons onto quick slots.");
@@ -488,13 +475,20 @@ let last = performance.now();
 let manual = false;
 function frame(now: number) {
   try {
+    statsMgr.begin();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (running && !manual && game) game.update(dt);
-    if (running && game) { game.draw(); hud?.update(dt); }
+    if (running && game) {
+      game.draw();
+      hud?.update(dt);
+      gmGui?.update(dt);
+    }
+    statsMgr.update(dt);
   } catch (err) {
     console.error("Frame render error:", err);
   } finally {
+    statsMgr.end();
     window.__rafId = requestAnimationFrame(frame);
   }
 }

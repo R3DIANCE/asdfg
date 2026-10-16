@@ -842,11 +842,11 @@ export class WorldRenderer {
     if (game.fade > 0) r.rect(0, 0, r.width, r.height, [0, 0, 0, game.fade]);
     if (game.loadingMap) r.rect(0, 0, r.width, r.height, [0, 0, 0, 1]);
 
-    // WebGPU UI: Draw HP/MP status panel, EXP bar, menu buttons, and quickbar directly from authentic .wz assets
-    WorldRenderer.drawHpMpPanel(game);
-    WorldRenderer.drawExpBar(game);
-    WorldRenderer.drawMenuButtons(game);
-    WorldRenderer.drawQuickBar(game);
+    // Modern stylish Tailwind CSS HUD is rendered in DOM for full glassmorphism and responsiveness
+    // WorldRenderer.drawHpMpPanel(game);
+    // WorldRenderer.drawExpBar(game);
+    // WorldRenderer.drawMenuButtons(game);
+    // WorldRenderer.drawQuickBar(game);
 
     r.end();
   }

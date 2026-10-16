@@ -313,9 +313,20 @@ button, a, select, [role="button"],
 ============================================================================ */
 .hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; font-size: 12px; }
 .spr { position: absolute; background-repeat: no-repeat; image-rendering: pixelated; }
-.nopoint { pointer-events: none; }/* ---------- Bottom dock (HTML HUD suppressed in favor of pure WebGPU rendering) ---------- */
+/* ---------- Bottom dock (Modern Stylish Tailwind CSS Glassmorphic HUD) ---------- */
 .dock {
-  display: none !important;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 18px;
+  min-height: 64px;
+  display: flex !important;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 12px 2px 12px;
+  pointer-events: none;
+  user-select: none;
+  z-index: 12;
 }
 .dock-left, .dock-center, .dock-right { pointer-events: auto; }
 .dock-right {
@@ -877,39 +888,47 @@ button, a, select, [role="button"],
 }
 
 .tooltip {
-  position: fixed; z-index: 100000; max-width: 280px;
-  padding: 10px 12px; background: #141a24; color: var(--text-on-dark);
-  border: 1px solid var(--border); border-radius: var(--r-window);
-  box-shadow: 0 6px 20px rgba(0,0,0,.65);
-  font: 11px/1.5 "Segoe UI", system-ui, sans-serif;
+  position: fixed; z-index: 100000; max-width: 310px;
+  padding: 10px 14px;
+  background: rgba(10, 15, 26, 0.82) !important;
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  font: 11.5px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
   pointer-events: none;
 }
 .tooltip:has(.ms-tooltip-card),
 .tooltip.card-mode {
-  padding: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  max-width: 330px;
-  backdrop-filter: none;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  max-width: 340px;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
-.tooltip b { display: block; font-size: 13px; color: var(--title-lime); margin-bottom: 4px; }
-.tooltip p { margin-top: 4px; }
-.tip-dim { color: var(--muted); }
-.tip-hl { color: var(--accent-cyan); font-weight: 700; }
-.tip-warn { color: var(--down); }
+.tooltip b { display: block; font-size: 13px; color: #38bdf8; margin-bottom: 4px; letter-spacing: 0.2px; }
+.tooltip p { margin-top: 4px; color: #cbd5e1; }
+.tip-dim { color: #94a3b8 !important; }
+.tip-hl { color: #38bdf8 !important; font-weight: 700; }
+.tip-warn { color: #fb7185 !important; }
 
-/* ---------- Authentic MapleStory Tooltip Card (Image 2 1:1) ---------- */
+/* ---------- Modern Stylish Translucent MapleStory Tooltip Card ---------- */
 .ms-tooltip-card {
   width: 295px;
-  background: linear-gradient(180deg, #182030 0%, #0e1422 100%);
-  border: 1.5px solid #4a5c78;
-  border-radius: 6px;
-  padding: 10px 12px;
+  background: rgba(10, 15, 26, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 8px !important;
+  padding: 12px 14px;
   color: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 11px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
   user-select: none;
 }
 
@@ -930,10 +949,10 @@ button, a, select, [role="button"],
 }
 .tt-star.filled {
   color: #facc15;
-  text-shadow: 0 0 4px rgba(250, 204, 21, 0.6);
+  text-shadow: 0 0 6px rgba(250, 204, 21, 0.7);
 }
 .tt-star.empty {
-  color: #334155;
+  color: rgba(255, 255, 255, 0.15);
 }
 
 .tt-title {
@@ -954,8 +973,8 @@ button, a, select, [role="button"],
 
 .tt-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.12);
-  margin: 6px 0;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 7px 0;
 }
 
 .tt-meta-row {
@@ -966,14 +985,14 @@ button, a, select, [role="button"],
 .tt-icon-box {
   width: 44px;
   height: 44px;
-  background: radial-gradient(circle at center, #2a374e 0%, #151d2c 100%);
-  border: 1.5px solid #5a7194;
-  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: inset 0 1px 2px rgba(255,255,255,0.2), 0 2px 4px rgba(0,0,0,0.4);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 .tt-icon {
   width: 36px;
@@ -1589,25 +1608,32 @@ button, a, select, [role="button"],
 .gtip .pot-head { margin-top: 6px; font-weight: 700; border-top: 1px dashed var(--border); padding-top: 4px; }
 .gtip .pot { margin-top: 1px; }
 
-/* ---------- Menu popup ---------- */
+/* ---------- Modern Translucent Menu Popup ---------- */
 .menu-pop {
-  position: fixed; z-index: 60; width: 168px; padding: 5px;
-  background: rgba(22, 28, 38, 0.92); border: 1px solid rgba(156, 168, 184, 0.32);
-  border-radius: var(--r-window); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  display: flex; flex-direction: column; gap: 1px;
+  position: fixed; z-index: 60; width: 175px; padding: 6px;
+  background: rgba(10, 15, 26, 0.88) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  display: flex; flex-direction: column; gap: 2px;
 }
 .menu-pop-item {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 10px; border: 0; border-radius: var(--r-slot);
-  background: transparent; font: 600 11px "Segoe UI", sans-serif; color: #cbd5e1;
+  padding: 5px 8px; border: 0; border-radius: 5px;
+  background: transparent; font: 600 11px "Segoe UI", system-ui, sans-serif; color: #cbd5e1;
   cursor: pointer; text-align: left; transition: background .12s, color .12s;
 }
-.menu-pop-item:hover { background: #0284c7; color: #fff; }
-.menu-pop-item kbd { font: 9px "Segoe UI", sans-serif; color: #64748b; }
-.menu-pop-item:hover kbd { color: rgba(255,255,255,.9); }
+.menu-pop-item:hover { background: rgba(56, 189, 248, 0.18); color: #38bdf8; }
+.menu-pop-item kbd {
+  font: 9px font-mono, "Segoe UI", sans-serif; color: #94a3b8;
+  padding: 1px 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.menu-pop-item:hover kbd { color: #ffffff; border-color: rgba(56, 189, 248, 0.4); }
 .menu-pop-item.menu-pop-gm { color: #facc15; font-weight: 700; border-top: 1px solid rgba(250, 204, 21, 0.2); }
-.menu-pop-item.menu-pop-gm:hover { background: #ca8a04; color: #ffffff; }
+.menu-pop-item.menu-pop-gm:hover { background: rgba(234, 179, 8, 0.2); color: #fef08a; }
 .menu-pop-item.menu-pop-gm kbd { color: #fde047; }
 
 /* ---------- Stage HUD + boss bar ---------- */
@@ -4839,4 +4865,47 @@ button, a, select, [role="button"],
 }
 .guild-color-swatch:hover { transform: scale(1.1); border-color: #ffffff; }
 .guild-color-swatch.selected { outline: 2px solid #38bdf8; outline-offset: 1px; }
+
+/* ---------- dat.GUI Custom Translucent Glassmorphism ---------- */
+#gm-dat-gui .dg.main {
+  background: rgba(10, 15, 26, 0.88) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  user-select: none !important;
+}
+#gm-dat-gui .dg .cr.function .property-name {
+  width: 100% !important;
+  font-weight: 600 !important;
+}
+#gm-dat-gui .dg li.title {
+  background: rgba(30, 41, 59, 0.85) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px !important;
+  color: #38bdf8 !important;
+}
+#gm-dat-gui .dg .c select, #gm-dat-gui .dg .c input {
+  background: rgba(15, 23, 42, 0.9) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 4px !important;
+}
+#gm-dat-gui .dg .cr.function:hover {
+  background: rgba(56, 189, 248, 0.18) !important;
+}
+#gm-dat-gui .dg .close-button {
+  background: rgba(15, 23, 42, 0.95) !important;
+  color: #94a3b8 !important;
+  font-weight: 600 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+#gm-dat-gui .dg .close-button:hover {
+  background: rgba(30, 41, 59, 0.95) !important;
+  color: #ffffff !important;
+}
 

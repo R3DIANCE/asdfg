@@ -136,11 +136,16 @@ export class Windows {
       this.renderParty();
     });
     addEventListener("toggle-debug-win", () => {
-      if (this.game.isGm()) this.toggle(this.debugWin);
-      else this.game.onChat("notice", "[GM] Access denied. GameMaster privileges required. (Secret: type /op or /setgm)");
+      if (this.game.isGm()) {
+        (window as any).__gmGui?.toggle();
+        this.toggle(this.debugWin);
+      } else {
+        this.game.onChat("notice", "[GM] Access denied. GameMaster privileges required. (Secret: type /op or /setgm)");
+      }
     });
 
     addEventListener("toggle-debug-win-force", () => {
+      (window as any).__gmGui?.show();
       this.debugWin.classList.remove("hidden");
       this.debugWin.style.zIndex = String(++this.z);
       clampWindow(this.debugWin);
