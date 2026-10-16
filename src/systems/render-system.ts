@@ -1300,21 +1300,21 @@ export class WorldRenderer {
 
     for (let row = 0; row < 2; row++) {
       const keys = row === 0 ? row0Keys : row1Keys;
-      const sy = qsY + 5 + row * 32;
+      const sy = qsY + 3 + row * 35;
 
       for (let col = 0; col < 16; col++) {
         const k = keys[col];
-        const sx = qsX + 11 + col * 34;
+        const sx = qsX + 2 + col * 35;
 
-        const isHover = mx >= sx && mx < sx + 34 && my >= sy && my < sy + 30;
+        const isHover = mx >= sx && mx < sx + 32 && my >= sy && my < sy + 32;
         if (isHover) {
           WebGpuMenuInput.hoveredQuickKey = k;
           const selTex = game.assets.get(QUICK_UI.selected);
           if (selTex) {
-            r.draw(selTex, sx - 1, sy - 1, 36, 32);
+            r.draw(selTex, sx - 4, sy - 4, 40, 40);
           } else {
             game.assets.load(QUICK_UI.selected);
-            r.rect(sx, sy, 34, 30, [1, 1, 1, 0.25]);
+            r.rect(sx, sy, 32, 32, [1, 1, 1, 0.25]);
           }
         }
 
@@ -1325,7 +1325,7 @@ export class WorldRenderer {
           r.draw(lblTex, sx + 2, sy + 2, lblTex.w, lblTex.h);
         }
 
-        // Draw Action (skill, item, attack)
+        // Draw Action (skill, item, attack) centered in the 32x32 slot
         const a = game.quick[k];
         if (a) {
           let iconUrl = "";
@@ -1340,7 +1340,11 @@ export class WorldRenderer {
           if (iconUrl) {
             const iconTex = game.assets.get(iconUrl);
             if (iconTex) {
-              r.draw(iconTex, sx + 5, sy + 3, 24, 24);
+              const iw = Math.min(32, iconTex.w || 32);
+              const ih = Math.min(32, iconTex.h || 32);
+              const ix = Math.round(sx + (32 - iw) / 2);
+              const iy = Math.round(sy + (32 - ih) / 2);
+              r.draw(iconTex, ix, iy, iw, ih);
             } else {
               game.assets.load(iconUrl);
             }
@@ -1352,7 +1356,7 @@ export class WorldRenderer {
             if (count > 0) {
               const cntTex = renderLabelTexture(r, String(count), 8, "#ffffff");
               if (cntTex) {
-                r.draw(cntTex, sx + 33 - cntTex.w, sy + 20, cntTex.w, cntTex.h);
+                r.draw(cntTex, sx + 30 - cntTex.w, sy + 22, cntTex.w, cntTex.h);
               }
             }
           }
@@ -1361,11 +1365,11 @@ export class WorldRenderer {
           if (a.t === "skill") {
             const cd = game.skillCd[a.id];
             if (cd && cd.left > 0) {
-              r.rect(sx, sy, 34, 30, [0, 0, 0, 0.65]);
+              r.rect(sx, sy, 32, 32, [0, 0, 0, 0.65]);
               const sec = Math.ceil(cd.left);
               const cdTex = renderLabelTexture(r, `${sec}s`, 9, "#ffdd55");
               if (cdTex) {
-                r.draw(cdTex, Math.round(sx + (34 - cdTex.w) / 2), Math.round(sy + (30 - cdTex.h) / 2), cdTex.w, cdTex.h);
+                r.draw(cdTex, Math.round(sx + (32 - cdTex.w) / 2), Math.round(sy + (32 - cdTex.h) / 2), cdTex.w, cdTex.h);
               }
             }
           }

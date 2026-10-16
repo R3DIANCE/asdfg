@@ -45,10 +45,10 @@ const DEFAULT_ANCHOR: Record<string, string> = {
 
 /** Fallback z-order when Base/zmap.img is unavailable (back → front). */
 const FALLBACK_ZMAP = [
-  "capeBelowBody", "shieldBelowBody", "weaponBelowBody", "body", "gloveOverBody",
+  "backCap", "capBelowHead", "backCapOverHair", "capeBelowBody", "shieldBelowBody", "weaponBelowBody", "body", "gloveOverBody",
   "mailChestBelowPants", "pants", "shoes", "mailChest", "armBelowHead",
   "gloveBelowHead", "weaponOverBody", "shield", "weapon", "arm", "hand", "glove",
-  "cape", "head", "face", "ear", "hairShade", "hair", "cap", "capAccessory",
+  "cape", "head", "face", "ear", "hairShade", "hair", "cap", "capAccessory", "capOverHair",
   "weaponOverArm", "weaponOverHand", "weaponOverGlove", "weaponWristOverGlove",
   "capeOverHead", "hairOverHead", "characterEnd",
 ];
@@ -124,15 +124,31 @@ function makeZIndex(store: SpriteStore): (slot: string | null) => number {
     }
   }
   const hairIdx = zmap.indexOf("hair");
+  const backCapIdx = zmap.indexOf("backCap");
+  const headIdx = zmap.indexOf("head");
   return (slot) => {
     if (!slot) return zmap.length;
+    // Back-facing cap layers (hood neck/back) must draw behind head and body
+    if (slot === "capBelowHead" || slot === "backCap") {
+      return backCapIdx >= 0 ? backCapIdx : (headIdx >= 0 ? Math.min(headIdx - 10, 60) : 60);
+    }
+    if (slot === "backCapOverHair") {
+      const idx = zmap.indexOf("backCapOverHair");
+      return idx >= 0 ? idx : (backCapIdx >= 0 ? backCapIdx + 1 : 63);
+    }
     // Front-facing cap layers must draw in front of hair
-    if (slot === "capBelowAccessory" || slot === "capAccessoryBelowAccFace" || slot === "cap" || slot === "capAccessory") {
+    if (
+      slot === "capBelowAccessory" ||
+      slot === "capAccessoryBelowAccFace" ||
+      slot === "cap" ||
+      slot === "capAccessory" ||
+      slot === "capOverHair"
+    ) {
       const idx = zmap.indexOf(slot);
       return idx >= 0 ? Math.max(idx, hairIdx + 2) : (hairIdx >= 0 ? hairIdx + 2 : zmap.length);
     }
     const i = zmap.indexOf(slot);
-    return i >= 0 ? i : zmap.length;
+    return i >= 0 ? i : (slot.startsWith("back") ? 50 : zmap.length);
   };
 }
 
@@ -193,17 +209,20 @@ export function composeCharacter(
     return orderA - orderB;
   });
 
-  // Check if an equipped hat fully encloses the head / covers all hair (e.g. Zakum Helmet)
+  // Check if an equipped hat covers hair (e.g. Zakum Helmet, Shadow Hood, beanies)
   let hatCoversAllHair = false;
+  let hatCoversTopHair = false;
   for (const id of ids) {
     if (categoryForId(id) === "Cap") {
       const sid = String(id).padStart(8, "0");
       const found = findImage(store, `Cap/${sid}`);
       if (found) {
         const vslot = String((found.image.parse().child("info")?.child("vslot") as any)?.value ?? "");
-        if (vslot.includes("H1") && vslot.includes("H2") && vslot.includes("H3")) {
+        if (vslot.includes("H1") && (vslot.includes("H2") || vslot.includes("H3") || vslot.includes("H5"))) {
           hatCoversAllHair = true;
           break;
+        } else if (vslot.includes("H1")) {
+          hatCoversTopHair = true;
         }
       }
     }
@@ -274,7 +293,10 @@ export function composeCharacter(
     const fr = (isFace && expr && expr !== "default")
       ? (act.child(String(ef)) ?? act.child("0") ?? (act.child("face") ? act : null) ?? act)
       : (act.child(String(frame)) ?? (numericChildren.length ? numericChildren[frame % numericChildren.length] : null) ?? act.child("0") ?? (act.child("face") ? act : null) ?? act);
-    const canvases = collectCanvases(fr, store);
+    let canvases = collectCanvases(fr, store);
+    if (hatCoversTopHair && category === "Hair") {
+      canvases = canvases.filter((c) => c.name !== "hairOverHead" && c.name !== "hairShade");
+    }
     if (!canvases.length) continue;
 
     for (const canvas of canvases) {

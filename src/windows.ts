@@ -286,10 +286,10 @@ export class Windows {
           const qsH = 73;
           const qsX = Math.round(this.game.r.width - qsW - 4);
           const qsY = Math.round(this.game.r.height - 10 - qsH + 2);
-          if (mx >= qsX + 11 && mx < qsX + 11 + 16 * 34 && my >= qsY + 5 && my < qsY + 5 + 64) {
-            const col = Math.floor((mx - (qsX + 11)) / 34);
-            const row = my < qsY + 36 ? 0 : 1;
-            if (col >= 0 && col < 16) {
+          if (mx >= qsX + 2 && mx < qsX + 2 + 16 * 35 && my >= qsY + 3 && my < qsY + 3 + 70) {
+            const col = Math.floor((mx - (qsX + 2)) / 35);
+            const row = Math.floor((my - (qsY + 3)) / 35);
+            if (col >= 0 && col < 16 && (row === 0 || row === 1)) {
               to = row === 0 ? QUICK_KEYS[col] : QUICK_KEYS[16 + col];
             }
           }
