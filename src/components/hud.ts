@@ -18,9 +18,6 @@ export class StatusCapsule extends ComponentBase {
   root!: HTMLElement;
   hpZone!: HTMLElement;
   mpZone!: HTMLElement;
-  expText!: HTMLElement;
-  expBottomFill!: HTMLElement;
-  fullExp!: HTMLElement;
 
   private parentEl!: HTMLElement;
 
@@ -56,14 +53,14 @@ export class StatusCapsule extends ComponentBase {
   public override destroy(force?: boolean): void {
     super.destroy(force);
     this.root?.remove();
-    this.fullExp?.remove();
     document.querySelectorAll(".ms-screen-exp-bar").forEach((e) => e.remove());
   }
 
   private initComponent() {
+    // Anchor container sized 424px to house both the HP/MP status panel (204px) and WebGPU menu buttons (210px)
     this.root = el(
       "div",
-      "ms-hud-center relative w-[204px] h-[70px] pointer-events-auto select-none cursor-default flex flex-col justify-between",
+      "ms-hud-center relative w-[424px] h-[70px] pointer-events-auto select-none cursor-default flex flex-col justify-between",
       this.parentEl
     );
 
@@ -79,40 +76,13 @@ export class StatusCapsule extends ComponentBase {
       this.root
     );
 
-    // Single clear and readable translucent bottom EXP bar (strictly singleton)
+    // Remove any legacy HTML EXP bars so the WebGPU WZ EXP bar renders cleanly
     document.querySelectorAll(".ms-screen-exp-bar").forEach((e) => e.remove());
-
-    this.fullExp = el(
-      "div",
-      "ms-screen-exp-bar fixed left-0 right-0 bottom-0 w-screen h-[18px] bg-slate-950/75 border-t border-white/20 shadow-[0_-2px_10px_rgba(0,0,0,0.5)] z-[100] flex items-center px-1 backdrop-blur-[12px] box-border pointer-events-none overflow-hidden",
-      document.body
-    );
-
-    // Subtle 10% interval ticks
-    for (let i = 1; i < 10; i++) {
-      const tick = el("div", "ms-exp-tick absolute top-0 bottom-0 w-[1px] bg-white/10 z-[2] pointer-events-none", this.fullExp);
-      tick.style.left = `${i * 10}%`;
-    }
-
-    this.expBottomFill = el(
-      "div",
-      "ms-screen-exp-fill absolute left-0 top-0 bottom-0 bg-[#84cc16]/85 border-r-[1.5px] border-white/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[width] duration-250 pointer-events-none",
-      this.fullExp
-    );
-    this.expText = el(
-      "div",
-      "ms-screen-exp-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[11px] leading-[18px] text-white tracking-[0.5px] z-[3] pointer-events-none select-none tabular-nums",
-      this.fullExp
-    );
   }
 
   update(d: StatusUpdateData) {
     const hpPct = Math.min(100, Math.max(0, (d.hp / d.maxHp) * 100));
     const mpPct = Math.min(100, Math.max(0, (d.mp / d.maxMp) * 100));
-    const expPct = Math.min(100, Math.max(0, (d.exp / d.expNeed) * 100));
-
-    this.expBottomFill.style.width = `${expPct}%`;
-    this.expText.textContent = `EXP: ${d.exp.toLocaleString()} / ${d.expNeed.toLocaleString()} [${expPct.toFixed(2)}%]`;
 
     if (this.hpZone) {
       this.hpZone.title = `HP: ${d.hp.toLocaleString()} / ${d.maxHp.toLocaleString()} (${hpPct.toFixed(1)}%)`;

@@ -387,6 +387,10 @@ async function start(char?: SpacetimeCharacter) {
   hud = new Hud(ui, game, win);
   if (!hud.wins) hud.setup(ui, game, win);
   hud.setMap(game.map);
+  game.hud = hud;
+  game.windows = win;
+  (window as any).__windows = win;
+  (window as any).__hud = hud;
   game.loadGuild().catch(() => null);
 
   // Mount the real-time performance panel (FPS, Ping, JS Heap) right next to HP/MP bar on the right side.

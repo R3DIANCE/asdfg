@@ -109,7 +109,9 @@ function pngResponse(png: Buffer | null, what: string): Response {
   const parts = new URL(req.url).pathname.split("/").filter(Boolean).map((p) => {
     try {
       const dec = decodeURIComponent(p);
-      return dec === "slash" ? "\\" : dec;
+      if (dec === "slash") return "\\";
+      if (dec === "dot" || dec === "period") return ".";
+      return dec;
     } catch {
       return p;
     }

@@ -11,6 +11,7 @@ import {
   type RemotePlayer,
   charUrlFor,
   DEFAULT_LOOK,
+  expToLevel,
 } from "../game-types.ts";
 import { itemIconRaw } from "../skills.ts";
 import { PetSystem } from "./pet-system.ts";
@@ -264,6 +265,158 @@ export const STATUS_UI = {
   gaugeSlash: "/wz/sprite/UI/StatusBar3/mainBar/status/gauge/number/slash",
 };
 
+export const EXP_UI = {
+  backgrnd: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/backgrnd",
+  effect: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/layer:effect",
+  res: {
+    "800": {
+      back: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/800/layer:back",
+      cover: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/800/layer:cover",
+      gauge: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/800/layer:gauge",
+    },
+    "1024": {
+      back: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1024/layer:back",
+      cover: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1024/layer:cover",
+      gauge: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1024/layer:gauge",
+    },
+    "1280": {
+      back: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1280/layer:back",
+      cover: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1280/layer:cover",
+      gauge: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1280/layer:gauge",
+    },
+    "1366": {
+      back: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1366/layer:back",
+      cover: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1366/layer:cover",
+      gauge: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1366/layer:gauge",
+    },
+    "1920": {
+      back: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1920/layer:back",
+      cover: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1920/layer:cover",
+      gauge: "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/1920/layer:gauge",
+    },
+  },
+  num: {
+    ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [String(i), `/wz/sprite/UI/StatusBar3/mainBar/EXPBar/number/${i}`])),
+    "[": "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/number/[",
+    "]": "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/number/]",
+    "%": "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/number/%25",
+    ".": "/wz/sprite/UI/StatusBar3/mainBar/EXPBar/number/dot",
+  } as Record<string, string>,
+};
+
+export const MENU_UI = {
+  buttons: [
+    { id: "cashShop", name: "button:CashShop", title: "Cash Shop (CS)" },
+    { id: "event", name: "button:Event", title: "Daily Gift & Events" },
+    { id: "character", name: "button:Character", title: "Character Menu (S / E / I / K)" },
+    { id: "community", name: "button:Community", title: "Party & Guild (P / G)" },
+    { id: "setting", name: "button:Setting", title: "Settings & Key Config (\\)" },
+    { id: "menu", name: "button:Menu", title: "Game Guide & Menu" },
+  ],
+  sprites: (btnName: string, state: "normal" | "mouseOver" | "pressed") =>
+    `/wz/sprite/UI/StatusBar3/mainBar/menu/${btnName}/${state}/0`,
+  notify: Array.from({ length: 6 }, (_, i) => `/wz/sprite/UI/StatusBar3/mainBar/menu/Notify/${i}`),
+  submenu: {
+    items: {
+      character: [
+        { id: "stat", label: "button:Stat", title: "Character Stats (S)" },
+        { id: "skill", label: "button:Skill", title: "Skills (K)" },
+        { id: "equip", label: "button:Equip", title: "Equipment (E)" },
+        { id: "item", label: "button:Item", title: "Inventory (I)" },
+      ],
+      community: [
+        { id: "bossParty", label: "button:bossParty", title: "Party (P)" },
+        { id: "guild", label: "button:guild", title: "Guild (G)" },
+      ],
+      setting: [
+        { id: "keySetting", label: "button:keySetting", title: "Key Config (\\)" },
+      ],
+      menu: [
+        { id: "guide", label: "button:Help", title: "Game Guide" },
+        { id: "quest", label: "button:quest", title: "Quest Log" },
+      ],
+    } as Record<string, { id: string; label: string; title: string }[]>,
+    sprite: (category: string, itemLabel: string, state: "normal" | "mouseOver" | "pressed") =>
+      `/wz/sprite/UI/StatusBar3/mainBar/submenu/${category}/${itemLabel}/${state}/0`,
+  },
+};
+
+export class WebGpuMenuInput {
+  static mouseX = -1;
+  static mouseY = -1;
+  static isDown = false;
+  static hoveredBtnId: string | null = null;
+  static activeSubmenu: string | null = null;
+  static hoveredSubmenuItem: string | null = null;
+  static installed = false;
+
+  static install(canvas: HTMLCanvasElement, game: Game) {
+    if (this.installed || !canvas) return;
+    this.installed = true;
+
+    window.addEventListener("pointermove", (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      this.mouseX = Math.round(e.clientX - rect.left);
+      this.mouseY = Math.round(e.clientY - rect.top);
+    });
+
+    window.addEventListener("pointerdown", (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      this.isDown = true;
+    });
+
+    window.addEventListener("pointerup", (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      this.isDown = false;
+      this.handleClick(game);
+    });
+  }
+
+  static handleClick(game: Game) {
+    const win = (game as any).windows ?? (game as any).hud?.wins ?? (window as any).__windows ?? (window as any).__game?.hud?.wins;
+
+    if (this.hoveredSubmenuItem) {
+      const it = this.hoveredSubmenuItem;
+      this.activeSubmenu = null;
+      if (it === "stat" && win) win.toggle(win.stat);
+      else if (it === "skill" && win) win.toggle(win.skill);
+      else if (it === "equip" && win) win.toggle(win.ext.equipWin);
+      else if (it === "item" && win) win.toggle(win.ext.invWin);
+      else if (it === "bossParty" && win) win.toggle(win.partyWin);
+      else if (it === "guild" && win) win.toggle(win.guildWin);
+      else if (it === "keySetting" && win) win.toggle(win.keyConfigWin);
+      else if (it === "guide" && win) win.toggle(win.guideWin);
+      else if (it === "quest") (game as any).hud?.showDailyGift?.();
+      return;
+    }
+
+    if (this.hoveredBtnId) {
+      const bid = this.hoveredBtnId;
+      if (bid === "cashShop") {
+        this.activeSubmenu = null;
+        const w = (game as any).windows ?? (game as any).hud?.wins;
+        w?.ext?.items?.open?.();
+      } else if (bid === "event") {
+        this.activeSubmenu = null;
+        (game as any).hud?.showDailyGift?.();
+      } else if (bid === "character") {
+        this.activeSubmenu = this.activeSubmenu === "character" ? null : "character";
+      } else if (bid === "community") {
+        this.activeSubmenu = this.activeSubmenu === "community" ? null : "community";
+      } else if (bid === "setting") {
+        this.activeSubmenu = this.activeSubmenu === "setting" ? null : "setting";
+      } else if (bid === "menu") {
+        this.activeSubmenu = this.activeSubmenu === "menu" ? null : "menu";
+      }
+      return;
+    }
+
+    if (this.activeSubmenu) {
+      this.activeSubmenu = null;
+    }
+  }
+}
+
 export class WorldRenderer {
   public static draw(game: Game) {
     const r = game.r;
@@ -461,8 +614,10 @@ export class WorldRenderer {
     if (game.fade > 0) r.rect(0, 0, r.width, r.height, [0, 0, 0, game.fade]);
     if (game.loadingMap) r.rect(0, 0, r.width, r.height, [0, 0, 0, 1]);
 
-    // WebGPU UI: Draw HP/MP status panel directly from authentic .wz assets
+    // WebGPU UI: Draw HP/MP status panel, EXP bar, and menu buttons directly from authentic .wz assets
     WorldRenderer.drawHpMpPanel(game);
+    WorldRenderer.drawExpBar(game);
+    WorldRenderer.drawMenuButtons(game);
 
     r.end();
   }
@@ -472,13 +627,14 @@ export class WorldRenderer {
     const r = game.r;
 
     // Anchor with .ms-hud-center DOM element if present, otherwise bottom center
+    const totalW = 424;
     const centerEl = typeof document !== "undefined" ? document.querySelector(".ms-hud-center") : null;
     const rect = centerEl?.getBoundingClientRect();
     const panelW = 204;
     const panelH = 70;
     const x = (rect && rect.width > 0)
-      ? Math.round(rect.left + (rect.width - panelW) / 2)
-      : Math.round((r.width - panelW) / 2);
+      ? Math.round(rect.left + (rect.width - totalW) / 2)
+      : Math.round((r.width - totalW) / 2);
     const y = (rect && rect.height > 0)
       ? Math.round(rect.top + (rect.height - panelH) / 2)
       : Math.round(r.height - panelH - 18);
@@ -603,6 +759,285 @@ export class WorldRenderer {
     // 6. Draw HP & MP Numbers
     drawGaugeNumbers(`${hp} / ${maxHp}`, y + 30);
     drawGaugeNumbers(`${mp} / ${maxMp}`, y + 46);
+  }
+
+  public static drawExpBar(game: Game) {
+    if (!game.stats || game.loadingMap) return;
+    const r = game.r;
+
+    // Determine best resolution tier
+    let resKey: "800" | "1024" | "1280" | "1366" | "1920" = "1920";
+    if (r.width <= 900) resKey = "800";
+    else if (r.width <= 1150) resKey = "1024";
+    else if (r.width <= 1320) resKey = "1280";
+    else if (r.width <= 1500) resKey = "1366";
+
+    const res = EXP_UI.res[resKey];
+    const expY = r.height - 10;
+
+    // 1. Draw EXP Bar Background
+    const backTex = game.assets.get(res.back);
+    if (backTex) {
+      r.draw(backTex, 0, expY, r.width, 10);
+    } else {
+      game.assets.load(res.back);
+    }
+
+    // 2. Draw EXP Fill Gauge
+    const exp = Math.max(0, game.stats.exp || 0);
+    const expNeed = Math.max(1, Math.round(expToLevel(game.stats.level || 1)));
+    const expRatio = Math.min(1, Math.max(0, exp / expNeed));
+    const maxGaugeW = r.width - 32;
+    const fillW = Math.round(maxGaugeW * expRatio);
+
+    const gaugeTex = game.assets.get(res.gauge);
+    if (gaugeTex) {
+      if (fillW > 0) {
+        r.draw(gaugeTex, 16, expY + 2, fillW, 7, { sx: 0, sy: 0, sw: fillW, sh: 7 });
+      }
+    } else {
+      game.assets.load(res.gauge);
+    }
+
+    // 3. Draw Spark Effect Glow at tip of fill
+    if (fillW > 0) {
+      const effTex = game.assets.get(EXP_UI.effect);
+      if (effTex) {
+        r.draw(effTex, 16 + fillW - 6, expY - 3, effTex.w, effTex.h);
+      } else {
+        game.assets.load(EXP_UI.effect);
+      }
+    }
+
+    // 4. Draw Cover (graduation tick overlay)
+    const coverTex = game.assets.get(res.cover);
+    if (coverTex) {
+      r.draw(coverTex, Math.round((r.width - coverTex.w) / 2), expY + 2, coverTex.w, 7);
+    } else {
+      game.assets.load(res.cover);
+    }
+
+    // 5. Draw Authentic EXP Numbers & Percentage
+    const expPct = Math.min(100, (exp / expNeed) * 100);
+    const text = `${exp.toLocaleString()} [${expPct.toFixed(2)}%]`;
+
+    let totalW = 0;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c >= "0" && c <= "9") totalW += (c === "1" ? 5 : 8);
+      else if (c === "[") totalW += 8;
+      else if (c === "]") totalW += 5;
+      else if (c === "%") totalW += 10;
+      else if (c === ".") totalW += 4;
+      else if (c === ",") totalW += 4;
+      else if (c === " ") totalW += 3;
+    }
+
+    let curX = Math.round((r.width - totalW) / 2);
+    const textY = expY + 1;
+
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c >= "0" && c <= "9") {
+        const digUrl = EXP_UI.num[c];
+        const digTex = digUrl ? game.assets.get(digUrl) : null;
+        if (digTex) {
+          r.draw(digTex, curX, textY, digTex.w, digTex.h);
+          curX += digTex.w + 1;
+        } else {
+          if (digUrl) game.assets.load(digUrl);
+          curX += (c === "1" ? 5 : 8);
+        }
+      } else if (c === "[" || c === "]" || c === "%" || c === ".") {
+        const symUrl = EXP_UI.num[c];
+        const symTex = symUrl ? game.assets.get(symUrl) : null;
+        if (symTex) {
+          const sy = c === "." ? textY + 5 : textY;
+          r.draw(symTex, curX, sy, symTex.w, symTex.h);
+          curX += symTex.w + 1;
+        } else {
+          if (symUrl) game.assets.load(symUrl);
+          curX += (c === "%" ? 10 : c === "." ? 4 : 7);
+        }
+      } else if (c === ",") {
+        const dotUrl = EXP_UI.num["."];
+        const dotTex = dotUrl ? game.assets.get(dotUrl) : null;
+        if (dotTex) {
+          r.draw(dotTex, curX, textY + 5, dotTex.w, dotTex.h);
+          curX += dotTex.w + 1;
+        } else {
+          curX += 4;
+        }
+      } else if (c === " ") {
+        curX += 3;
+      }
+    }
+
+    // 6. EXP Bar Hover Tooltip
+    if (WebGpuMenuInput.mouseY >= expY - 4 && WebGpuMenuInput.mouseY <= r.height) {
+      const tipText = `EXP: ${exp.toLocaleString()} / ${expNeed.toLocaleString()} (${expPct.toFixed(2)}%)`;
+      const tipW = tipText.length * 7 + 16;
+      const tipX = Math.max(10, Math.min(r.width - tipW - 10, WebGpuMenuInput.mouseX - tipW / 2));
+      const tipY = expY - 24;
+      r.rect(tipX, tipY, tipW, 18, [0.06, 0.09, 0.14, 0.92]);
+      r.rect(tipX, tipY, tipW, 1, [0.4, 0.5, 0.65, 0.7]);
+      r.rect(tipX, tipY + 17, tipW, 1, [0.4, 0.5, 0.65, 0.7]);
+      r.rect(tipX, tipY, 1, 18, [0.4, 0.5, 0.65, 0.7]);
+      r.rect(tipX + tipW - 1, tipY, 1, 18, [0.4, 0.5, 0.65, 0.7]);
+      let tx = tipX + 8;
+      for (let i = 0; i < tipText.length; i++) {
+        const ch = tipText[i];
+        if (ch >= "0" && ch <= "9") {
+          const dTex = game.assets.get(STATUS_UI.gaugeNum[Number(ch)]);
+          if (dTex) {
+            r.draw(dTex, tx, tipY + 4, dTex.w, dTex.h);
+            tx += dTex.w + 1;
+          } else {
+            tx += 7;
+          }
+        } else if (ch === "/") {
+          const sTex = game.assets.get(STATUS_UI.gaugeSlash);
+          if (sTex) {
+            r.draw(sTex, tx, tipY + 4, sTex.w, sTex.h);
+            tx += sTex.w + 1;
+          } else {
+            tx += 7;
+          }
+        } else if (ch === "%" || ch === ".") {
+          const sTex = game.assets.get(EXP_UI.num[ch]);
+          if (sTex) {
+            r.draw(sTex, tx, ch === "." ? tipY + 9 : tipY + 4, sTex.w, sTex.h);
+            tx += sTex.w + 1;
+          } else {
+            tx += 5;
+          }
+        } else {
+          tx += 4;
+        }
+      }
+    }
+  }
+
+  public static drawMenuButtons(game: Game) {
+    if (!game.stats || game.loadingMap) return;
+    const r = game.r;
+    if (r.canvas) WebGpuMenuInput.install(r.canvas, game);
+
+    // Anchor aligned with HP/MP status panel
+    const totalW = 424;
+    const centerEl = typeof document !== "undefined" ? document.querySelector(".ms-hud-center") : null;
+    const rect = centerEl?.getBoundingClientRect();
+    const x = (rect && rect.width > 0)
+      ? Math.round(rect.left + (rect.width - totalW) / 2)
+      : Math.round((r.width - totalW) / 2);
+    const y = (rect && rect.height > 0)
+      ? Math.round(rect.top + (rect.height - 70) / 2)
+      : Math.round(r.height - 70 - 18);
+
+    const menuX = x + 214;
+    const menuY = y + 24;
+
+    const mx = WebGpuMenuInput.mouseX;
+    const my = WebGpuMenuInput.mouseY;
+
+    let anyHovered = false;
+    WebGpuMenuInput.hoveredBtnId = null;
+
+    let activeBtnX = menuX;
+    let activeBtnY = menuY;
+
+    // Draw the 6 authentic StatusBar3 menu buttons
+    for (let i = 0; i < MENU_UI.buttons.length; i++) {
+      const btn = MENU_UI.buttons[i];
+      const btnX = menuX + i * 35;
+      const btnY = menuY;
+      const isHover = mx >= btnX && mx < btnX + 34 && my >= btnY && my < btnY + 37;
+
+      if (isHover) {
+        anyHovered = true;
+        WebGpuMenuInput.hoveredBtnId = btn.id;
+      }
+
+      if (btn.id === WebGpuMenuInput.activeSubmenu) {
+        activeBtnX = btnX;
+        activeBtnY = btnY;
+      }
+
+      let state: "normal" | "mouseOver" | "pressed" = "normal";
+      if (btn.id === WebGpuMenuInput.activeSubmenu || (isHover && WebGpuMenuInput.isDown)) {
+        state = "pressed";
+      } else if (isHover) {
+        state = "mouseOver";
+      }
+
+      const spriteUrl = MENU_UI.sprites(btn.name, state);
+      const tex = game.assets.get(spriteUrl);
+      if (tex) {
+        r.draw(tex, btnX, btnY, 34, 37);
+      } else {
+        game.assets.load(spriteUrl);
+      }
+
+      // Flashing alert badge on Character button when AP or SP is available
+      if (btn.id === "character" && (game.stats.ap > 0 || game.stats.sp > 0)) {
+        const frameIdx = Math.floor((game.time * 6) % 6);
+        const notifUrl = MENU_UI.notify[frameIdx];
+        const notifTex = notifUrl ? game.assets.get(notifUrl) : null;
+        if (notifTex) {
+          r.draw(notifTex, btnX + 16, btnY - 8, notifTex.w, notifTex.h);
+        } else if (notifUrl) {
+          game.assets.load(notifUrl);
+        }
+      }
+    }
+
+    // Draw active submenu popup
+    WebGpuMenuInput.hoveredSubmenuItem = null;
+    if (WebGpuMenuInput.activeSubmenu) {
+      const subItems = MENU_UI.submenu.items[WebGpuMenuInput.activeSubmenu as keyof typeof MENU_UI.submenu.items];
+      if (subItems && subItems.length) {
+        const subW = 109;
+        const subX = Math.round(activeBtnX + (34 - subW) / 2);
+        const totalItemsH = subItems.length * 27;
+        const subY = activeBtnY - totalItemsH - 8;
+
+        // Submenu background box
+        r.rect(subX - 4, subY - 4, subW + 8, totalItemsH + 8, [0.08, 0.12, 0.18, 0.95]);
+        r.rect(subX - 4, subY - 4, subW + 8, 1, [0.38, 0.48, 0.62, 0.8]);
+        r.rect(subX - 4, subY + totalItemsH + 3, subW + 8, 1, [0.38, 0.48, 0.62, 0.8]);
+        r.rect(subX - 4, subY - 4, 1, totalItemsH + 8, [0.38, 0.48, 0.62, 0.8]);
+        r.rect(subX + subW + 3, subY - 4, 1, totalItemsH + 8, [0.38, 0.48, 0.62, 0.8]);
+
+        for (let j = 0; j < subItems.length; j++) {
+          const item = subItems[j];
+          const itemY = subY + j * 27;
+          const isItemHover = mx >= subX && mx < subX + subW && my >= itemY && my < itemY + 26;
+
+          if (isItemHover) {
+            anyHovered = true;
+            WebGpuMenuInput.hoveredSubmenuItem = item.id;
+          }
+
+          const itemState: "normal" | "mouseOver" = isItemHover ? "mouseOver" : "normal";
+          const itemUrl = MENU_UI.submenu.sprite(WebGpuMenuInput.activeSubmenu, item.label, itemState);
+          const itemTex = game.assets.get(itemUrl);
+          if (itemTex) {
+            r.draw(itemTex, subX, itemY, subW, 26);
+          } else {
+            game.assets.load(itemUrl);
+          }
+        }
+      }
+    }
+
+    // Set cursor style
+    if (r.canvas) {
+      if (anyHovered) {
+        r.canvas.style.cursor = "pointer";
+      } else if (r.canvas.style.cursor === "pointer") {
+        r.canvas.style.cursor = "default";
+      }
+    }
   }
 
   public static drawAniObjs(game: Game, front: boolean, cx: number, cy: number) {

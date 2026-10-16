@@ -39,7 +39,7 @@ export class Hud extends ComponentBase {
   playerTag!: PlayerStatusTag;
   status!: StatusCapsule;
   perfContainer!: HTMLElement;
-  menu!: MenuButtons;
+  menu?: MenuButtons;
   quick!: QuickBarComponent;
   chat!: ChatComponent;
   mini!: MinimapComponent;
@@ -87,65 +87,7 @@ export class Hud extends ComponentBase {
     // Left: Player level, IGN
     this.playerTag = createUIEntity("PlayerStatusTag", PlayerStatusTag, { parent: this.dockLeft }, this.childEntities, canOrillusion);
 
-    // Center: 8 Square Menu Buttons + Dual HP/MP Stacked Bars + Centered EXP
-    this.menu = createUIEntity(
-      "MenuButtons",
-      MenuButtons,
-      {
-        parent: this.dockCenter,
-        items: {
-          gift: {
-            title: "Daily Gift & Events",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>`,
-            onClick: () => this.showDailyGift(),
-          },
-          char: {
-            title: "Character Stats (S / U)",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M14.5 17.5 5 8M4 4l7.5 7.5M14.5 6.5l5-5 3 3-5 5-3-3zM2 22l5-5M9.5 14.5 17 7M9.5 17.5l-3 3-3-3 5-5 3 3zM22 2l-7.5 7.5"/></svg>`,
-            badge: true,
-            onClick: () => this.wins.toggle(this.wins.stat),
-          },
-          equip: {
-            title: "Equipment (E)",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="m14.5 17.5 5 5M4 4l7.5 7.5M14.5 6.5l5-5 3 3-5 5-3-3zM2 22l5-5M9.5 14.5 17 7M9.5 17.5l-3 3-3-3 5-5 3 3zM22 2l-7.5 7.5"/></svg>`,
-            onClick: () => this.wins.toggle(this.wins.ext.equipWin),
-          },
-          inv: {
-            title: "Item Inventory (I)",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M4 10a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10z"/><path d="M9 6V4a3 3 0 0 1 6 0v2"/><path d="M8 12h8v4H8z"/></svg>`,
-            onClick: () => this.wins.toggle(this.wins.ext.invWin),
-          },
-          skill: {
-            title: "Skills (K)",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>`,
-            onClick: () => this.wins.toggle(this.wins.skill),
-          },
-          quest: {
-            title: "Quest Notifier",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4.9 12c.7.7 1.1 1.6 1.4 2.5h7c.3-.9.7-1.8 1.4-2.5A7 7 0 0 0 12 2z"/></svg>`,
-            onClick: () => this.showDailyGift(),
-          },
-          auto: {
-            title: "Auto Battle Settings (B)",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
-            onClick: () => this.wins.toggle(this.wins.autoWin),
-          },
-          guide: {
-            title: "Game Guide & Codex (G)",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>`,
-            onClick: () => this.wins.toggle(this.wins.guideWin),
-          },
-          mainMenu: {
-            title: "Main Menu",
-            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`,
-            onClick: (btn: HTMLElement) => this.wins.ext.toggleMenu(btn),
-          },
-        },
-      },
-      this.childEntities,
-      canOrillusion
-    );
-
+    // Center: Dual HP/MP Stacked Bars + Menu Buttons drawn via WebGPU directly from WZ
     this.status = createUIEntity("StatusCapsule", StatusCapsule, { parent: this.dockCenter }, this.childEntities, canOrillusion);
     this.perfContainer = el("div", "dock-perf-container select-none pointer-events-none", this.status.root);
 
@@ -336,7 +278,7 @@ export class Hud extends ComponentBase {
       });
 
       // Orange dot badge when AP/SP available
-      this.menu.setBadge("char", s.ap > 0 || s.sp > 0);
+      this.menu?.setBadge?.("char", s.ap > 0 || s.sp > 0);
     }
 
     // Dynamic player marker tracking

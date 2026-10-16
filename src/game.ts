@@ -47,7 +47,7 @@ import {
   rand,
   type PetInstance,
 } from "./game-types.ts";
-import { WorldRenderer, STATUS_UI } from "./systems/render-system.ts";
+import { WorldRenderer, STATUS_UI, EXP_UI, MENU_UI } from "./systems/render-system.ts";
 import { AutoCombatSystem } from "./systems/auto-combat.ts";
 import { StageSystem } from "./systems/stage-system.ts";
 import { PetSystem } from "./systems/pet-system.ts";
@@ -169,6 +169,8 @@ export class Game extends ComponentBase {
   speedMultiplier = 1;
   projectiles: Projectile[] = [];
   fullyLoaded = false;
+  hud: any = null;
+  windows: any = null;
   shadowPartnerArt: Record<string, Sprite[]> = {};
 
   hasWizetHat(look?: number[]): boolean {
@@ -317,6 +319,22 @@ export class Game extends ComponentBase {
       ...STATUS_UI.aniHp,
       ...STATUS_UI.lvNum,
       ...STATUS_UI.gaugeNum,
+      EXP_UI.backgrnd,
+      EXP_UI.effect,
+      ...Object.values(EXP_UI.res).flatMap((r) => [r.back, r.gauge, r.cover]),
+      ...Object.values(EXP_UI.num),
+      ...MENU_UI.buttons.flatMap((b) => [
+        MENU_UI.sprites(b.name, "normal"),
+        MENU_UI.sprites(b.name, "mouseOver"),
+        MENU_UI.sprites(b.name, "pressed"),
+      ]),
+      ...MENU_UI.notify,
+      ...Object.entries(MENU_UI.submenu.items).flatMap(([cat, items]) =>
+        items.flatMap((it) => [
+          MENU_UI.submenu.sprite(cat, it.label, "normal"),
+          MENU_UI.submenu.sprite(cat, it.label, "mouseOver"),
+        ])
+      ),
     ];
     for (const url of statusSprites) loads.push(this.assets.load(url));
     try {

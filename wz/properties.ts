@@ -38,7 +38,8 @@ export class WzNullProperty {
   get(path: string): WzProperty | null {
     let node: WzProperty | null = this;
     for (const part of path.split("/")) {
-      if (part === "" || part === ".") continue;
+      if (part === "") continue;
+      if (part === "." && !node?.child(".")) continue;
       if (part === "..") {
         node = node?.parent ?? null;
         continue;
