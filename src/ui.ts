@@ -36,7 +36,7 @@ export class Hud extends ComponentBase {
   dockRight!: HTMLElement;
   quickWrap!: HTMLElement;
 
-  playerTag!: PlayerStatusTag;
+  playerTag?: PlayerStatusTag;
   status!: StatusCapsule;
   perfContainer!: HTMLElement;
   menu?: MenuButtons;
@@ -83,9 +83,6 @@ export class Hud extends ComponentBase {
     this.wins = new Windows(game, win, this.root);
 
     const canOrillusion = (game as any)?.r?.backend === "webgpu" && !!(game as any)?.r?.scene;
-
-    // Left: Player level, IGN
-    this.playerTag = createUIEntity("PlayerStatusTag", PlayerStatusTag, { parent: this.dockLeft }, this.childEntities, canOrillusion);
 
     // Center: Dual HP/MP Stacked Bars + Menu Buttons drawn via WebGPU directly from WZ
     this.status = createUIEntity("StatusCapsule", StatusCapsule, { parent: this.dockCenter }, this.childEntities, canOrillusion);
@@ -265,7 +262,7 @@ export class Hud extends ComponentBase {
     const sig = `${s.level}|${s.hp}|${s.maxHp}|${s.mp}|${s.maxMp}|${s.exp}|${s.name}|${s.ap}|${s.sp}|${g.stage.kills}`;
 
     if (sig !== this.lastSig || performance.now() % 2000 < 20) {
-      this.playerTag.update(s.level, s.name);
+      this.playerTag?.update(s.level, s.name);
       this.status.update({
         level: s.level,
         name: s.name,

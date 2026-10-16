@@ -246,6 +246,60 @@ export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: G
   return null;
 }
 
+export function renderPlayerNameTexture(r: Renderer, name: string): Tex | null {
+  const key = `playername:${name}`;
+  const hit = textTexCache.get(key);
+  if (hit) return hit;
+  if (textTexPending.has(key)) return null;
+  textTexPending.add(key);
+
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      textTexPending.delete(key);
+      return null;
+    }
+
+    ctx.font = "bold 11px Tahoma, 'Segoe UI', Arial, sans-serif";
+    const tm = ctx.measureText(name);
+    const tw = Math.ceil(tm.width);
+    const w = tw + 6;
+    const h = 16;
+    canvas.width = w;
+    canvas.height = h;
+
+    ctx.font = "bold 11px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.imageSmoothingEnabled = false;
+
+    // Crisp text shadow / outline
+    ctx.fillStyle = "#000000";
+    ctx.fillText(name, w / 2 - 1, h / 2);
+    ctx.fillText(name, w / 2 + 1, h / 2);
+    ctx.fillText(name, w / 2, h / 2 - 1);
+    ctx.fillText(name, w / 2, h / 2 + 1);
+    ctx.fillText(name, w / 2 + 1, h / 2 + 1);
+
+    // Character Name in clean white
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(name, w / 2, h / 2);
+
+    createImageBitmap(canvas).then((bmp) => {
+      const tex = r.texture(bmp);
+      textTexCache.set(key, tex);
+      textTexPending.delete(key);
+    }).catch(() => {
+      textTexPending.delete(key);
+    });
+  } catch {
+    textTexPending.delete(key);
+  }
+
+  return null;
+}
+
 export const STATUS_UI = {
   backgrnd: "/wz/sprite/UI/StatusBar3/mainBar/status/backgrnd",
   cover: "/wz/sprite/UI/StatusBar3/mainBar/status/layer:cover",
@@ -373,19 +427,34 @@ export class WebGpuMenuInput {
   }
 
   static handleClick(game: Game) {
-    const win = (game as any).windows ?? (game as any).hud?.wins ?? (window as any).__windows ?? (window as any).__game?.hud?.wins;
+    let win = (game as any).hud?.wins ?? (game as any).windows ?? (window as any).__windows ?? (window as any).__game?.hud?.wins;
+    if (win && typeof win.toggle !== "function" && win.wins) {
+      win = win.wins;
+    }
 
     if (this.hoveredSubmenuItem) {
       const it = this.hoveredSubmenuItem;
       this.activeSubmenu = null;
-      if (it === "stat" && win) win.toggle(win.stat);
-      else if (it === "skill" && win) win.toggle(win.skill);
-      else if (it === "equip" && win) win.toggle(win.ext.equipWin);
-      else if (it === "item" && win) win.toggle(win.ext.invWin);
-      else if (it === "bossParty" && win) win.toggle(win.partyWin);
-      else if (it === "guild" && win) win.toggle(win.guildWin);
-      else if (it === "keySetting" && win) win.toggle(win.keyConfigWin);
-      else if (it === "guide" && win) win.toggle(win.guideWin);
+      if (it === "stat" && win?.toggle) win.toggle(win.stat);
+      else if (it === "skill" && win?.toggle) win.toggle(win.skill);
+      else if (it === "equip" && win) {
+        if (win.ext?.open) win.ext.open("equip");
+        else if (win.toggle && win.ext?.equipWin) win.toggle(win.ext.equipWin);
+      }
+      else if (it === "item" && win) {
+        if (win.ext?.open) win.ext.open("inv");
+        else if (win.toggle && win.ext?.invWin) win.toggle(win.ext.invWin);
+      }
+      else if (it === "bossParty" && win?.toggle) win.toggle(win.partyWin);
+      else if (it === "guild" && win?.toggle) win.toggle(win.guildWin);
+      else if (it === "keySetting" && win?.toggle) {
+        if (win.guideWin) {
+          win.guideTab = "overview";
+          win.renderGuide?.();
+          win.toggle(win.guideWin);
+        }
+      }
+      else if (it === "guide" && win?.toggle) win.toggle(win.guideWin);
       else if (it === "quest") (game as any).hud?.showDailyGift?.();
       return;
     }
@@ -394,7 +463,8 @@ export class WebGpuMenuInput {
       const bid = this.hoveredBtnId;
       if (bid === "cashShop") {
         this.activeSubmenu = null;
-        const w = (game as any).windows ?? (game as any).hud?.wins;
+        let w = (game as any).hud?.wins ?? (game as any).windows ?? (window as any).__windows;
+        if (w && typeof w.toggle !== "function" && w.wins) w = w.wins;
         w?.ext?.items?.open?.();
       } else if (bid === "event") {
         this.activeSubmenu = null;
@@ -717,6 +787,52 @@ export class WorldRenderer {
       } else if (digUrl) {
         game.assets.load(digUrl);
       }
+    }
+
+    // 6. Character Avatar & Character Name (centered in panel header next to level)
+    const charName = (game.stats.name || "Wayfarer").trim();
+    const nameTex = renderPlayerNameTexture(r, charName);
+    const nameW = nameTex ? nameTex.w : (charName.length * 7);
+
+    // Authentic character stand sprite
+    const charLook = (game.look && game.look.length) ? game.look : DEFAULT_LOOK;
+    const charAnim = "stand1";
+    const charFrame = Math.floor((game.time * 2) % 3);
+    const charUrl = charUrlFor(charLook, charAnim, charFrame);
+    const charTex = game.assets.get(charUrl)
+      ?? game.assets.get(charUrlFor(charLook, "stand1", 0))
+      ?? game.lastPlayerTex;
+    if (!game.assets.get(charUrl)) {
+      game.assets.load(charUrl);
+    }
+
+    const hasCharSprite = Boolean(charTex);
+    const iconW = 16;
+    const iconH = 20;
+    const gap = 4;
+    const totalClusterW = (hasCharSprite ? (iconW + gap) : 0) + nameW;
+
+    // Center cluster between level number end and panel right boundary (x + 196)
+    const areaStart = curLvX + 6;
+    const areaEnd = x + 196;
+    const areaCenter = Math.round((areaStart + areaEnd) / 2);
+    const clusterX = Math.max(areaStart, Math.round(areaCenter - totalClusterW / 2));
+    let drawItemX = clusterX;
+
+    // Draw mini character standing avatar
+    if (hasCharSprite && charTex) {
+      r.draw(charTex, drawItemX, y + 2, iconW, iconH, {
+        sx: 168,
+        sy: 190,
+        sw: 40,
+        sh: 62,
+      });
+      drawItemX += iconW + gap;
+    }
+
+    // Draw Character Name
+    if (nameTex) {
+      r.draw(nameTex, drawItemX, y + 5, nameTex.w, nameTex.h);
     }
 
     // Helper: Draw gauge numbers (centered over 171px gauge)
