@@ -8,6 +8,7 @@ import { MinimapComponent } from "./components/minimap.ts";
 import { StatusCapsule, MenuButtons, PlayerStatusTag } from "./components/hud.ts";
 import { QuickBarComponent } from "./components/quick-bar.ts";
 import { GmOnlinePanel } from "./components/GmOnlinePanel.ts";
+import { PartyWidget } from "./components/PartyWidget.ts";
 import type { Action } from "./skills.ts";
 import { el, esc } from "./util.ts";
 
@@ -43,6 +44,7 @@ export class Hud extends ComponentBase {
   chat!: ChatComponent;
   mini!: MinimapComponent;
   gmPanel!: GmOnlinePanel;
+  partyWidget!: PartyWidget;
   wins!: Windows;
   gain!: HTMLElement;
   noticeBanner!: HTMLElement;
@@ -195,6 +197,15 @@ export class Hud extends ComponentBase {
       canOrillusion
     );
 
+    // 9. Dedicated On-Screen Party UI Widget
+    this.partyWidget = createUIEntity(
+      "PartyWidget",
+      PartyWidget,
+      { parent: this.root, game },
+      this.childEntities,
+      canOrillusion
+    );
+
     this.layout();
     addEventListener("resize", () => this.layout());
   }
@@ -334,6 +345,7 @@ export class Hud extends ComponentBase {
     this.mini.updatePlayer(p.x, p.y, g.remotePlayers);
     this.quick.render();
     this.gmPanel?.update(dt);
+    this.partyWidget?.update();
   }
 
   public override start(): void {
@@ -352,6 +364,7 @@ export class Hud extends ComponentBase {
   public override destroy(force?: boolean): void {
     super.destroy(force);
     this.gmPanel?.destroy(force);
+    this.partyWidget?.destroy(force);
     for (const child of this.childEntities) {
       child.destroy(force);
     }

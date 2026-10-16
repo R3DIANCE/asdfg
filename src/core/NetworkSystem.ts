@@ -1,8 +1,8 @@
-// Core Network System — WebSocket multiplayer synchronization and message handling
 import type { Game } from "../game.ts";
 import { charUrlFor, FREE_MARKET_MAP, type ChatKind } from "../game-types.ts";
 import { SKILL } from "../skills.ts";
 import { spacetime } from "../spacetimedb.ts";
+import { CombatSystem } from "./CombatSystem.ts";
 
 export class NetworkSystem {
   private static isSamePlayerName(a?: string, b?: string): boolean {
@@ -185,6 +185,35 @@ export class NetworkSystem {
         anim: p.anim,
         frame: p.frame,
       }));
+      if (game.partyId) {
+        NetworkSystem.sendPartySync(game);
+      }
+    }
+  }
+
+  private static lastPartySync = 0;
+  private static lastPartyHp = -1;
+  private static lastPartyMp = -1;
+  static sendPartySync(game: Game) {
+    if (!game.partyId || !game.ws || game.ws.readyState !== WebSocket.OPEN) return;
+    const now = performance.now();
+    const hpChanged = game.stats.hp !== NetworkSystem.lastPartyHp;
+    const mpChanged = game.stats.mp !== NetworkSystem.lastPartyMp;
+    if (hpChanged || mpChanged || now - NetworkSystem.lastPartySync > 1500) {
+      NetworkSystem.lastPartySync = now;
+      NetworkSystem.lastPartyHp = game.stats.hp;
+      NetworkSystem.lastPartyMp = game.stats.mp;
+      game.ws.send(JSON.stringify({
+        t: "party_sync",
+        partyId: game.partyId,
+        hp: game.stats.hp,
+        maxHp: game.stats.maxHp,
+        mp: game.stats.mp,
+        maxMp: game.stats.maxMp,
+        level: game.stats.level,
+        job: game.stats.job,
+        mapId: game.map?.id || 910000000,
+      }));
     }
   }
 
@@ -225,6 +254,10 @@ export class NetworkSystem {
         game.guildId = msg.guild.id;
         game.guildName = msg.guild.name;
         game.guildEmblem = msg.guild.emblem;
+      }
+      if (msg.party) {
+        game.party = msg.party;
+        game.partyId = msg.party.id;
       }
       if (activeName) {
         game.stats.name = activeName;
@@ -410,6 +443,28 @@ export class NetworkSystem {
       game.onChange();
     } else if (msg.t === "guild_directory_update") {
       window.dispatchEvent(new CustomEvent("guild-directory-changed"));
+    } else if (msg.t === "party_update") {
+      game.party = msg.party || null;
+      game.partyId = msg.party?.id;
+      if (!msg.party) {
+        if (msg.disbanded) {
+          game.onChat("notice", "The party has been disbanded.");
+        } else if (msg.expelled) {
+          game.onChat("notice", "You have been expelled from the party.");
+        }
+      }
+      window.dispatchEvent(new CustomEvent("party-state-changed", { detail: { party: game.party } }));
+      game.onChange();
+    } else if (msg.t === "party_invite") {
+      const inviter = msg.inviterName || "A player";
+      const partyId = msg.partyId;
+      game.onChat("notice", `★ [Party Invite] ${inviter} invited you to join their party! Press P or type /p accept.`);
+      window.dispatchEvent(new CustomEvent("party-invited", { detail: { inviter, partyId } }));
+    } else if (msg.t === "party_exp_gain") {
+      const exp = Number(msg.exp || 0);
+      if (exp > 0) {
+        CombatSystem.gainExp(game, exp);
+      }
     } else if (msg.t === "gm_heal") {
       game.stats.hp = game.stats.maxHp;
       game.stats.mp = game.stats.maxMp;

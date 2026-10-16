@@ -5,6 +5,7 @@ import type { Game } from "../game.ts";
 import type { Windows } from "../windows.ts";
 import { el } from "../util.ts";
 import { lucideIcon } from "../lucide.ts";
+import { PartyClient } from "../party.ts";
 
 export interface OnlinePlayerInfo {
   id: string;
@@ -360,10 +361,26 @@ export class GmOnlinePanel extends ComponentBase {
           <button type="button" class="gm-act-btn meso p-1 rounded bg-white/5 hover:bg-amber-500/25 text-amber-300 border border-white/10" title="+1M Mesos">
             ${lucideIcon("coins", 11)}
           </button>
+          <button type="button" class="gm-act-btn force-party p-1 rounded bg-white/5 hover:bg-indigo-500/25 text-indigo-300 border border-white/10" title="Force into Party">
+            ${lucideIcon("user-plus", 11)}
+          </button>
           <button type="button" class="gm-act-btn kick p-1 rounded bg-white/5 hover:bg-rose-500/25 text-rose-400 border border-white/10" title="Kick from server">
             ${lucideIcon("kick", 11)}
           </button>
         `;
+
+        actionsRow.querySelector(".force-party")?.addEventListener("click", async () => {
+          const res = await PartyClient.forceJoin(this.game.stats.name, p.name);
+          if (res.ok) {
+            this.game.party = res.party ?? null;
+            this.game.partyId = res.party?.id;
+            this.game.onChat("notice", `★ [GM Action] Forced ${p.name} into your party!`);
+            window.dispatchEvent(new CustomEvent("party-state-changed", { detail: { party: this.game.party } }));
+            this.game.onChange();
+          } else {
+            this.game.onChat("notice", `[GM] Failed to force into party: ${res.error || "Unknown error"}`);
+          }
+        });
 
         actionsRow.querySelector(".warp")?.addEventListener("click", async () => {
           if (this.game.map?.id !== p.mapId) {

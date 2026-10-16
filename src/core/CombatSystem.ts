@@ -261,6 +261,14 @@ export class CombatSystem {
       if (m.boss) { game.endBoss(true); return; }
       const exp = Math.max(1, Math.round((m.data.meta?.exp ?? 5) * m.mul.exp * (1 + game.gt.exp / 100)));
       CombatSystem.gainExp(game, exp);
+      if (game.partyId && game.ws && game.ws.readyState === WebSocket.OPEN) {
+        game.ws.send(JSON.stringify({
+          t: "party_exp",
+          partyId: game.partyId,
+          exp,
+          mobName: m.data.meta?.name || "Monster",
+        }));
+      }
       if (game.stage.kills < STAGE_KILLS) {
         game.stage.kills++;
         if (game.stage.kills === STAGE_KILLS) game.onChat("notice", `Stage ${game.stage.n} boss is ready! Press the BOSS button${game.auto.boss ? " (Auto Boss will challenge it for you)" : ""}.`);

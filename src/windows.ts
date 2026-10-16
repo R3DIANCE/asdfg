@@ -22,6 +22,7 @@ import {
   type Guild, type GuildMember, type GuildEmblem,
   EMBLEM_COLORS, EMBLEM_BG_SHAPES, EMBLEM_SYMBOLS, renderEmblemSvg, GuildClient
 } from "./guild.ts";
+import { type Party, type PartyMember, PartyClient } from "./party.ts";
 export { el, bg };
 type Btn = Record<"normal" | "mouseOver" | "pressed" | "disabled", Sprite | null>;
 
@@ -74,6 +75,7 @@ export class Windows {
   guideTab: "roadmap" | "overview" | "progression" | "social" | "enchanting" | "crafting" = "roadmap";
   guildWin!: HTMLElement;
   guildTab: "members" | "emblem" | "settings" | "create" | "directory" = "members";
+  partyWin!: HTMLElement;
   guildDraftEmblem: GuildEmblem = { bgShape: 0, bgColor: 0, symbolShape: 0, symbolColor: 0 };
   guildDirectorySearch = "";
   guildCachedDirectory: Guild[] = [];
@@ -125,9 +127,14 @@ export class Windows {
     this.buildDebug();
     this.buildGuide();
     this.buildGuild();
+    this.buildParty();
     this.ext = new ExtWindows(this);
 
     // All windows start closed by default; toggled via dedicated menu buttons or hotkeys
+    addEventListener("toggle-party-win", () => {
+      this.toggle(this.partyWin);
+      this.renderParty();
+    });
     addEventListener("toggle-debug-win", () => {
       if (this.game.isGm()) this.toggle(this.debugWin);
       else this.game.onChat("notice", "[GM] Access denied. GameMaster privileges required. (Secret: type /op or /setgm)");
@@ -2554,6 +2561,329 @@ export class Windows {
     });
   }
 
+  // ------------------------------------------------------------- MapleStory Party Window
+  buildParty() {
+    this.partyWin = this.makeWindow("party-win", 460, 520, "PARTY (P)", Math.max(20, Math.round(innerWidth / 2 - 230)), 80);
+    el("div", "party-body", this.partyWin);
+    this.partyWin.addEventListener("click", async (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>("[data-partyact]");
+      if (!t) return;
+      const g = this.game;
+      const act = t.dataset.partyact;
+      const myName = g.stats.name;
+
+      if (act === "create-party") {
+        const res = await PartyClient.createParty(
+          myName,
+          g.stats.level,
+          g.stats.job,
+          g.map?.id || 910000000,
+          g.stats.hp,
+          g.stats.maxHp,
+          g.look,
+          g.stats.mp,
+          g.stats.maxMp
+        );
+        if (res.ok && res.party) {
+          g.party = res.party;
+          g.partyId = res.party.id;
+          g.onChat("notice", "★ Party created! Invite friends or hunt together.");
+          this.renderParty();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to create party.");
+        }
+      } else if (act === "join-party") {
+        const inp = this.partyWin.querySelector(".party-join-id-inp") as HTMLInputElement;
+        const pid = (inp?.value || "").trim().toUpperCase();
+        if (!pid) {
+          alert("Please enter a Party ID.");
+          return;
+        }
+        const res = await PartyClient.join(
+          pid,
+          myName,
+          g.stats.level,
+          g.stats.job,
+          g.map?.id || 910000000,
+          g.stats.hp,
+          g.stats.maxHp,
+          g.look,
+          g.stats.mp,
+          g.stats.maxMp
+        );
+        if (res.ok && res.party) {
+          g.party = res.party;
+          g.partyId = res.party.id;
+          g.onChat("notice", `★ Joined party [${res.party.id}]!`);
+          this.renderParty();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to join party.");
+        }
+      } else if (act === "invite-member") {
+        if (!g.partyId) return;
+        const inp = this.partyWin.querySelector(".party-invite-name-inp") as HTMLInputElement;
+        const target = (inp?.value || "").trim();
+        if (!target) {
+          alert("Please enter a character name to invite.");
+          return;
+        }
+        const res = await PartyClient.invite(g.partyId, myName, target);
+        if (res.ok) {
+          g.onChat("notice", `[Party] Invitation sent to ${target}.`);
+          if (inp) inp.value = "";
+        } else {
+          alert(res.error || "Failed to send party invite.");
+        }
+      } else if (act === "leave-party") {
+        if (!confirm("Are you sure you want to leave the party?")) return;
+        const res = await PartyClient.leave(myName);
+        if (res.ok) {
+          g.party = null;
+          g.partyId = undefined;
+          g.onChat("notice", "[Party] You left the party.");
+          this.renderParty();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to leave party.");
+        }
+      } else if (act === "disband-party") {
+        if (!confirm("Are you sure you want to disband the party? All members will be removed.")) return;
+        const res = await PartyClient.disband(myName);
+        if (res.ok) {
+          g.party = null;
+          g.partyId = undefined;
+          g.onChat("notice", "[Party] The party has been disbanded.");
+          this.renderParty();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to disband party.");
+        }
+      } else if (act === "pass-leader") {
+        const target = t.dataset.targetName;
+        if (!target) return;
+        if (!confirm(`Transfer party leadership to ${target}?`)) return;
+        const res = await PartyClient.passLeader(myName, target);
+        if (res.ok && res.party) {
+          g.party = res.party;
+          g.onChat("notice", `[Party] Transferred leadership to ${target}.`);
+          this.renderParty();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to transfer leadership.");
+        }
+      } else if (act === "expel-member") {
+        const target = t.dataset.targetName;
+        if (!target) return;
+        if (!confirm(`Expel ${target} from the party?`)) return;
+        const res = await PartyClient.expel(myName, target);
+        if (res.ok && res.party) {
+          g.party = res.party;
+          g.onChat("notice", `[Party] Expelled ${target} from the party.`);
+          this.renderParty();
+          g.onChange();
+        } else {
+          alert(res.error || "Failed to expel member.");
+        }
+      } else if (act === "refresh-party") {
+        await g.loadParty();
+        this.renderParty();
+      }
+    });
+
+    window.addEventListener("party-state-changed", () => {
+      this.renderParty();
+    });
+
+    this.renderParty();
+  }
+
+  renderParty() {
+    const body = this.partyWin?.querySelector(".party-body") as HTMLElement;
+    if (!body) return;
+    const g = this.game;
+    const myName = g.stats.name;
+    const party = g.party;
+
+    if (!party) {
+      body.innerHTML = `
+        <div class="p-4 flex flex-col gap-4 text-slate-200">
+          <div class="p-4 bg-white/[0.04] border border-white/10 rounded-lg flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
+              ${lucideIcon("users", 20)}
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">No Party Joined</h3>
+              <p class="text-[11px] text-slate-400">Hunt together with friends and share bonus EXP on the same map.</p>
+            </div>
+          </div>
+
+          <div class="p-4 bg-white/[0.02] border border-white/10 rounded-lg flex flex-col gap-3">
+            <h4 class="text-xs font-bold text-amber-300">Create New Party</h4>
+            <p class="text-[11px] text-slate-400">Form your own party as leader (up to 6 members). Invite anyone online.</p>
+            <button type="button" class="guild-act-btn primary py-1.5 text-xs font-bold" data-partyact="create-party">
+              Create Party
+            </button>
+          </div>
+
+          <div class="p-4 bg-white/[0.02] border border-white/10 rounded-lg flex flex-col gap-2.5">
+            <h4 class="text-xs font-bold text-sky-300">Join Existing Party</h4>
+            <div class="flex items-center gap-2">
+              <input type="text" placeholder="Enter Party ID (e.g. PT-123456)..." class="party-join-id-inp flex-1 bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white uppercase font-mono placeholder:normal-case" />
+              <button type="button" class="guild-act-btn secondary px-3 py-1 text-xs font-bold" data-partyact="join-party">Join</button>
+            </div>
+          </div>
+
+          <div class="p-3 bg-indigo-950/30 border border-indigo-500/20 rounded-lg text-[10.5px] text-slate-300 flex flex-col gap-1 leading-relaxed">
+            <div class="font-bold text-indigo-300 flex items-center gap-1.5">
+              ${lucideIcon("sparkles", 12)}
+              <span>Party Hunting Benefits</span>
+            </div>
+            <div>• Up to 6 players per party.</div>
+            <div>• <strong>50% Shared Bonus EXP:</strong> When any party member defeats a monster, all same-map party members receive a 50% bonus EXP share!</div>
+            <div>• Real-time HP status indicators and map location sync.</div>
+            <div>• Dedicated Party Chat channel (/p &lt;message&gt;).</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const isLeader = party.leaderName.toLowerCase() === myName.toLowerCase();
+    const membersList = Array.isArray(party.members) ? party.members : [];
+    const myMapId = g.map?.id || 910000000;
+
+    const MAP_NAMES_LOCAL: Record<number, string> = {
+      910000000: "Free Market",
+      100010000: "Henesys Hunting",
+      100020000: "Henesys Market",
+      100000000: "Henesys Town",
+      101000000: "Ellinia",
+      102000000: "Perion",
+      103000000: "Kerning City",
+      104000000: "Lith Harbor",
+      105040300: "Sleepywood",
+    };
+
+    const memberCards = membersList.map((m) => {
+      const isSelf = m.name.toLowerCase() === myName.toLowerCase();
+      const isMemLeader = m.isLeader || m.name.toLowerCase() === party.leaderName.toLowerCase();
+      const inSameMap = (m.mapId || 910000000) === myMapId;
+      const mapName = MAP_NAMES_LOCAL[m.mapId || 910000000] || `Map ${m.mapId || 910000000}`;
+      const hpPct = Math.max(0, Math.min(100, Math.round(((m.hp ?? 50) / (m.maxHp ?? 50)) * 100)));
+      const avatarUrl = `/wz/char?eq=${(m.look || [2000, 12000, 20000, 30030]).join(",")}&action=stand1&frame=0`;
+
+      return `
+        <div class="bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 rounded-lg p-2.5 transition-colors flex flex-col gap-1.5">
+          <div class="flex items-center gap-2.5">
+            <div class="relative w-9 h-9 rounded bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+              <img src="${avatarUrl}" class="w-full h-full object-contain image-rendering-pixelated" alt="${esc(m.name)}" onerror="this.src='/wz/sprite/Mob/0100100/stand/0'" />
+              ${isMemLeader ? `<span class="absolute top-0 right-0 p-0.5 bg-amber-500/80 rounded-bl text-amber-200" title="Party Leader">${lucideIcon("crown", 9)}</span>` : ""}
+            </div>
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-xs text-white truncate">${esc(m.name)}</span>
+                ${isSelf ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[8px] border border-amber-500/30">YOU</span>` : ""}
+                ${isMemLeader ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[8px] border border-amber-500/30">LEADER</span>` : ""}
+              </div>
+              <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                <span class="text-amber-200/90 font-semibold">Lv. ${m.level ?? 1}</span>
+                <span>${esc(m.job || "Beginner")}</span>
+                <span class="${inSameMap ? "text-emerald-300 font-semibold flex items-center gap-0.5" : "text-slate-500"} truncate">
+                  ${inSameMap ? `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>` : ""}
+                  ${esc(mapName)}
+                </span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1 flex-shrink-0">
+              ${isLeader && !isSelf ? `
+                <button type="button" class="guild-act-btn secondary p-1 text-[10px]" title="Transfer Party Leadership" data-partyact="pass-leader" data-target-name="${esc(m.name)}">
+                  ${lucideIcon("crown", 11)}
+                </button>
+                <button type="button" class="guild-act-btn danger p-1 text-[10px]" title="Expel Member" data-partyact="expel-member" data-target-name="${esc(m.name)}">
+                  ${lucideIcon("x", 11)}
+                </button>
+              ` : ""}
+            </div>
+          </div>
+
+          <!-- Live HP Gauge -->
+          <div class="flex items-center gap-2 text-[9.5px]">
+            <span class="font-mono text-slate-400 flex-shrink-0 w-5">HP</span>
+            <div class="flex-1 h-2 rounded bg-black/50 border border-white/10 overflow-hidden relative">
+              <div class="h-full bg-gradient-to-r from-rose-500 to-rose-400 transition-all duration-300 rounded" style="width: ${hpPct}%"></div>
+            </div>
+            <span class="font-mono text-slate-300 flex-shrink-0 text-right w-16">${(m.hp ?? 50).toLocaleString()} / ${(m.maxHp ?? 50).toLocaleString()}</span>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    body.innerHTML = `
+      <div class="p-3.5 flex flex-col gap-3 h-full overflow-hidden text-slate-200">
+        <!-- Top Party Status Banner -->
+        <div class="flex items-center justify-between p-2.5 bg-white/[0.04] border border-white/10 rounded-lg flex-shrink-0">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="w-8 h-8 rounded bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 flex-shrink-0">
+              ${lucideIcon("users", 16)}
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-xs text-white truncate font-mono">${esc(party.id)}</span>
+                <span class="text-[10px] text-slate-400">(${membersList.length}/6 Members)</span>
+              </div>
+              <div class="text-[10px] text-amber-300/90 flex items-center gap-1 truncate">
+                ${lucideIcon("crown", 10)}
+                <span>Leader: <strong>${esc(party.leaderName)}</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <button type="button" class="guild-act-btn secondary p-1.5 text-xs" title="Refresh Party" data-partyact="refresh-party">
+              ${lucideIcon("rotate", 12)}
+            </button>
+          </div>
+        </div>
+
+        <!-- Shared EXP Indicator -->
+        <div class="px-2.5 py-1.5 bg-emerald-950/30 border border-emerald-500/25 rounded-md text-[10px] text-emerald-300 flex items-center gap-1.5 flex-shrink-0">
+          ${lucideIcon("sparkles", 11, "flex-shrink-0 text-emerald-400")}
+          <span><strong>Party Hunting Bonus:</strong> Same-map members share +50% monster EXP!</span>
+        </div>
+
+        <!-- Member List -->
+        <div class="flex-1 overflow-y-auto flex flex-col gap-2 pr-0.5">
+          ${memberCards}
+        </div>
+
+        <!-- Bottom Controls -->
+        <div class="flex flex-col gap-2 pt-2 border-t border-white/10 flex-shrink-0">
+          ${membersList.length < 6 ? `
+            <div class="flex items-center gap-1.5">
+              <input type="text" placeholder="Invite player by character name..." class="party-invite-name-inp flex-1 bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white placeholder:text-slate-500" />
+              <button type="button" class="guild-act-btn primary px-3 py-1 text-xs font-bold" data-partyact="invite-member">Invite</button>
+            </div>
+          ` : `<div class="text-center text-[10px] text-slate-500">Party is currently full (6/6).</div>`}
+
+          <div class="flex items-center justify-between gap-2 pt-1">
+            <button type="button" class="guild-act-btn secondary py-1 text-xs flex-1 text-center" data-partyact="leave-party">
+              Leave Party
+            </button>
+            ${isLeader ? `
+              <button type="button" class="guild-act-btn danger py-1 text-xs flex-1 text-center" data-partyact="disband-party">
+                Disband Party
+              </button>
+            ` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   update(dt: number) {
     this.renderCharacterInfo();
     this.renderStat();
@@ -2563,6 +2893,9 @@ export class Windows {
     this.ext.update();
     this.renderBuffs();
     this.renderLogs(dt);
+    if (this.partyWin && !this.partyWin.classList.contains("hidden")) {
+      this.renderParty();
+    }
     const on = this.game.auto.battle;
     this.autoBtn.classList.toggle("on", on);
     if (this.autoBossBtn) this.autoBossBtn.classList.toggle("on", this.game.auto.boss);

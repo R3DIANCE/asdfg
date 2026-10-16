@@ -32,10 +32,15 @@ import {
   Eye,
   Settings,
   HelpCircle,
+  Crown,
+  UserPlus,
   type LucideIcon,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, LucideIcon> = {
+  crown: Crown,
+  "user-plus": UserPlus,
+  userplus: UserPlus,
   sort: ArrowDownUp,
   "arrow-down-up": ArrowDownUp,
   lock: Lock,

@@ -703,6 +703,53 @@ export class WorldRenderer {
     }
   }
 
+  public static drawPartyOverheadBar(
+    r: Renderer,
+    hp: number,
+    maxHp: number,
+    mp: number,
+    maxMp: number,
+    isLeader: boolean,
+    x: number,
+    y: number,
+    cx: number,
+    cy: number
+  ) {
+    const barW = 40;
+    const barH = 4;
+    const mpH = 3;
+    const drawX = Math.round(x - barW / 2 - cx);
+    const drawY = Math.round(y - 74 - cy);
+
+    const safeMaxHp = Math.max(1, maxHp);
+    const safeMaxMp = Math.max(1, maxMp);
+    const hpRatio = Math.max(0, Math.min(1, hp / safeMaxHp));
+    const mpRatio = Math.max(0, Math.min(1, mp / safeMaxMp));
+
+    // Outer frame/background with Maple translucent black
+    r.rect(drawX - 2, drawY - 2, barW + 4, barH + mpH + 5, [0.05, 0.05, 0.08, 0.85]);
+
+    // Party leader crown jewel / member gem marker
+    if (isLeader) {
+      r.rect(drawX - 6, drawY - 1, 3, 5, [1, 0.82, 0.15, 1]); // Golden Leader Crown Jewel
+    } else {
+      r.rect(drawX - 6, drawY, 3, 4, [0.3, 0.85, 1, 0.9]); // Cyan Party Gem
+    }
+
+    // HP background & fill
+    r.rect(drawX, drawY, barW, barH, [0.25, 0.05, 0.05, 0.95]);
+    if (hpRatio > 0) {
+      r.rect(drawX, drawY, Math.max(1, Math.round(barW * hpRatio)), barH, [0.95, 0.18, 0.22, 1]);
+    }
+
+    // MP background & fill
+    const mpY = drawY + barH + 1;
+    r.rect(drawX, mpY, barW, mpH, [0.05, 0.12, 0.3, 0.95]);
+    if (mpRatio > 0) {
+      r.rect(drawX, mpY, Math.max(1, Math.round(barW * mpRatio)), mpH, [0.2, 0.55, 1, 1]);
+    }
+  }
+
   public static drawItemEffect(
     game: Game,
     eff: ItemEffData,
@@ -800,6 +847,26 @@ export class WorldRenderer {
     if (rp.guildName) {
       WorldRenderer.drawGuildTag(game.r, rp.guildName, rp.guildEmblem, rp.x, drawPosY, cx, cy);
     }
+    if (game.party && game.party.members) {
+      const mem = game.party.members.find(
+        (m) => m.name.toLowerCase() === rp.name.toLowerCase()
+      );
+      if (mem) {
+        WorldRenderer.drawPartyOverheadBar(
+          game.r,
+          mem.hp ?? 50,
+          mem.maxHp ?? 50,
+          mem.mp ?? 20,
+          mem.maxMp ?? 20,
+          mem.isLeader || mem.name.toLowerCase() === game.party.leaderName.toLowerCase(),
+          rp.x,
+          drawPosY,
+          cx,
+          cy
+        );
+      }
+    }
+
     if (rp.balloon && rp.balloon.t > 0 && rp.balloon.text) {
       WorldRenderer.drawSpeechBalloon(game.r, rp.balloon.text, rp.x, drawPosY, cx, cy);
     }
@@ -900,6 +967,22 @@ export class WorldRenderer {
     WorldRenderer.drawNameTag(game.r, game.stats.name, p.x, drawPosY, cx, cy);
     if (game.guildName) {
       WorldRenderer.drawGuildTag(game.r, game.guildName, game.guildEmblem, p.x, drawPosY, cx, cy);
+    }
+
+    if (game.party) {
+      const isLeader = game.party.leaderName.toLowerCase() === game.stats.name.toLowerCase();
+      WorldRenderer.drawPartyOverheadBar(
+        game.r,
+        game.stats.hp,
+        game.stats.maxHp,
+        game.stats.mp,
+        game.stats.maxMp,
+        isLeader,
+        p.x,
+        drawPosY,
+        cx,
+        cy
+      );
     }
 
     if (game.balloon && game.balloon.t > 0 && game.balloon.text) {

@@ -12,6 +12,7 @@ import { DEFAULT_QUICK, ITEMS, SKILL, SKILL_DEFS, classFor, type ClassId, itemIc
 import { preloadIcon } from "./util.ts";
 
 import { type Guild, type GuildEmblem, GuildClient } from "./guild.ts";
+import { type Party, PartyClient } from "./party.ts";
 export * from "./game-types.ts";
 import {
   type Back,
@@ -91,6 +92,8 @@ export class Game extends ComponentBase {
   guildId?: string;
   guildName?: string;
   guildEmblem?: GuildEmblem;
+  party: Party | null = null;
+  partyId?: string;
 
   stats: Stats = {
     name: (() => {
@@ -682,7 +685,7 @@ export class Game extends ComponentBase {
       this.say(text, itemLink);
     } else {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ t: "chat", text, kind, itemLink, guildId: this.guildId }));
+        this.ws.send(JSON.stringify({ t: "chat", text, kind, itemLink, guildId: this.guildId, partyId: this.partyId }));
       }
       this.onChat(kind, `${this.stats.name} : ${text}`, itemLink);
     }
@@ -712,6 +715,35 @@ export class Game extends ComponentBase {
       this.guildEmblem = undefined;
       this.onChange();
       return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async loadParty(): Promise<Party | null> {
+    try {
+      const charName = this.stats.name;
+      const pt = await PartyClient.getPartyForPlayer(charName);
+      if (pt) {
+        this.party = pt;
+        this.partyId = pt.id;
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({
+            t: "party_sync",
+            partyId: pt.id,
+            hp: this.stats.hp,
+            maxHp: this.stats.maxHp,
+            level: this.stats.level,
+            job: this.stats.job,
+            mapId: this.map?.id || 910000000,
+          }));
+        }
+      } else {
+        this.party = null;
+        this.partyId = undefined;
+      }
+      this.onChange();
+      return pt;
     } catch {
       return null;
     }

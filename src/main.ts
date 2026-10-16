@@ -177,6 +177,10 @@ addEventListener("keydown", (e: KeyboardEvent) => {
     else if (k === "j") w.ext.open("craft");
     else if (k === "h") w.ext.open("ah");
     else if (k === "g") w.toggle(w.guildWin);
+    else if (k === "p") {
+      w.toggle(w.partyWin);
+      w.renderParty();
+    }
     else if (k === "F3" || k === "f3") w.toggle(w.guideWin);
     else if (k === "l" || k === "`" || k === "~") {
       if (game.isGm()) w.ext.items.open();

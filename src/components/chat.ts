@@ -7,6 +7,7 @@ import { lucideIcon } from "../lucide.ts";
 import { GEAR, MATS } from "../items.ts";
 import { ITEMS } from "../skills.ts";
 import { renderGearTooltip, renderUseTooltip, renderMatTooltip } from "../tooltip.ts";
+import { PartyClient } from "../party.ts";
 
 export type ChatFilter = "all" | "say" | "party" | "guild" | "whisper" | "notice";
 
@@ -309,10 +310,101 @@ export class ChatComponent extends ComponentBase {
             if (msg) {
               this.game.sendChat(msg, "guild", matchedItemLink);
             }
-          } else if (t.startsWith("/p ") || t.startsWith("/party ")) {
-            const msg = t.replace(/^\/(p|party)\s+/, "").trim();
-            if (msg) {
-              this.game.sendChat(msg, "party", matchedItemLink);
+          } else if (t.startsWith("/p ") || t.startsWith("/party ") || t === "/p" || t === "/party") {
+            const raw = t.replace(/^\/(p|party)\s*/, "").trim();
+            if (raw.startsWith("force ") && this.game.isGm()) {
+              const target = raw.replace(/^force\s+/, "").trim();
+              if (target) {
+                PartyClient.forceJoin(this.game.stats.name, target).then((res) => {
+                  if (res.ok) {
+                    this.game.onChat("notice", `★ [GM] Forced ${target} into your party!`);
+                    this.game.loadParty();
+                  } else {
+                    this.game.onChat("system", `[Party] ${res.error || "Failed to force party join."}`);
+                  }
+                });
+              } else {
+                this.game.onChat("system", "Usage: /party force <playerName>");
+              }
+            } else if (raw.startsWith("invite ")) {
+              const target = raw.replace(/^invite\s+/, "").trim();
+              if (target) {
+                if (!this.game.partyId) {
+                  this.game.onChat("system", "[Party] You are not in a party. Create one first with /party create.");
+                } else {
+                  PartyClient.invite(this.game.partyId, this.game.stats.name, target).then((res) => {
+                    if (res.ok) {
+                      this.game.onChat("notice", `[Party] Invited ${target} to the party.`);
+                    } else {
+                      this.game.onChat("system", `[Party] ${res.error || "Failed to send party invite."}`);
+                    }
+                  });
+                }
+              }
+            } else if (raw === "leave") {
+              PartyClient.leave(this.game.stats.name).then((res) => {
+                if (res.ok) {
+                  this.game.party = null;
+                  this.game.partyId = undefined;
+                  this.game.onChat("notice", "[Party] You left the party.");
+                  this.game.onChange();
+                } else {
+                  this.game.onChat("system", `[Party] ${res.error || "Failed to leave party."}`);
+                }
+              });
+            } else if (raw === "create") {
+              PartyClient.createParty(
+                this.game.stats.name,
+                this.game.stats.level,
+                this.game.stats.job,
+                this.game.map?.id || 910000000,
+                this.game.stats.hp,
+                this.game.stats.maxHp,
+                this.game.look,
+                this.game.stats.mp,
+                this.game.stats.maxMp
+              ).then((res) => {
+                if (res.ok && res.party) {
+                  this.game.party = res.party;
+                  this.game.partyId = res.party.id;
+                  this.game.onChat("notice", "[Party] Party created! Invite friends with /party invite <name> or press P.");
+                  this.game.onChange();
+                } else {
+                  this.game.onChat("system", `[Party] ${res.error || "Failed to create party."}`);
+                }
+              });
+            } else if (raw === "accept") {
+              const pendingInvite = (window as any).__lastPartyInvite;
+              if (pendingInvite?.partyId) {
+                PartyClient.join(
+                  pendingInvite.partyId,
+                  this.game.stats.name,
+                  this.game.stats.level,
+                  this.game.stats.job,
+                  this.game.map?.id || 910000000,
+                  this.game.stats.hp,
+                  this.game.stats.maxHp,
+                  this.game.look,
+                  this.game.stats.mp,
+                  this.game.stats.maxMp
+                ).then((res) => {
+                  if (res.ok && res.party) {
+                    this.game.party = res.party;
+                    this.game.partyId = res.party.id;
+                    this.game.onChat("notice", `[Party] Joined ${pendingInvite.inviter || "the"}'s party!`);
+                    delete (window as any).__lastPartyInvite;
+                    this.game.onChange();
+                  } else {
+                    this.game.onChat("system", `[Party] ${res.error || "Failed to join party."}`);
+                  }
+                });
+              } else {
+                this.game.onChat("system", "[Party] No pending party invite to accept.");
+              }
+            } else if (raw) {
+              this.game.sendChat(raw, "party", matchedItemLink);
+            } else {
+              window.dispatchEvent(new CustomEvent("toggle-party-win"));
             }
           } else if (t.startsWith("/w ") || t.startsWith("/whisper ") || t.startsWith("/f ") || t.startsWith("/friend ")) {
             const parts = t.replace(/^\/(w|whisper|f|friend)\s+/, "").trim().split(/\s+/);
@@ -347,6 +439,11 @@ export class ChatComponent extends ComponentBase {
     // Global listener for linking items into chat
     window.addEventListener("chat-insert-link", ((e: CustomEvent) => {
       if (e.detail) this.insertItemLink(e.detail);
+    }) as EventListener);
+
+    // Global listener for party invite notifications
+    window.addEventListener("party-invited", ((e: CustomEvent) => {
+      (window as any).__lastPartyInvite = e.detail;
     }) as EventListener);
   }
 
@@ -431,6 +528,9 @@ export class ChatComponent extends ComponentBase {
   addMessage(kind: ChatKind, text: string, itemLink?: any) {
     // Only accept chat-related messages: player conversation, whisper, party, guild, GM announcements
     if (kind === "exp" || kind === "meso" || kind === "item" || kind === "level") {
+      return;
+    }
+    if (text.includes("experience") || text.includes("Party EXP") || text.includes("gained exp")) {
       return;
     }
 

@@ -1770,6 +1770,11 @@ interface PlayerSession {
   guildId?: string;
   guildName?: string;
   guildEmblem?: any;
+  partyId?: string;
+  level?: number;
+  job?: string;
+  hp?: number;
+  maxHp?: number;
 }
 
 const wsPlayers = new Map<any, PlayerSession>();
@@ -1983,6 +1988,121 @@ function broadcastGuildState(
     try { c.send(dirMsg); } catch {}
   }
 }
+
+// ── Party Persistence & Management ──────────────────────────────────────────
+interface ServerPartyMember {
+  name: string;
+  level: number;
+  job: string;
+  mapId: number;
+  hp: number;
+  maxHp: number;
+  mp?: number;
+  maxMp?: number;
+  online: boolean;
+  isLeader: boolean;
+  look?: number[];
+}
+
+interface ServerParty {
+  id: string;
+  leaderName: string;
+  members: ServerPartyMember[];
+  createdAt: number;
+}
+
+const PARTIES_FILE = join(ROOT, ".cache", "parties.json");
+let partiesCache: Map<string, ServerParty> | null = null;
+
+function loadParties(): Map<string, ServerParty> {
+  if (partiesCache) return partiesCache;
+  partiesCache = new Map();
+  try {
+    if (existsSync(PARTIES_FILE)) {
+      const list: ServerParty[] = JSON.parse(readFileSync(PARTIES_FILE, "utf-8"));
+      for (const p of list) partiesCache.set(p.id, p);
+    }
+  } catch {}
+  return partiesCache;
+}
+
+function saveParties() {
+  if (!partiesCache) return;
+  try {
+    mkdirSync(join(ROOT, ".cache"), { recursive: true });
+    writeFileSync(PARTIES_FILE, JSON.stringify([...partiesCache.values()], null, 2), "utf-8");
+  } catch {}
+}
+
+function getPartyWithOnlineStatus(party: ServerParty): ServerParty {
+  const onlineMap = new Map<string, PlayerSession>();
+  for (const p of wsPlayers.values()) {
+    if (p.name) onlineMap.set(p.name.toLowerCase(), p);
+  }
+  return {
+    ...party,
+    members: party.members.map((m) => {
+      const sess = onlineMap.get(m.name.toLowerCase());
+      return {
+        ...m,
+        online: Boolean(sess),
+        level: sess?.level ?? m.level,
+        job: sess?.job ?? m.job,
+        mapId: sess?.mapId ?? m.mapId,
+        hp: sess?.hp ?? m.hp,
+        maxHp: sess?.maxHp ?? m.maxHp,
+        look: sess?.look ?? m.look,
+      };
+    }),
+  };
+}
+
+function getPartyForPlayer(playerName: string): ServerParty | null {
+  const all = loadParties();
+  for (const p of all.values()) {
+    if (p.members.some((m) => m.name.toLowerCase() === playerName.toLowerCase())) {
+      return getPartyWithOnlineStatus(p);
+    }
+  }
+  return null;
+}
+
+function broadcastPartyState(
+  partyId: string,
+  opts?: {
+    disbanded?: boolean;
+    removedPlayerNames?: string[];
+    expelledPlayerName?: string;
+  },
+) {
+  const all = loadParties();
+  const party = all.get(partyId);
+  const partyPayload = party ? getPartyWithOnlineStatus(party) : null;
+  const removedSet = new Set((opts?.removedPlayerNames ?? []).map((n) => n.toLowerCase()));
+  if (opts?.expelledPlayerName) removedSet.add(opts.expelledPlayerName.toLowerCase());
+  const memberSet = new Set(party ? party.members.map((m) => m.name.toLowerCase()) : []);
+
+  for (const [c, p] of wsPlayers.entries()) {
+    const pLow = (p.name || "").toLowerCase();
+    if (party && memberSet.has(pLow)) {
+      p.partyId = party.id;
+      try {
+        c.send(JSON.stringify({ t: "party_update", party: partyPayload }));
+      } catch {}
+    } else if (removedSet.has(pLow) || (opts?.disbanded && p.partyId === partyId)) {
+      p.partyId = undefined;
+      try {
+        c.send(JSON.stringify({
+          t: "party_update",
+          party: null,
+          disbanded: Boolean(opts?.disbanded),
+          expelled: Boolean(opts?.expelledPlayerName && opts.expelledPlayerName.toLowerCase() === pLow),
+        }));
+      } catch {}
+    }
+  }
+}
+
 
 const GUILD_MARK_BGS = Array.from({ length: 31 }, (_, i) => String(1000 + i).padStart(8, "0"));
 const GUILD_MARK_SYMBOLS: { cat: string; id: string }[] = [
@@ -3157,6 +3277,449 @@ const server = Bun.serve<{ id: string }>({
         return Response.json({ ok: false, error: e?.message || "Failed to rename ranks" }, { status: 500 });
       }
     },
+    "/api/party/get": (req: any) => {
+      const url = new URL(req.url);
+      const partyId = url.searchParams.get("id") || "";
+      const all = loadParties();
+      const p = all.get(partyId);
+      if (!p) return Response.json({ ok: false, error: "Party not found" }, { status: 404 });
+      return Response.json({ ok: true, party: getPartyWithOnlineStatus(p) });
+    },
+    "/api/party/player/:name": (req: any) => {
+      const charName = String(req.params.name || "").trim();
+      const p = getPartyForPlayer(charName);
+      return Response.json({ ok: true, party: p });
+    },
+    "/api/party/create": async (req: any) => {
+      try {
+        const body = await req.json();
+        const leaderName = String(body.leaderName || "").trim();
+        if (!leaderName) return Response.json({ ok: false, error: "Leader name required" }, { status: 400 });
+        const all = loadParties();
+        for (const p of all.values()) {
+          if (p.members.some((m) => m.name.toLowerCase() === leaderName.toLowerCase())) {
+            return Response.json({ ok: false, error: "You are already in a party" }, { status: 400 });
+          }
+        }
+        const newParty: ServerParty = {
+          id: "PT-" + crypto.randomUUID().slice(0, 6).toUpperCase(),
+          leaderName,
+          members: [
+            {
+              name: leaderName,
+              level: Number(body.level || 1),
+              job: String(body.job || "Beginner"),
+              mapId: Number(body.mapId || 910000000),
+              hp: Number(body.hp || 50),
+              maxHp: Number(body.maxHp || 50),
+              online: true,
+              isLeader: true,
+              look: Array.isArray(body.look) ? body.look : undefined,
+            },
+          ],
+          createdAt: Date.now(),
+        };
+        all.set(newParty.id, newParty);
+        saveParties();
+        broadcastPartyState(newParty.id);
+
+        const alertMsg = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: "Party",
+          text: `[Party] ${leaderName} created a new party!`,
+          kind: "party",
+          partyId: newParty.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (p.name.toLowerCase() === leaderName.toLowerCase()) c.send(alertMsg);
+        }
+
+        return Response.json({ ok: true, party: getPartyWithOnlineStatus(newParty) });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to create party" }, { status: 500 });
+      }
+    },
+    "/api/party/invite": async (req: any) => {
+      try {
+        const body = await req.json();
+        const partyId = String(body.partyId || "").trim();
+        const inviterName = String(body.inviterName || "").trim();
+        const targetName = String(body.targetName || "").trim();
+        const all = loadParties();
+        const party = all.get(partyId);
+        if (!party) return Response.json({ ok: false, error: "Party not found" }, { status: 404 });
+        if (party.members.length >= 6) {
+          return Response.json({ ok: false, error: "Party is full (maximum 6 members)" }, { status: 400 });
+        }
+        if (party.members.some((m) => m.name.toLowerCase() === targetName.toLowerCase())) {
+          return Response.json({ ok: false, error: "Player is already in your party" }, { status: 400 });
+        }
+        let targetWs: any = null;
+        for (const [c, p] of wsPlayers) {
+          if (p.name.toLowerCase() === targetName.toLowerCase()) {
+            targetWs = c;
+            break;
+          }
+        }
+        if (!targetWs) {
+          return Response.json({ ok: false, error: `${targetName} is currently offline` }, { status: 404 });
+        }
+
+        const inviteMsg = JSON.stringify({
+          t: "party_invite",
+          partyId: party.id,
+          inviterName,
+        });
+        targetWs.send(inviteMsg);
+
+        const partyNotice = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: "Party",
+          text: `[Party] Invited ${targetName} to the party.`,
+          kind: "party",
+          partyId: party.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (party.members.some((m) => m.name.toLowerCase() === p.name.toLowerCase())) {
+            c.send(partyNotice);
+          }
+        }
+
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to send party invite" }, { status: 500 });
+      }
+    },
+    "/api/party/join": async (req: any) => {
+      try {
+        const body = await req.json();
+        const partyId = String(body.partyId || "").trim();
+        const charName = String(body.characterName || "").trim();
+        const all = loadParties();
+        const party = all.get(partyId);
+        if (!party) return Response.json({ ok: false, error: "Party not found" }, { status: 404 });
+        if (party.members.length >= 6) {
+          return Response.json({ ok: false, error: "Party is full (maximum 6 members)" }, { status: 400 });
+        }
+        for (const [otherId, other] of all.entries()) {
+          if (other.members.some((m) => m.name.toLowerCase() === charName.toLowerCase())) {
+            other.members = other.members.filter((m) => m.name.toLowerCase() !== charName.toLowerCase());
+            if (other.members.length === 0) {
+              all.delete(otherId);
+              broadcastPartyState(otherId, { disbanded: true });
+            } else {
+              if (other.leaderName.toLowerCase() === charName.toLowerCase()) {
+                other.leaderName = other.members[0].name;
+                other.members[0].isLeader = true;
+              }
+              broadcastPartyState(otherId, { removedPlayerNames: [charName] });
+            }
+          }
+        }
+
+        const newMember: ServerPartyMember = {
+          name: charName,
+          level: Number(body.level || 1),
+          job: String(body.job || "Beginner"),
+          mapId: Number(body.mapId || 910000000),
+          hp: Number(body.hp || 50),
+          maxHp: Number(body.maxHp || 50),
+          online: true,
+          isLeader: false,
+          look: Array.isArray(body.look) ? body.look : undefined,
+        };
+        party.members.push(newMember);
+        saveParties();
+        broadcastPartyState(party.id);
+
+        const joinNotice = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: "Party",
+          text: `[Party] ${charName} joined the party!`,
+          kind: "party",
+          partyId: party.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (party.members.some((m) => m.name.toLowerCase() === p.name.toLowerCase())) {
+            c.send(joinNotice);
+          }
+        }
+
+        return Response.json({ ok: true, party: getPartyWithOnlineStatus(party) });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to join party" }, { status: 500 });
+      }
+    },
+    "/api/party/leave": async (req: any) => {
+      try {
+        const body = await req.json();
+        const charName = String(body.characterName || "").trim();
+        const all = loadParties();
+        let targetParty: ServerParty | null = null;
+        for (const p of all.values()) {
+          if (p.members.some((m) => m.name.toLowerCase() === charName.toLowerCase())) {
+            targetParty = p;
+            break;
+          }
+        }
+        if (!targetParty) return Response.json({ ok: false, error: "Not in a party" }, { status: 400 });
+
+        const isLeader = targetParty.leaderName.toLowerCase() === charName.toLowerCase();
+        targetParty.members = targetParty.members.filter((m) => m.name.toLowerCase() !== charName.toLowerCase());
+
+        if (targetParty.members.length === 0) {
+          all.delete(targetParty.id);
+          saveParties();
+          broadcastPartyState(targetParty.id, { disbanded: true });
+        } else {
+          if (isLeader) {
+            targetParty.leaderName = targetParty.members[0].name;
+            targetParty.members[0].isLeader = true;
+          }
+          saveParties();
+          broadcastPartyState(targetParty.id, { removedPlayerNames: [charName] });
+
+          const leaveNotice = JSON.stringify({
+            t: "chat",
+            id: "sys",
+            name: "Party",
+            text: `[Party] ${charName} left the party.`,
+            kind: "party",
+            partyId: targetParty.id,
+          });
+          for (const [c, p] of wsPlayers) {
+            if (targetParty.members.some((m) => m.name.toLowerCase() === p.name.toLowerCase())) {
+              c.send(leaveNotice);
+            }
+          }
+        }
+
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to leave party" }, { status: 500 });
+      }
+    },
+    "/api/party/expel": async (req: any) => {
+      try {
+        const body = await req.json();
+        const leaderName = String(body.leaderName || "").trim();
+        const targetName = String(body.targetName || "").trim();
+        const all = loadParties();
+        let targetParty: ServerParty | null = null;
+        for (const p of all.values()) {
+          if (p.members.some((m) => m.name.toLowerCase() === leaderName.toLowerCase())) {
+            targetParty = p;
+            break;
+          }
+        }
+        if (!targetParty) return Response.json({ ok: false, error: "Party not found" }, { status: 404 });
+        if (targetParty.leaderName.toLowerCase() !== leaderName.toLowerCase()) {
+          return Response.json({ ok: false, error: "Only party leader can expel members" }, { status: 403 });
+        }
+        targetParty.members = targetParty.members.filter((m) => m.name.toLowerCase() !== targetName.toLowerCase());
+        saveParties();
+        broadcastPartyState(targetParty.id, { expelledPlayerName: targetName });
+
+        const expelNotice = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: "Party",
+          text: `[Party] ${targetName} was expelled from the party by ${leaderName}.`,
+          kind: "party",
+          partyId: targetParty.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (targetParty.members.some((m) => m.name.toLowerCase() === p.name.toLowerCase())) {
+            c.send(expelNotice);
+          }
+        }
+
+        return Response.json({ ok: true, party: getPartyWithOnlineStatus(targetParty) });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to expel member" }, { status: 500 });
+      }
+    },
+    "/api/party/pass_leader": async (req: any) => {
+      try {
+        const body = await req.json();
+        const leaderName = String(body.leaderName || "").trim();
+        const targetName = String(body.targetName || "").trim();
+        const all = loadParties();
+        let targetParty: ServerParty | null = null;
+        for (const p of all.values()) {
+          if (p.members.some((m) => m.name.toLowerCase() === leaderName.toLowerCase())) {
+            targetParty = p;
+            break;
+          }
+        }
+        if (!targetParty) return Response.json({ ok: false, error: "Party not found" }, { status: 404 });
+        if (targetParty.leaderName.toLowerCase() !== leaderName.toLowerCase()) {
+          return Response.json({ ok: false, error: "Only party leader can transfer leadership" }, { status: 403 });
+        }
+        const targetMember = targetParty.members.find((m) => m.name.toLowerCase() === targetName.toLowerCase());
+        if (!targetMember) return Response.json({ ok: false, error: "Target is not in the party" }, { status: 404 });
+
+        for (const m of targetParty.members) {
+          m.isLeader = m.name.toLowerCase() === targetName.toLowerCase();
+        }
+        targetParty.leaderName = targetMember.name;
+        saveParties();
+        broadcastPartyState(targetParty.id);
+
+        const passNotice = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: "Party",
+          text: `[Party] ${leaderName} passed party leadership to ${targetMember.name}!`,
+          kind: "party",
+          partyId: targetParty.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (targetParty.members.some((m) => m.name.toLowerCase() === p.name.toLowerCase())) {
+            c.send(passNotice);
+          }
+        }
+
+        return Response.json({ ok: true, party: getPartyWithOnlineStatus(targetParty) });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to pass leader" }, { status: 500 });
+      }
+    },
+    "/api/party/disband": async (req: any) => {
+      try {
+        const body = await req.json();
+        const leaderName = String(body.leaderName || "").trim();
+        const all = loadParties();
+        let targetParty: ServerParty | null = null;
+        for (const p of all.values()) {
+          if (p.members.some((m) => m.name.toLowerCase() === leaderName.toLowerCase())) {
+            targetParty = p;
+            break;
+          }
+        }
+        if (!targetParty) return Response.json({ ok: false, error: "Party not found" }, { status: 404 });
+        if (targetParty.leaderName.toLowerCase() !== leaderName.toLowerCase()) {
+          return Response.json({ ok: false, error: "Only party leader can disband the party" }, { status: 403 });
+        }
+
+        all.delete(targetParty.id);
+        saveParties();
+        broadcastPartyState(targetParty.id, { disbanded: true });
+
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to disband party" }, { status: 500 });
+      }
+    },
+    "/api/party/force_join": async (req: any) => {
+      try {
+        const body = await req.json();
+        const gmName = String(body.gmName || "").trim();
+        const targetName = String(body.targetName || "").trim();
+        if (!gmName || !targetName) {
+          return Response.json({ ok: false, error: "GM name and target name required" }, { status: 400 });
+        }
+        const all = loadParties();
+        let gmParty: ServerParty | null = null;
+        for (const p of all.values()) {
+          if (p.members.some((m) => m.name.toLowerCase() === gmName.toLowerCase())) {
+            gmParty = p;
+            break;
+          }
+        }
+        if (!gmParty) {
+          let gmSession: PlayerSession | undefined;
+          for (const s of wsPlayers.values()) {
+            if (s.name.toLowerCase() === gmName.toLowerCase()) {
+              gmSession = s;
+              break;
+            }
+          }
+          gmParty = {
+            id: "PT-" + crypto.randomUUID().slice(0, 6).toUpperCase(),
+            leaderName: gmName,
+            members: [
+              {
+                name: gmName,
+                level: gmSession?.level || 200,
+                job: gmSession?.job || "SuperGM",
+                mapId: gmSession?.mapId || 910000000,
+                hp: gmSession?.hp || 99999,
+                maxHp: gmSession?.maxHp || 99999,
+                online: true,
+                isLeader: true,
+                look: gmSession?.look,
+              },
+            ],
+            createdAt: Date.now(),
+          };
+          all.set(gmParty.id, gmParty);
+        }
+
+        // Remove target from any existing party
+        for (const [otherId, other] of all.entries()) {
+          if (other.id !== gmParty.id && other.members.some((m) => m.name.toLowerCase() === targetName.toLowerCase())) {
+            other.members = other.members.filter((m) => m.name.toLowerCase() !== targetName.toLowerCase());
+            if (other.members.length === 0) {
+              all.delete(otherId);
+              broadcastPartyState(otherId, { disbanded: true });
+            } else {
+              if (other.leaderName.toLowerCase() === targetName.toLowerCase()) {
+                other.leaderName = other.members[0].name;
+                other.members[0].isLeader = true;
+              }
+              broadcastPartyState(otherId, { removedPlayerNames: [targetName] });
+            }
+          }
+        }
+
+        // Add target to GM party if not in it
+        if (!gmParty.members.some((m) => m.name.toLowerCase() === targetName.toLowerCase())) {
+          let targetSession: PlayerSession | undefined;
+          for (const s of wsPlayers.values()) {
+            if (s.name.toLowerCase() === targetName.toLowerCase()) {
+              targetSession = s;
+              break;
+            }
+          }
+          gmParty.members.push({
+            name: targetName,
+            level: targetSession?.level || 1,
+            job: targetSession?.job || "Beginner",
+            mapId: targetSession?.mapId || 910000000,
+            hp: targetSession?.hp || 50,
+            maxHp: targetSession?.maxHp || 50,
+            online: Boolean(targetSession),
+            isLeader: false,
+            look: targetSession?.look,
+          });
+        }
+
+        saveParties();
+        broadcastPartyState(gmParty.id);
+
+        const alertMsg = JSON.stringify({
+          t: "chat",
+          id: "sys",
+          name: "Party",
+          text: `★ [GM Action] ${targetName} was forced into ${gmName}'s party!`,
+          kind: "party",
+          partyId: gmParty.id,
+        });
+        for (const [c, p] of wsPlayers) {
+          if (gmParty.members.some((m) => m.name.toLowerCase() === p.name.toLowerCase())) {
+            c.send(alertMsg);
+          }
+        }
+
+        return Response.json({ ok: true, party: getPartyWithOnlineStatus(gmParty) });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to force party join" }, { status: 500 });
+      }
+    },
   },
   // Unmatched requests: upgrade websocket or serve static files
   async fetch(req, srv) {
@@ -3215,7 +3778,12 @@ const server = Bun.serve<{ id: string }>({
             session.guildEmblem = g.emblem;
             broadcastGuildState(g.id);
           }
-          ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g }));
+          const pt = getPartyForPlayer(session.name);
+          if (pt) {
+            session.partyId = pt.id;
+            broadcastPartyState(pt.id);
+          }
+          ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g, party: pt }));
           const others = getMapRosterFor(ws, session);
           ws.send(JSON.stringify({ t: "roster", players: others }));
           const joinMsg = JSON.stringify({ t: "player_join", player: session });
@@ -3307,7 +3875,14 @@ const server = Bun.serve<{ id: string }>({
             session.guildName = undefined;
             session.guildEmblem = undefined;
           }
-          ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g }));
+          const pt = getPartyForPlayer(session.name);
+          if (pt) {
+            session.partyId = pt.id;
+            broadcastPartyState(pt.id);
+          } else {
+            session.partyId = undefined;
+          }
+          ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g, party: pt }));
           const others = getMapRosterFor(ws, session);
           ws.send(JSON.stringify({ t: "roster", players: others }));
           const joinMsg = JSON.stringify({ t: "player_join", player: session });
@@ -3330,6 +3905,53 @@ const server = Bun.serve<{ id: string }>({
             session.guildEmblem = undefined;
             if (oldGuildId) broadcastGuildState(oldGuildId, { removedPlayerNames: [session.name] });
           }
+        } else if (msg.t === "party_sync") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          if (msg.partyId) session.partyId = msg.partyId;
+          if (msg.level !== undefined) session.level = Number(msg.level);
+          if (msg.job !== undefined) session.job = String(msg.job);
+          if (msg.hp !== undefined) session.hp = Number(msg.hp);
+          if (msg.maxHp !== undefined) session.maxHp = Number(msg.maxHp);
+          if (msg.mp !== undefined) (session as any).mp = Number(msg.mp);
+          if (msg.maxMp !== undefined) (session as any).maxMp = Number(msg.maxMp);
+          if (session.partyId) {
+            const allParties = loadParties();
+            const party = allParties.get(session.partyId);
+            if (party) {
+              const mem = party.members.find((m) => m.name.toLowerCase() === session.name.toLowerCase());
+              if (mem) {
+                if (msg.level !== undefined) mem.level = Number(msg.level);
+                if (msg.job !== undefined) mem.job = String(msg.job);
+                if (msg.mapId !== undefined) mem.mapId = Number(msg.mapId);
+                if (msg.hp !== undefined) mem.hp = Number(msg.hp);
+                if (msg.maxHp !== undefined) mem.maxHp = Number(msg.maxHp);
+                if (msg.mp !== undefined) mem.mp = Number(msg.mp);
+                if (msg.maxMp !== undefined) mem.maxMp = Number(msg.maxMp);
+                if (session.look) mem.look = session.look;
+                saveParties();
+                broadcastPartyState(party.id);
+              }
+            }
+          }
+        } else if (msg.t === "party_exp") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          const pid = session.partyId || msg.partyId;
+          if (pid) {
+            const sharedExp = Math.max(1, Math.round(Number(msg.exp || 0) * 0.5));
+            const mobName = String(msg.mobName || "Monster");
+            for (const [c, p] of wsPlayers) {
+              if (c !== ws && p.partyId === pid && p.mapId === session.mapId) {
+                c.send(JSON.stringify({
+                  t: "party_exp_gain",
+                  killerName: session.name,
+                  exp: sharedExp,
+                  mobName,
+                }));
+              }
+            }
+          }
         } else if (msg.t === "map_change") {
           const session = wsPlayers.get(ws);
           if (!session) return;
@@ -3337,6 +3959,18 @@ const server = Bun.serve<{ id: string }>({
           session.mapId = Number(msg.mapId);
           session.x = Number(msg.x ?? session.x);
           session.y = Number(msg.y ?? session.y);
+          if (session.partyId) {
+            const allParties = loadParties();
+            const party = allParties.get(session.partyId);
+            if (party) {
+              const mem = party.members.find((m) => m.name.toLowerCase() === session.name.toLowerCase());
+              if (mem) {
+                mem.mapId = session.mapId;
+                saveParties();
+                broadcastPartyState(party.id);
+              }
+            }
+          }
           const leaveMsg = JSON.stringify({ t: "player_leave", id: session.id });
           for (const [c, p] of wsPlayers) {
             if (c !== ws && p.mapId === oldMap) c.send(leaveMsg);
@@ -3376,6 +4010,11 @@ const server = Bun.serve<{ id: string }>({
               session.guildEmblem = undefined;
               ws.send(JSON.stringify({ t: "guild_update", guild: null }));
             }
+            const pt = getPartyForPlayer(clean);
+            if (pt) {
+              session.partyId = pt.id;
+              broadcastPartyState(pt.id);
+            }
             const renameMsg = JSON.stringify({
               t: "player_name",
               id: session.id,
@@ -3407,6 +4046,13 @@ const server = Bun.serve<{ id: string }>({
             for (const [c] of wsPlayers) {
               c.send(chatMsg);
             }
+          } else if (kind === "party") {
+            const pid = session.partyId || msg.partyId;
+            for (const [c, p] of wsPlayers) {
+              if (pid && p.partyId === pid) {
+                c.send(chatMsg);
+              }
+            }
           } else if (kind === "guild") {
             const gid = session.guildId || msg.guildId;
             for (const [c, p] of wsPlayers) {
@@ -3437,6 +4083,9 @@ const server = Bun.serve<{ id: string }>({
         wsPlayers.delete(ws);
         if (session.guildId) {
           broadcastGuildState(session.guildId);
+        }
+        if (session.partyId) {
+          broadcastPartyState(session.partyId);
         }
         const leaveMsg = JSON.stringify({ t: "player_leave", id: session.id, name: session.name });
         for (const [c, p] of wsPlayers) {
