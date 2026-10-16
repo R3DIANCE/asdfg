@@ -168,6 +168,24 @@ export class SpacetimeClient {
     }
   }
 
+  /** Rename character in SpacetimeDB */
+  async renameCharacter(oldName: string, newName: string): Promise<{ ok: boolean; name?: string; error?: string }> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/characters/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldName, newName }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        return { ok: false, error: data.error || "Failed to rename character" };
+      }
+      return { ok: true, name: data.name };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || "Network error" };
+    }
+  }
+
   /** Save character state to SpacetimeDB */
   async saveCharacter(saveData: {
     name: string;

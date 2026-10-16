@@ -38,7 +38,7 @@ const ANCHOR_PRIORITY = ["navel", "neck", "brow", "hand", "handMove", "origin"];
 
 /** Default anchor per category when a canvas declares no map/*. */
 const DEFAULT_ANCHOR: Record<string, string> = {
-  "": "navel", Face: "brow", Hair: "brow", Cap: "navel", Accessory: "brow",
+  "": "navel", Face: "brow", Hair: "brow", Cap: "brow", Accessory: "brow",
   Coat: "navel", Longcoat: "navel", Pants: "navel", Shoes: "navel",
   Glove: "hand", Shield: "navel", Cape: "navel", Weapon: "hand",
 };
@@ -85,9 +85,9 @@ function mapAnchors(c: WzCanvasProperty): Map<string, [number, number]> {
 }
 
 /** Collect all renderable canvas layers under an equip frame node (e.g. body + arm, head + ear, mail + mailArm). */
-function collectCanvases(node: WzProperty | null): WzCanvasProperty[] {
+function collectCanvases(node: WzProperty | null, store?: SpriteStore): WzCanvasProperty[] {
   if (!node) return [];
-  const r = resolveCanvas(node) ?? resolveUol(node);
+  const r = resolveCanvas(node, store ? (cat, img) => store.image(cat, img) : undefined) ?? resolveUol(node);
   if (!r) return [];
   if (r instanceof WzCanvasProperty && r.hasPixels()) return [r];
   const list: WzCanvasProperty[] = [];
@@ -97,14 +97,14 @@ function collectCanvases(node: WzProperty | null): WzCanvasProperty[] {
       // Exclude elf ear variations; keep standard humanEar (or ear if no humanEar)
       if (c.name === "lefEar" || c.name === "highlefEar" || c.name === "highLefEar") continue;
       if (hasHumanEar && c.name === "ear") continue;
-      const cr = resolveCanvas(c) ?? resolveUol(c);
+      const cr = resolveCanvas(c, store ? (cat, img) => store.image(cat, img) : undefined) ?? resolveUol(c);
       if (cr instanceof WzCanvasProperty && cr.hasPixels()) {
         list.push(cr);
       }
     }
     // If empty, try child '0'
     if (!list.length && r.child("0")) {
-      return collectCanvases(r.child("0"));
+      return collectCanvases(r.child("0"), store);
     }
   }
   return list;
@@ -123,8 +123,14 @@ function makeZIndex(store: SpriteStore): (slot: string | null) => number {
       } catch { /* keep fallback */ }
     }
   }
+  const hairIdx = zmap.indexOf("hair");
   return (slot) => {
     if (!slot) return zmap.length;
+    // Front-facing cap layers must draw in front of hair
+    if (slot === "capBelowAccessory" || slot === "capAccessoryBelowAccFace" || slot === "cap" || slot === "capAccessory") {
+      const idx = zmap.indexOf(slot);
+      return idx >= 0 ? Math.max(idx, hairIdx + 2) : (hairIdx >= 0 ? hairIdx + 2 : zmap.length);
+    }
     const i = zmap.indexOf(slot);
     return i >= 0 ? i : zmap.length;
   };
@@ -187,11 +193,29 @@ export function composeCharacter(
     return orderA - orderB;
   });
 
+  // Check if an equipped hat fully encloses the head / covers all hair (e.g. Zakum Helmet)
+  let hatCoversAllHair = false;
+  for (const id of ids) {
+    if (categoryForId(id) === "Cap") {
+      const sid = String(id).padStart(8, "0");
+      const found = findImage(store, `Cap/${sid}`);
+      if (found) {
+        const vslot = String((found.image.parse().child("info")?.child("vslot") as any)?.value ?? "");
+        if (vslot.includes("H1") && vslot.includes("H2") && vslot.includes("H3")) {
+          hatCoversAllHair = true;
+          break;
+        }
+      }
+    }
+  }
+
   for (const id of ordered) {
     // When climbing rope or ladder, character faces backwards: hide front face
     if ((action === "rope" || action === "ladder") && id >= 20000 && id < 30000) continue;
 
     const category = categoryForId(id);
+    if (hatCoversAllHair && category === "Hair") continue;
+
     const sid = String(id).padStart(8, "0");
     const lookup = category ? `${category}/${sid}` : sid;
     const found = findImage(store, lookup);
@@ -243,7 +267,7 @@ export function composeCharacter(
     const fr = (isFace && expr && expr !== "default")
       ? (act.child(String(ef)) ?? act.child("0") ?? (act.child("face") ? act : null) ?? act)
       : (act.child(String(frame)) ?? (numericChildren.length ? numericChildren[frame % numericChildren.length] : null) ?? act.child("0") ?? (act.child("face") ? act : null) ?? act);
-    const canvases = collectCanvases(fr);
+    const canvases = collectCanvases(fr, store);
     if (!canvases.length) continue;
 
     for (const canvas of canvases) {
@@ -283,8 +307,9 @@ export function composeCharacter(
       let pixels: Buffer | null = null;
       try {
         const raw = canvas.pngData();
+        const readerKey = canvas.image?.file?.reader?.key ?? file.reader.key;
         pixels = decodePixels(
-          decompressCanvas(raw, file.reader.key),
+          decompressCanvas(raw, readerKey),
           canvas.width, canvas.height, canvas.format + canvas.format2,
         );
       } catch { pixels = null; }

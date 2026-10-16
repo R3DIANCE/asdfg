@@ -1,5 +1,5 @@
 // Authentic 1:1 MapleStory Tooltip Generator (Image 2 standard)
-import { GEAR, MATS, RARITY, RARITY_COLOR, SLOT_NAME, gearIcon, gearStats, gearValue, isHoverItem, type Gear, type GearBase, type Slot } from "./items.ts";
+import { GEAR, MATS, RARITY, RARITY_COLOR, SLOT_NAME, gearIcon, gearStats, gearValue, isHoverItem, isWizetHat, type Gear, type GearBase, type Slot } from "./items.ts";
 import { ITEMS, itemIcon } from "./skills.ts";
 import { esc, fmt } from "./util.ts";
 import { lucideIcon } from "./lucide.ts";
@@ -76,6 +76,7 @@ export function renderGearTooltip(g: Gear, isEquipped = false, note = "", player
             <span class="tt-tag">${catLabel}</span>
             <span class="tt-tag">${slotName}</span>
             ${isHoverItem(g.id) ? `<span class="tt-tag" style="background: rgba(14, 165, 233, 0.25); color: #38bdf8; border: 1px solid #0284c7;">Hovering Effect</span>` : ""}
+            ${isWizetHat(g.id) ? `<span class="tt-tag" style="background: rgba(239, 68, 68, 0.25); color: #f87171; border: 1px solid #dc2626;">Wizet GM Hat</span>` : ""}
           </div>
         </div>
       </div>
@@ -89,7 +90,8 @@ export function renderGearTooltip(g: Gear, isEquipped = false, note = "", player
       <div class="tt-divider"></div>
       <div class="tt-footer-meta">
         <div class="tt-value">Estimated Value ≈ ${fmt(gearValue(g))} mesos</div>
-        ${isHoverItem(g.id) ? `<div class="tt-note highlight">${lucideIcon("sparkles", 13)} Special: Grants graceful levitation & hovering effect when equipped.</div>` : ""}
+        ${isHoverItem(g.id) ? `<div class="tt-note highlight">${lucideIcon("sparkles", 13)} Special: Only Raven Persona hats grant graceful levitation & hovering effect when equipped.</div>` : ""}
+        ${isWizetHat(g.id) ? `<div class="tt-note highlight" style="color:#f87171; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.1);">${lucideIcon("shield-alert", 13)} GM Power: Official Wizet GameMaster hat. Grants divine invulnerability and glowing GM aura when equipped.</div>` : ""}
         ${note ? `<div class="tt-note">${note}</div>` : ""}
       </div>
     </div>
@@ -128,6 +130,7 @@ export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into i
             <span class="tt-tag">${catLabel}</span>
             <span class="tt-tag">${slotName}</span>
             ${isHoverItem(b.id) ? `<span class="tt-tag" style="background: rgba(14, 165, 233, 0.25); color: #38bdf8; border: 1px solid #0284c7;">Hovering Effect</span>` : ""}
+            ${isWizetHat(b.id) ? `<span class="tt-tag" style="background: rgba(239, 68, 68, 0.25); color: #f87171; border: 1px solid #dc2626;">Wizet GM Hat</span>` : ""}
           </div>
         </div>
       </div>
@@ -140,7 +143,8 @@ export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into i
       <div class="tt-divider"></div>
       <div class="tt-footer-meta">
         <div class="tt-value">Base Price: ${fmt(b.price)} mesos</div>
-        ${isHoverItem(b.id) ? `<div class="tt-note highlight">${lucideIcon("sparkles", 13)} Special: Grants graceful levitation & hovering effect when equipped.</div>` : ""}
+        ${isHoverItem(b.id) ? `<div class="tt-note highlight">${lucideIcon("sparkles", 13)} Special: Only Raven Persona hats grant graceful levitation & hovering effect when equipped.</div>` : ""}
+        ${isWizetHat(b.id) ? `<div class="tt-note highlight" style="color:#f87171; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.1);">${lucideIcon("shield-alert", 13)} GM Power: Official Wizet GameMaster hat. Grants divine invulnerability and glowing GM aura when equipped.</div>` : ""}
         <div class="tt-note highlight">${note}</div>
       </div>
     </div>

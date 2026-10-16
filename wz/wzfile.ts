@@ -13,10 +13,10 @@
 // decoded offset lands on a 0x73 byte.  VERSION_HASH_GMS_232 is that
 // value, solved and verified at 22833/22833 entries across this build.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, openSync, readSync } from "node:fs";
 import { join, basename, extname } from "node:path";
 import { computeVersionHash, WzKey, WzReader } from "./reader.ts";
-import { WzCanvasProperty, WzSubProperty, parsePropertyList, type WzProperty } from "./properties.ts";
+import { WzCanvasProperty, WzSubProperty, WzSoundProperty, parsePropertyList, type WzProperty } from "./properties.ts";
 
 /** Version hash solved for the GMS v232.2 client (computeVersionHash(777)). */
 export const VERSION_HASH_GMS_232 = 0x0000e738;
@@ -27,6 +27,9 @@ export interface WzHeader {
   fStart: number;
   copyright: string;
 }
+
+const MAX_PARSED_IMAGES = 250;
+const parsedImagesLru = new Map<WzImage, WzSubProperty>();
 
 /** One .img inside a container — parsed lazily. */
 export class WzImage {
@@ -48,13 +51,19 @@ export class WzImage {
 
   /** Read raw bytes at an absolute file offset. */
   readAt(offset: number, length: number): Buffer {
-    return this.file.buf.subarray(offset, Math.min(offset + length, this.file.buf.length));
+    return this.file.readAt(offset, length);
   }
 
   parse(): WzSubProperty {
-    if (this.root) return this.root;
-    const r = this.file.reader;
-    r.seek(this.offset);
+    if (this.root) {
+      parsedImagesLru.delete(this);
+      parsedImagesLru.set(this, this.root);
+      return this.root;
+    }
+    const imgBuf = this.file.readAt(this.offset, this.size);
+    const r = new WzReader(imgBuf, this.file.key);
+    r.headerFStart = this.file.header.fStart;
+    r.versionHash = this.file.versionHash;
     const tag = r.u8();
     if (tag !== 0x73) {
       this.root = new WzSubProperty(this.name);
@@ -67,8 +76,30 @@ export class WzImage {
       return this.root;
     }
     const root = new WzSubProperty(this.name);
-    for (const c of parsePropertyList(r, this.offset, root, this)) root.add(c);
+    for (const c of parsePropertyList(r, 0, root, this)) root.add(c);
+
+    // Adjust canvas pngOffset & sound dataOffset to absolute file coordinates
+    const fixOffsets = (p: WzProperty) => {
+      if (!p) return;
+      if (p instanceof WzCanvasProperty) {
+        p.pngOffset += this.offset;
+      } else if (p instanceof WzSoundProperty) {
+        p.dataOffset += this.offset;
+      }
+      for (const ch of p.children()) fixOffsets(ch);
+    };
+    fixOffsets(root);
+
+    if (parsedImagesLru.size >= MAX_PARSED_IMAGES) {
+      const oldest = parsedImagesLru.keys().next().value;
+      if (oldest) {
+        oldest.root = null;
+        parsedImagesLru.delete(oldest);
+      }
+    }
+
     this.root = root;
+    parsedImagesLru.set(this, root);
     return root;
   }
 
@@ -135,8 +166,10 @@ export class WzDirectory {
 export class WzFile {
   header!: WzHeader;
   root = new WzDirectory("");
-  buf!: Buffer;
   reader!: WzReader;
+  fd: number = -1;
+  fileSize: number = 0;
+  key!: WzKey;
 
   constructor(
     public path: string,
@@ -150,20 +183,44 @@ export class WzFile {
     return f;
   }
 
-  private load(): void {
-    this.buf = readFileSync(this.path);
-    const key = WzKey.forRegion(this.region);
-    this.reader = new WzReader(this.buf, key);
-    const r = this.reader;
+  readAt(offset: number, length: number): Buffer {
+    if (this.fd < 0) this.fd = openSync(this.path, "r");
+    const safeLen = Math.max(0, Math.min(length, this.fileSize - offset));
+    if (safeLen === 0) return Buffer.alloc(0);
+    const buf = Buffer.allocUnsafe(safeLen);
+    const n = readSync(this.fd, buf, 0, safeLen, offset);
+    return n < safeLen ? buf.subarray(0, n) : buf;
+  }
 
-    const ident = r.read(4).toString("latin1");
-    const fileSize = r.u64();
-    const fStart = r.u32();
-    let end = r.pos;
-    while (this.buf[end] !== 0) end++;
-    const copyright = this.buf.subarray(r.pos, end).toString("latin1");
+  get buf(): Buffer {
+    return readFileSync(this.path);
+  }
+
+  private load(): void {
+    this.fd = openSync(this.path, "r");
+    this.fileSize = statSync(this.path).size;
+    this.key = WzKey.forRegion(this.region);
+
+    // Read header (64 bytes)
+    const headerBuf = Buffer.allocUnsafe(64);
+    readSync(this.fd, headerBuf, 0, 64, 0);
+
+    const rHeader = new WzReader(headerBuf, this.key);
+    const ident = rHeader.read(4).toString("latin1");
+    const fileSize = rHeader.u64();
+    const fStart = rHeader.u32();
+    let end = rHeader.pos;
+    while (end < 64 && headerBuf[end] !== 0) end++;
+    const copyright = headerBuf.subarray(rHeader.pos, end).toString("latin1");
     this.header = { ident, fileSize, fStart, copyright };
 
+    // The directory table is at most ~1.5 MB in MapleStory. Read up to 2MB.
+    const dirChunkSize = Math.min(this.fileSize, 2 * 1024 * 1024);
+    const dirBuf = Buffer.allocUnsafe(dirChunkSize);
+    readSync(this.fd, dirBuf, 0, dirChunkSize, 0);
+
+    this.reader = new WzReader(dirBuf, this.key);
+    const r = this.reader;
     r.headerFStart = fStart;
     r.versionHash = this.versionHash;
     // Directory begins at FStart — no u16 version field in this layout.

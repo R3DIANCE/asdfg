@@ -22,6 +22,7 @@ export class StatusCapsule extends ComponentBase {
   mpText!: HTMLElement;
   expText!: HTMLElement;
   expBottomFill!: HTMLElement;
+  fullExp!: HTMLElement;
 
   private parentEl!: HTMLElement;
 
@@ -57,101 +58,83 @@ export class StatusCapsule extends ComponentBase {
   public override destroy(force?: boolean): void {
     super.destroy(force);
     this.root?.remove();
+    this.fullExp?.remove();
+    document.querySelectorAll(".ms-screen-exp-bar").forEach((e) => e.remove());
   }
 
   private initComponent() {
     this.root = el("div", "ms-hud-center relative flex flex-col justify-center items-center gap-[3px] pointer-events-auto select-none", this.parentEl);
 
-    // HP Bar Row — sleek solid advanced HUD design without gradients
+    // HP Bar Row — Translucent Glass style, clean without text badge
     const hpRow = el(
       "div",
-      "ms-bar-row flex items-center w-[290px] h-[20px] bg-[#161c24] border border-[#283344] rounded-[4px] p-[2px] gap-[4px] shadow-[0_2px_4px_rgba(0,0,0,0.5)] transition-all",
+      "ms-bar-row flex items-center w-[292px] h-[20px] bg-slate-950/40 border border-white/10 rounded-[4px] p-[2px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur-[8px] transition-all",
       this.root
     );
-    // Left Key Badge matching quick slot badges
-    const hpBadge = el(
-      "span",
-      "slot-badge flex-shrink-0 w-[24px] h-[16px] font-black text-[8px] leading-[16px] rounded-[2px] text-center uppercase tracking-[0.2px] bg-[#d90429] text-white shadow-[0_1px_2px_rgba(0,0,0,0.4)] select-none",
-      hpRow
-    );
-    hpBadge.textContent = "HP";
 
     const hpTrack = el(
       "div",
-      "ms-bar-track relative flex-1 h-[16px] bg-[#0c1017] border border-[#1b222d] rounded-[2px] overflow-hidden shadow-[inset_0_1px_3px_rgba(0,0,0,0.7)]",
+      "ms-bar-track relative flex-1 h-full bg-black/40 rounded-[2px] overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]",
       hpRow
     );
     this.hpFill = el(
       "div",
-      "ms-bar-fill hp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-[#e63946] border-r-2 border-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]",
+      "ms-bar-fill hp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-rose-600/75 border-r-2 border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]",
       hpTrack
     );
     this.hpText = el(
       "div",
-      "ms-bar-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[10.5px] leading-[16px] text-white tracking-[0.3px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none tabular-nums",
+      "ms-bar-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[11px] leading-[20px] text-white tracking-[0.5px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none tabular-nums",
       hpTrack
     );
 
-    // MP Bar Row — sleek solid advanced HUD design without gradients
+    // MP Bar Row — Translucent Glass style, clean without text badge
     const mpRow = el(
       "div",
-      "ms-bar-row flex items-center w-[290px] h-[20px] bg-[#161c24] border border-[#283344] rounded-[4px] p-[2px] gap-[4px] shadow-[0_2px_4px_rgba(0,0,0,0.5)] transition-all",
+      "ms-bar-row flex items-center w-[292px] h-[20px] bg-slate-950/40 border border-white/10 rounded-[4px] p-[2px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_2px_8px_rgba(0,0,0,0.4)] backdrop-blur-[8px] transition-all",
       this.root
     );
-    const mpBadge = el(
-      "span",
-      "slot-badge flex-shrink-0 w-[24px] h-[16px] font-black text-[8px] leading-[16px] rounded-[2px] text-center uppercase tracking-[0.2px] bg-[#0284c7] text-white shadow-[0_1px_2px_rgba(0,0,0,0.4)] select-none",
-      mpRow
-    );
-    mpBadge.textContent = "MP";
 
     const mpTrack = el(
       "div",
-      "ms-bar-track relative flex-1 h-[16px] bg-[#0c1017] border border-[#1b222d] rounded-[2px] overflow-hidden shadow-[inset_0_1px_3px_rgba(0,0,0,0.7)]",
+      "ms-bar-track relative flex-1 h-full bg-black/40 rounded-[2px] overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]",
       mpRow
     );
     this.mpFill = el(
       "div",
-      "ms-bar-fill mp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-[#0284c7] border-r-2 border-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]",
+      "ms-bar-fill mp absolute left-0 top-0 bottom-0 w-full transition-[width] duration-200 ease-out bg-sky-600/75 border-r-2 border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]",
       mpTrack
     );
     this.mpText = el(
       "div",
-      "ms-bar-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[10.5px] leading-[16px] text-white tracking-[0.3px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none tabular-nums",
+      "ms-bar-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[11px] leading-[20px] text-white tracking-[0.5px] drop-shadow-[0_1px_2px_#000] z-[2] pointer-events-none select-none tabular-nums",
       mpTrack
     );
 
-    // Full screen width bottom EXP bar matching quick slots glass style & badges
-    let fullExp = document.querySelector(".ms-screen-exp-bar") as HTMLElement;
-    if (!fullExp) {
-      fullExp = el(
-        "div",
-        "ms-screen-exp-bar fixed left-0 right-0 bottom-0 w-screen h-[14px] bg-[#0c1017]/95 border-t border-[#283344] shadow-[0_-1px_3px_rgba(0,0,0,0.6)] z-[100] flex items-center px-1.5 backdrop-blur-[2px] box-border pointer-events-none overflow-hidden",
-        document.body
-      );
-    }
-    const expBadge = el(
-      "span",
-      "slot-badge relative flex-shrink-0 h-[10px] px-1.5 font-black text-[6.5px] leading-[10px] rounded-[2px] text-center uppercase tracking-[0.2px] bg-[#65a30d] text-white shadow-[0_1px_2px_rgba(0,0,0,0.5)] mr-1.5 z-[3] select-none",
-      fullExp
-    );
-    expBadge.textContent = "EXP";
+    // Single clear and readable translucent bottom EXP bar (strictly singleton)
+    document.querySelectorAll(".ms-screen-exp-bar").forEach((e) => e.remove());
 
-    // Segment marks every 10%
+    this.fullExp = el(
+      "div",
+      "ms-screen-exp-bar fixed left-0 right-0 bottom-0 w-screen h-[18px] bg-slate-950/75 border-t border-white/20 shadow-[0_-2px_10px_rgba(0,0,0,0.5)] z-[100] flex items-center px-1 backdrop-blur-[12px] box-border pointer-events-none overflow-hidden",
+      document.body
+    );
+
+    // Subtle 10% interval ticks
     for (let i = 1; i < 10; i++) {
-      const tick = el("div", "ms-exp-tick absolute top-0 bottom-0 w-[1px] bg-black/40 z-[2] pointer-events-none", fullExp);
+      const tick = el("div", "ms-exp-tick absolute top-0 bottom-0 w-[1px] bg-white/10 z-[2] pointer-events-none", this.fullExp);
       tick.style.left = `${i * 10}%`;
     }
 
     this.expBottomFill = el(
       "div",
-      "ms-screen-exp-fill absolute left-0 top-0 bottom-0 bg-[#84cc16] border-r-2 border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)] transition-[width] duration-250 pointer-events-none",
-      fullExp
+      "ms-screen-exp-fill absolute left-0 top-0 bottom-0 bg-[#84cc16]/85 border-r-[1.5px] border-white/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[width] duration-250 pointer-events-none",
+      this.fullExp
     );
     this.expText = el(
       "div",
-      "ms-screen-exp-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[8.5px] leading-[14px] text-white tracking-[0.2px] drop-shadow-[0_1px_2px_#000] z-[3] pointer-events-none select-none tabular-nums",
-      fullExp
+      "ms-screen-exp-text absolute inset-0 flex items-center justify-center font-mono font-bold text-[11px] leading-[18px] text-white tracking-[0.5px] z-[3] pointer-events-none select-none tabular-nums",
+      this.fullExp
     );
   }
 
@@ -166,7 +149,7 @@ export class StatusCapsule extends ComponentBase {
 
     this.hpText.textContent = `${d.hp.toLocaleString()} / ${d.maxHp.toLocaleString()}`;
     this.mpText.textContent = `${d.mp.toLocaleString()} / ${d.maxMp.toLocaleString()}`;
-    this.expText.textContent = `EXP ${d.exp.toLocaleString()} [${expPct.toFixed(2)}%]`;
+    this.expText.textContent = `EXP: ${d.exp.toLocaleString()} / ${d.expNeed.toLocaleString()} [${expPct.toFixed(2)}%]`;
 
     // Critical HP warning pulse on bar border
     const hpRow = this.root.querySelector(".ms-bar-row") as HTMLElement | null;
@@ -224,7 +207,7 @@ export class PlayerStatusTag extends ComponentBase {
   private initComponent() {
     this.root = el(
       "div",
-      "ms-player-bar flex items-center h-[26px] bg-[#3a4454]/85 border border-[#9ca8b8]/40 rounded-[4px] px-2.5 gap-2 backdrop-blur-[4px] shadow-[0_2px_4px_rgba(0,0,0,0.5)] pointer-events-auto select-none",
+      "ms-player-bar flex items-center h-[28px] bg-[#1a2332]/85 border border-[#9ca8b8]/40 rounded-[4px] px-2.5 gap-2 backdrop-blur-[4px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_2px_5px_rgba(0,0,0,0.4)] pointer-events-auto select-none",
       this.parentEl
     );
     const lvBadge = el("div", "ms-player-lv flex items-baseline gap-0.5", this.root);
@@ -298,7 +281,7 @@ export class MenuButtons extends ComponentBase {
     for (const [key, item] of Object.entries(this.items)) {
       const b = el(
         "button",
-        "ms-menu-btn relative w-[27px] h-[27px] bg-[#3a4454]/80 hover:bg-[#4f5e77] active:translate-y-[1px] border border-[#9ca8b8]/40 hover:border-[#9ca8b8] rounded-[4px] flex items-center justify-center text-slate-200 hover:text-white cursor-pointer p-0 backdrop-blur-[3px] shadow-[0_1px_3px_rgba(0,0,0,0.4)] transition-all duration-100",
+        "ms-menu-btn relative w-[28px] h-[28px] bg-[#1a2332]/85 hover:bg-[#2b3749] active:translate-y-[1px] border border-[#9ca8b8]/40 hover:border-[#38bdf8] rounded-[4px] flex items-center justify-center text-slate-200 hover:text-white cursor-pointer p-0 backdrop-blur-[4px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_2px_5px_rgba(0,0,0,0.4)] transition-all duration-100",
         this.root
       ) as HTMLButtonElement;
       b.type = "button";

@@ -35,8 +35,6 @@ function attachDebugPanel() {
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const title = document.getElementById("title")!;
-const startBtn = document.getElementById("start-btn") as HTMLButtonElement;
-const nameInput = document.getElementById("name-input") as HTMLInputElement;
 const loading = document.getElementById("loading")!;
 const errorBox = document.getElementById("gpu-error")!;
 const bgm = new Audio();
@@ -123,6 +121,7 @@ addEventListener("keydown", (e: KeyboardEvent) => {
     else if (k === "e") w.ext.open("equip");
     else if (k === "j") w.ext.open("craft");
     else if (k === "h") w.ext.open("ah");
+    else if (k === "g") w.toggle(w.guideWin);
     else if (k === "l" || k === "`" || k === "~") {
       if (game.isGm()) w.ext.items.open();
     }
@@ -160,20 +159,17 @@ function setLoading(status: string | null, pct = 0, sub?: string) {
   if (subEl && sub) subEl.textContent = sub;
 }
 
-try {
-  const sv = JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null");
-  if (sv?.stats?.name) nameInput.value = sv.stats.name;
-} catch {}
+
 
 async function boot() {
-  setLoading("Starting Graphics Engine…", 10, "Detecting WebGPU / WebGL display context");
+  setLoading("Starting Maple World…", 10, "Preparing world display");
   try {
     await r.init();
     const isWebGPU = r.backend === "webgpu";
     setLoading(
-      isWebGPU ? "Initializing Orillusion Systems…" : "Initializing WebGL Engine…",
+      "Loading Maple World…",
       25,
-      isWebGPU ? "Setting up ECS scene, camera & render systems" : "Setting up 2D batching shaders & buffers"
+      "Setting up scene, camera & world display"
     );
     try {
       if (isWebGPU) {
@@ -198,9 +194,8 @@ async function boot() {
     return;
   }
 
-  // Hide initial loading screen and present MapleStory Auth & Character Selection
+  // Initialize MapleStory Auth & Character Selection
   setLoading(null);
-  title.classList.remove("hidden");
   new AuthUI({
     container: title,
     onCharacterSelected: (char: SpacetimeCharacter) => {
@@ -214,10 +209,10 @@ async function start(char?: SpacetimeCharacter) {
   running = true;
   title.classList.add("hidden");
 
-  setLoading("Loading UI & Window Blueprints…", 40, "Downloading MapleStory interface & inventory layouts");
+  setLoading("Loading Game Interface…", 40, "Setting up interface & inventory layouts");
   const [ui, win, items] = await Promise.all([json("/wz/data/ui"), json("/wz/data/windows"), json("/wz/data/items")]);
 
-  setLoading("Parsing Item & Equipment Database…", 55, "Loaded weapons, armors, potions & crafting items");
+  setLoading("Loading Equipment & Items…", 55, "Loaded weapons, armors, potions & crafting items");
   loadItemData(items);
 
   game.onMapChange = (m) => {
@@ -233,7 +228,7 @@ async function start(char?: SpacetimeCharacter) {
   game.onLog = (k, t) => hud?.wins.pushLog(k, t);
 
   let localSaved: any = null;
-  const charName = char?.name || (nameInput?.value?.trim() || "Wayfarer").slice(0, 12);
+  const charName = char?.name || (localStorage.getItem("ms_current_character") || "Wayfarer").slice(0, 12);
   try {
     localSaved = JSON.parse(localStorage.getItem(`maple-wayfarer-save-${charName}`) ?? "null")
       ?? JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null");
@@ -285,8 +280,18 @@ async function start(char?: SpacetimeCharacter) {
   if (typeof game.auto.battle !== "boolean") game.auto.battle = true;
   if (typeof game.auto.boss !== "boolean") game.auto.boss = true;
 
-  setLoading("Loading Maple World Map & Footholds…", 72, "Buffering map background, tiles & collision vectors");
-  await game.init(targetMap);
+  setLoading("Loading Map & Footholds…", 72, "Loading map background, tiles & platforms");
+  try {
+    await game.init(targetMap);
+  } catch (err) {
+    console.warn("Failed to initialize target map, falling back to Free Market:", err);
+    try {
+      await game.init(FREE_MARKET_MAP);
+    } catch {}
+  }
+  game.loadingMap = false;
+  game.fade = 0;
+  r.resize();
   if (char?.name) {
     game.stats.name = char.name;
     try {
@@ -294,7 +299,7 @@ async function start(char?: SpacetimeCharacter) {
     } catch {}
   }
 
-  setLoading("Creating User Interface & HUD…", 88, "Assembling health bars, chat, minimap & action slots");
+  setLoading("Entering Game…", 88, "Preparing health bars, chat & minimap");
   const isWebGPU = r.backend === "webgpu" && !!r.scene;
   try {
     if (isWebGPU) {
@@ -324,7 +329,7 @@ async function start(char?: SpacetimeCharacter) {
   if (game.isGm()) {
     hud.addChat("notice", "★ [GM Privileges Active] Press F1 for GM Control Panel · L for All-Items Catalog · Type /gm for commands.");
   }
-  hud.addChat("notice", `Logged in to SpacetimeDB as [${spacetime.currentUser || "Guest"}]. Character [${game.stats.name}] ready.`);
+  hud.addChat("notice", `Welcome back, [${game.stats.name}]! Character ready.`);
   if (game.map.id === FREE_MARKET_MAP) {
     hud.addChat("notice", "Welcome to Free Market! This is a peaceful social hub. Enter portals to visit hunting zones.");
   } else {
@@ -361,6 +366,7 @@ async function start(char?: SpacetimeCharacter) {
   let saveT = 0;
   game.onChange = () => { clearTimeout(saveT); saveT = setTimeout(persist, 800) as unknown as number; };
   setInterval(persist, 10000);
+  addEventListener("character-renamed", () => persist());
   addEventListener("beforeunload", persist);
   bgm.src = game.map.bgmUrl;
   bgm.play().catch(() => {});
@@ -380,8 +386,7 @@ async function start(char?: SpacetimeCharacter) {
   canvas.focus();
 }
 
-startBtn.addEventListener("click", () => start());
-nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") start(); });
+
 
 let last = performance.now();
 let manual = false;

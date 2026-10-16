@@ -66,6 +66,8 @@ export class Windows {
   item!: HTMLElement;
   autoWin!: HTMLElement;
   debugWin!: HTMLElement;
+  guideWin!: HTMLElement;
+  guideTab: "roadmap" | "overview" | "progression" | "social" | "enchanting" | "crafting" = "roadmap";
   buffBar: HTMLElement;
   autoBtn: HTMLElement;
   autoBossBtn!: HTMLElement;
@@ -84,8 +86,8 @@ export class Windows {
     this.tip = el("div", "tooltip hidden", document.body);
     this.buffBar = el("div", "buffbar", hudRoot);
     this.autoBtn = el("button", "auto-btn auto-battle-btn", hudRoot);
-    this.autoBtn.innerHTML = `<span class="auto-dot"></span>AUTO`;
-    this.autoBtn.title = "Toggle auto battle (B). Right-click for settings.";
+    this.autoBtn.innerHTML = `<span class="auto-dot"></span>AUTO COMBAT`;
+    this.autoBtn.title = "Toggle Auto Combat (B). Right-click for settings.";
     this.autoBtn.addEventListener("click", () => this.toggleAutoBattle());
     this.autoBtn.addEventListener("contextmenu", (e) => { e.preventDefault(); this.toggle(this.autoWin); });
 
@@ -110,6 +112,7 @@ export class Windows {
     this.buildSkill();
     this.buildAuto();
     this.buildDebug();
+    this.buildGuide();
     this.ext = new ExtWindows(this);
 
     // All windows start closed by default; toggled via dedicated menu buttons or hotkeys
@@ -1490,7 +1493,311 @@ export class Windows {
     }
   }
 
-  // ------------------------------------------------------------- transient logs (bottom right, no background)
+  // ------------------------------------------------------------- Game Guide & Codex Window
+  buildGuide() {
+    this.guideWin = this.makeWindow("guide-win", 640, 520, "MAPLE WAYFARER - GAME GUIDE & CODEX (G)", Math.max(20, Math.round(innerWidth / 2 - 320)), 60);
+    el("div", "guide-body", this.guideWin);
+    this.guideWin.addEventListener("click", (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>("[data-guidetab]");
+      if (t) {
+        this.guideTab = t.dataset.guidetab as any;
+        this.renderGuide();
+      }
+    });
+    this.renderGuide();
+  }
+
+  renderGuide() {
+    const body = this.guideWin.querySelector(".guide-body") as HTMLElement;
+    if (!body) return;
+    const tab = this.guideTab;
+    const tabs = [
+      { id: "roadmap", label: "★ Road Map (Lv. 1-200)" },
+      { id: "overview", label: "About & Controls" },
+      { id: "progression", label: "Getting Stronger" },
+      { id: "social", label: "Social & Maps" },
+      { id: "enchanting", label: "Star Force & Cubing" },
+      { id: "crafting", label: "Crafting & Alchemy" },
+    ];
+
+    const tabButtons = tabs.map((t) =>
+      `<button type="button" class="guide-tab-btn ${t.id === tab ? "active" : ""}" data-guidetab="${t.id}">${t.label}</button>`
+    ).join("");
+
+    let contentHtml = "";
+    if (tab === "roadmap") {
+      contentHtml = `
+        <div class="guide-pane">
+          <div class="guide-hero">
+            <h2 class="text-lg font-black text-amber-300">★ Beginner Road Map & Post-Creation Journey</h2>
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Follow this step-by-step progression guide immediately after creating your character to reach maximum power, unlock all 4 job advancements, and conquer Victoria Island bosses.</p>
+          </div>
+
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Step-by-Step Leveling & Progression Path</h3>
+            <div class="flex flex-col gap-2.5">
+              
+              <!-- Step 1 -->
+              <div class="guide-step-card">
+                <div class="guide-step-num">1</div>
+                <div class="guide-step-content">
+                  <span class="guide-step-title">Spawn in Free Market & Equip Starter Gear (Lv. 1)</span>
+                  <p class="guide-step-desc">You start in the peaceful <b>Free Market (Map 910000000)</b> with zero hostile monsters. Open your Inventory (<b>I</b>) or Equipment Window (<b>E</b>). You have starter gear in your bag. Drag items freely to any slot in your 32-slot grid, or right-click any piece of gear and select <b>Equip</b>.</p>
+                  <div class="guide-step-chips">
+                    <span class="guide-chip accent">Free Market Safe Zone</span>
+                    <span class="guide-chip">Inventory: Key I</span>
+                    <span class="guide-chip">Equip: Key E</span>
+                    <span class="guide-chip gold">Free-Grid Placement</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 2 -->
+              <div class="guide-step-card">
+                <div class="guide-step-num">2</div>
+                <div class="guide-step-content">
+                  <span class="guide-step-title">Venture Through Portals & First Hunts (Lv. 1 - 10)</span>
+                  <p class="guide-step-desc">Walk to the glowing blue portals on the left or right of the Free Market and press <b>↑</b> to enter Victoria Island hunting maps (Henesys, Ellinia, Perion, Kerning City). Slay Snails, Blue Snails, and Slimes with Basic Attack (<b>Ctrl</b> or <b>X</b>). Press <b>Z</b> to loot drops. Use <b>B</b> to toggle Auto Battle anytime!</p>
+                  <div class="guide-step-chips">
+                    <span class="guide-chip accent">Portals: ↑</span>
+                    <span class="guide-chip">Attack: Ctrl / X</span>
+                    <span class="guide-chip">Loot: Z</span>
+                    <span class="guide-chip green">Auto Battle: B</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 3 -->
+              <div class="guide-step-card">
+                <div class="guide-step-num">3</div>
+                <div class="guide-step-content">
+                  <span class="guide-step-title">1st Job Advancement & Skill Tree (Lv. 10)</span>
+                  <p class="guide-step-desc">At Level 10, open the Job Advancement window or visit your mentor to select your class: <b>Warrior</b>, <b>Magician</b>, <b>Bowman</b>, <b>Thief</b>, or <b>Pirate</b>. Press <b>K</b> to open the Skill Tree, spend your 3 starter SP on offensive abilities, and drag the skill icons into your quickbar (slots 1-8 or Del/End). Press <b>S</b> to distribute your +5 AP per level.</p>
+                  <div class="guide-step-chips">
+                    <span class="guide-chip gold">1st Job at Lv. 10</span>
+                    <span class="guide-chip">Skills: Key K</span>
+                    <span class="guide-chip">Stats & AP: Key S</span>
+                    <span class="guide-chip accent">5 Classes Available</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 4 -->
+              <div class="guide-step-card">
+                <div class="guide-step-num">4</div>
+                <div class="guide-step-content">
+                  <span class="guide-step-title">Core Gameplay Loop: 25-Kill Bosses & Auto Boss</span>
+                  <p class="guide-step-desc">Every map tracks monster kills. Slaying <b>25 monsters</b> automatically summons the Stage Boss (Mano, Stumpy, King Slime, Mushmom, etc.). Toggle <b>AUTO BOSS</b> on the bottom HUD to challenge bosses automatically! Bosses drop guaranteed rare equipment, meso bags, scrolls, and Potential Cubes.</p>
+                  <div class="guide-step-chips">
+                    <span class="guide-chip accent">Boss Every 25 Kills</span>
+                    <span class="guide-chip green">Toggle AUTO BOSS</span>
+                    <span class="guide-chip gold">Guaranteed Rare Drops</span>
+                    <span class="guide-chip">Potential Cubes</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 5 -->
+              <div class="guide-step-card">
+                <div class="guide-step-num">5</div>
+                <div class="guide-step-content">
+                  <span class="guide-step-title">2nd Job & Star Force Enhancements (Lv. 30)</span>
+                  <p class="guide-step-desc">Reach Level 30 for your 2nd Job Advancement. Open Crafting (<b>J</b>) -> <b>Star Force</b> to upgrade weapons and armor up to 15 Stars for tremendous ATT and Stat bonuses. Items <b>never break on failure</b>! Switch to the <b>Cube</b> tab to re-roll potential stats into Rare, Epic, Unique, and Legendary tiers.</p>
+                  <div class="guide-step-chips">
+                    <span class="guide-chip gold">2nd Job at Lv. 30</span>
+                    <span class="guide-chip">Crafting & Stars: Key J</span>
+                    <span class="guide-chip accent">15 Star Force Max</span>
+                    <span class="guide-chip green">Zero Item Destruction</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 6 -->
+              <div class="guide-step-card">
+                <div class="guide-step-num">6</div>
+                <div class="guide-step-content">
+                  <span class="guide-step-title">3rd Job & Potion Alchemy (Lv. 70)</span>
+                  <p class="guide-step-desc">Advance to 3rd Job at Level 70 (Crusader, Priest, Ranger, Hermit, Brawler) to master party buffs and screen-clearing combos. Save mesos by brewing your own White Potions and Mana Elixirs via <b>Alchemy</b> (<b>J</b>) using Snail Shells and Slime Bubbles.</p>
+                  <div class="guide-step-chips">
+                    <span class="guide-chip gold">3rd Job at Lv. 70</span>
+                    <span class="guide-chip">Alchemy: Key J</span>
+                    <span class="guide-chip">Free Potions from Drops</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 7 -->
+              <div class="guide-step-card">
+                <div class="guide-step-num">7</div>
+                <div class="guide-step-content">
+                  <span class="guide-step-title">4th Job Ultimates & Endgame Mastery (Lv. 120 - 200)</span>
+                  <p class="guide-step-desc">Ascend to 4th Job at Level 120! Unlock legendary screen-clearing ultimates: <b>Genesis</b>, <b>Blizzard</b>, <b>Hurricane</b>, <b>Triple Throw</b>, and <b>Blast</b>. Trade godly weapons on the live player Auction House (<b>H</b>) and conquer elite boss rankings.</p>
+                  <div class="guide-step-chips">
+                    <span class="guide-chip gold">4th Job at Lv. 120</span>
+                    <span class="guide-chip accent">Ultimate Skills</span>
+                    <span class="guide-chip">Auction House: Key H</span>
+                    <span class="guide-chip green">Online Sync</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Free-Grid Inventory & Ground Dropping Tips</h3>
+            <p class="text-xs text-slate-300 leading-relaxed"><b>Free Inventory Grid:</b> Click and drag any item to any empty or occupied cell (0 to 31) to organize your bag exactly how you want. Placements persist automatically across sessions.<br>
+            <b>Ground Dropping & 10m Despawn:</b> Drag an item out to the game screen or right-click an item and choose <b>Drop on Ground (10m)</b>. Dropped items physically toss onto the floor and stay active for <b>10 full minutes</b> before despawning, allowing easy trading or sharing with party members!</p>
+          </div>
+        </div>
+      `;
+    } else if (tab === "overview") {
+      contentHtml = `
+        <div class="guide-pane">
+          <div class="guide-hero">
+            <h2 class="text-lg font-black text-amber-400">Welcome to Maple Wayfarer</h2>
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Maple Wayfarer is an immersive multiplayer adventure. Venture through Victoria Island, hang out with friends in the Free Market, battle iconic stage bosses, and craft legendary equipment.</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Keyboard Controls Cheat Sheet</h3>
+            <div class="guide-keys-grid">
+              <div class="guide-key-row"><span>Move Left / Right</span><b>← → or A / D</b></div>
+              <div class="guide-key-row"><span>Jump</span><b>Alt / Space / C</b></div>
+              <div class="guide-key-row"><span>Climb & Portals</span><b>↑ ↓ or W / S</b></div>
+              <div class="guide-key-row"><span>Basic Attack</span><b>Ctrl or X</b></div>
+              <div class="guide-key-row"><span>Loot Drop (Ground Items)</span><b>Z</b></div>
+              <div class="guide-key-row"><span>Potions (HP / MP)</span><b>Del / End</b></div>
+              <div class="guide-key-row"><span>Auto Battle (Combat & Loot)</span><b>B</b></div>
+              <div class="guide-key-row"><span>Character Stats & AP</span><b>S / U</b></div>
+              <div class="guide-key-row"><span>Skill Window & SP</span><b>K</b></div>
+              <div class="guide-key-row"><span>Equipment Inventory</span><b>E</b></div>
+              <div class="guide-key-row"><span>Item Inventory & Bag</span><b>I</b></div>
+              <div class="guide-key-row"><span>Crafting & Enhancements</span><b>J</b></div>
+              <div class="guide-key-row"><span>Auction House</span><b>H</b></div>
+              <div class="guide-key-row"><span>Game Guide & Codex</span><b>G</b></div>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (tab === "progression") {
+      contentHtml = `
+        <div class="guide-pane">
+          <div class="guide-hero">
+            <h2 class="text-lg font-black text-emerald-400">How to Get Stronger</h2>
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Power in Maple Wayfarer comes from leveling, optimal AP distribution, mastering class skills, hunting stage bosses, and Star Force enhancements.</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">1. Ability Point (AP) Allocation</h3>
+            <div class="guide-card-grid">
+              <div class="guide-card">
+                <span class="guide-badge warrior">Warrior</span>
+                <p>Prioritize <b>STR</b> for immense melee damage and max HP. Keep just enough DEX for weapon mastery.</p>
+              </div>
+              <div class="guide-card">
+                <span class="guide-badge mage">Magician</span>
+                <p>Maximize <b>INT</b> for spell attack and total MP. All mage skills scale directly off INT.</p>
+              </div>
+              <div class="guide-card">
+                <span class="guide-badge bowman">Bowman</span>
+                <p>Max <b>DEX</b> for range attack and critical strike rate. Maintain required STR for bow tiers.</p>
+              </div>
+              <div class="guide-card">
+                <span class="guide-badge thief">Thief</span>
+                <p>Max <b>LUK</b> for deadly claw throwing and dagger burst attacks. Secondary DEX for gear requirements.</p>
+              </div>
+              <div class="guide-card">
+                <span class="guide-badge pirate">Pirate</span>
+                <p><b>STR</b> for Brawlers wielding knuckles; <b>DEX</b> for Gunslingers wielding rapid-fire pistols.</p>
+              </div>
+            </div>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">2. Stage Bosses & 4th Job Advancement</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Defeating <b>25 monsters</b> on any hunting map summons the Stage Boss. Bosses grant guaranteed high EXP, rare gear, scrolls, and Potential Cubes. Complete Job Advancements at levels <b>10, 30, 70, and 120</b> to unlock 4th Job skills like Genesis, Hurricane, and Triple Throw.</p>
+          </div>
+        </div>
+      `;
+    } else if (tab === "social") {
+      contentHtml = `
+        <div class="guide-pane">
+          <div class="guide-hero">
+            <h2 class="text-lg font-black text-sky-400">Social Map & Free Market</h2>
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Connect with adventurers across the world, party up for hunts, and trade in Victoria Island's commercial capital.</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Free Market (Map 910000000)</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">The Free Market is a peaceful haven with zero monster spawns. Use glowing portals on the left and right to travel directly between the Free Market and hunting grounds in Henesys, Ellinia, Perion, and Kerning City.</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Auction House ('H') & Trading</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Press <b>H</b> to open the Auction House. List your crafted equipment, ores, and potions for mesos. All active player listings are synchronized with other adventurers in real-time. Sales incur only a 1% listing fee and 5% completion tax.</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Ground Item Dropping & Persistence</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">You can drop equipment, potions, and materials onto the ground from your inventory. Dropped items remain on the ground for <b>10 minutes</b> before automatically despawning. Other players can see and pick up your dropped items!</p>
+          </div>
+        </div>
+      `;
+    } else if (tab === "enchanting") {
+      contentHtml = `
+        <div class="guide-pane">
+          <div class="guide-hero">
+            <h2 class="text-lg font-black text-purple-400">Enchanting & Star Force System</h2>
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Upgrade your weapons and armor with Star Force enhancements and reset potential lines with Cubes.</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Star Force Enhancements (Up to 15 Stars)</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Open the Crafting window ('J') and select the <b>STAR FORCE</b> tab. Each star grants significant Weapon Attack, Magic Attack, and Stat boosts. Stars 1-10 have high success rates, and items <b>never destroy</b> on failure!</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Potential Reset & Cubing</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Use the <b>CUBE</b> tab in the Crafting window. Spend mesos and Slime Bubbles to re-roll potential stats. Potential rarity progresses through:</p>
+            <div class="guide-pot-tiers">
+              <span class="pot-tag normal">Normal</span>
+              <span class="pot-tag rare">Rare (Cyan)</span>
+              <span class="pot-tag epic">Epic (Purple)</span>
+              <span class="pot-tag unique">Unique (Gold)</span>
+              <span class="pot-tag legendary">Legendary (Emerald)</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-2">Legendary potential rolls top-tier modifiers: +12% Total ATT, +12% Primary Stat, and +30% Boss Damage!</p>
+          </div>
+        </div>
+      `;
+    } else if (tab === "crafting") {
+      contentHtml = `
+        <div class="guide-pane">
+          <div class="guide-hero">
+            <h2 class="text-lg font-black text-amber-300">Crafting & Alchemy</h2>
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Forge custom weapons, refine ores, and brew powerful consumable potions from monster drops.</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Blacksmithing (Equipment Crafting)</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Collect monster ores and boss drops to craft level-appropriate weapons, hats, tops, bottoms, and boots. All crafted gear is guaranteed to roll <b>Rare or higher potential</b> upon creation!</p>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Alchemy & Potions</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Use monster materials to brew potions:</p>
+            <ul class="guide-list text-xs text-slate-300">
+              <li><b>Red Potion:</b> Restores 50 HP (requires Snail Shells)</li>
+              <li><b>Blue Potion:</b> Restores 100 MP (requires Blue Snail Shells)</li>
+              <li><b>White Potion:</b> Restores 300 HP (requires Mushroom Spores)</li>
+              <li><b>Mana Elixir:</b> Restores 300 MP (requires Slime Bubbles)</li>
+            </ul>
+          </div>
+          <div class="guide-section mt-3">
+            <h3 class="guide-sec-title">Ore Refining</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Refine 10 raw monster ores (Iron, Bronze, Silver, Mithril, Steel, Gold) into pure ingots for high-level equipment recipes.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    body.innerHTML = `
+      <div class="guide-header-tabs">${tabButtons}</div>
+      <div class="guide-scroll-body">${contentHtml}</div>
+    `;
+  }
+
   buildLogs() {
     const box = el("div", "logs hidden", this.hudRoot);
     box.title = "Transient activity log. Click to dismiss.";
@@ -1666,12 +1973,37 @@ export class ExtWindows {
       { label: "Inventory", key: "I", fn: () => this.open("inv") },
       { label: "Crafting", key: "J", fn: () => this.open("craft") },
       { label: "Auction House", key: "H", fn: () => this.open("ah") },
+      { label: "Game Guide", key: "G", fn: () => w.toggle(w.guideWin) },
       { label: "Auto Settings", key: "B·RMB", fn: () => w.toggle(w.autoWin) },
     ];
     if (isGm) {
+      entries.push({ label: "★ GM Online Roster", key: "Tab", fn: () => {
+        const gmTab = document.querySelector(".gm-collapse-tab") as HTMLElement;
+        gmTab?.click();
+      }, isGm: true });
       entries.push({ label: "★ GM Control Panel", key: "F1", fn: () => w.toggle(w.debugWin), isGm: true });
       entries.push({ label: "★ All Items Spawner", key: "L", fn: () => this.items.open(), isGm: true });
     }
+    entries.push({
+      label: "Switch Character",
+      key: "Relog",
+      fn: () => {
+        sessionStorage.setItem("ms_skip_autologin", "1");
+        location.reload();
+      },
+    });
+    entries.push({
+      label: "Log Out Account",
+      key: "Exit",
+      fn: () => {
+        try {
+          localStorage.removeItem("ms_current_user");
+          localStorage.removeItem("ms_current_character");
+        } catch {}
+        sessionStorage.setItem("ms_skip_autologin", "1");
+        location.reload();
+      },
+    });
     for (const item of entries) {
       const b = el("button", `menu-pop-item ${item.isGm ? "menu-pop-gm" : ""}`, this.menuPop) as HTMLButtonElement;
       b.type = "button";
@@ -1719,7 +2051,9 @@ export class ExtWindows {
         this.renderInv();
         break;
       case "equip":
-        if (this.equipTab === "visual" || GEAR.get(g.findGear(uid)?.id ?? 0)?.cosmetic) {
+      case "equip-visual": {
+        const isCosmetic = Boolean(GEAR.get(g.findGear(uid)?.id ?? 0)?.cosmetic || GEAR.get(g.findGear(uid)?.id ?? 0)?.cash);
+        if (this.equipTab === "visual" || isCosmetic) {
           g.equipVisual(uid);
         } else {
           g.equip(uid);
@@ -1727,15 +2061,30 @@ export class ExtWindows {
         this.renderEquip();
         this.renderInv();
         break;
-      case "equip-visual":
-        g.equipVisual(uid);
-        this.renderEquip();
-        this.renderInv();
-        break;
+      }
       case "equiptab":
         this.equipTab = t.dataset.v as any;
         this.renderEquip();
         break;
+      case "summon-pet": {
+        const id = Number(t.dataset.id);
+        if (id) g.equipPet(id);
+        this.renderEquip();
+        break;
+      }
+      case "dismiss-pet": {
+        const id = Number(t.dataset.id);
+        const p = g.pets.find((x) => x.id === id);
+        if (p) g.unequipPet(p.slotIndex);
+        this.renderEquip();
+        break;
+      }
+      case "unequip-pet": {
+        const s = Number(t.dataset.slot);
+        g.unequipPet(s);
+        this.renderEquip();
+        break;
+      }
       case "invtab": this.invTab.cur = t.dataset.v as any; break;
       case "selljunk": g.sellJunk(); break;
       case "crafttab": this.craftTab.cur = t.dataset.v as any; this.lastResult = ""; break;
@@ -1765,9 +2114,14 @@ export class ExtWindows {
       case "open-storage": this.open("ah"); break;
       case "open-boss": if (g.bossReady()) g.challengeBoss(); else g.onChat("notice", "Stage boss not ready yet. Keep defeating monsters!"); break;
       case "open-bag": this.open("inv"); break;
-      case "sort":
-        g.bag.sort((a, b) => b.rarity - a.rarity || (GEAR.get(b.id)?.req ?? 0) - (GEAR.get(a.id)?.req ?? 0));
-        g.onChange();
+      case "sort": {
+        const isCash = this.invTab.cur === "cash" || this.invTab.cur === "dec";
+        g.sortBag(isCash);
+        this.renderInv();
+        break;
+      }
+      case "drop-mode":
+        g.onChat("notice", "Drag an item onto the game canvas or right-click it to drop it on the ground!");
         break;
       case "lock":
         g.onChat("system", "Item protection lock is active.");
@@ -1781,8 +2135,58 @@ export class ExtWindows {
     if (!t) return;
     e.preventDefault();
     this.w.hideTip();
-    this.w.game.sellGear(t.dataset.uid!);
-    this.sig = {};
+    const uid = t.dataset.uid;
+    if (uid) {
+      this.showItemContextMenu(uid, e.clientX, e.clientY);
+    }
+  }
+
+  showItemContextMenu(uid: string, x: number, y: number) {
+    const g = this.w.game;
+    const gear = g.findGear(uid);
+    if (!gear) return;
+    document.querySelectorAll(".item-context-menu").forEach((m) => m.remove());
+    const menu = el("div", "item-context-menu fixed z-[200] bg-[#1a2230] border border-slate-600 rounded-lg shadow-2xl p-1.5 flex flex-col gap-1 min-w-[160px] text-xs text-white", document.body);
+    menu.style.left = `${Math.min(innerWidth - 170, Math.max(10, x))}px`;
+    menu.style.top = `${Math.min(innerHeight - 150, Math.max(10, y))}px`;
+
+    const bName = GEAR.get(gear.id)?.name ?? "Equipment";
+    const header = el("div", "px-2 py-1 text-[11px] font-bold border-b border-slate-700 text-amber-300 truncate", menu);
+    header.textContent = bName;
+
+    const equipBtn = el("button", "text-left px-2 py-1.5 hover:bg-slate-700/80 rounded transition-colors flex items-center gap-2 cursor-pointer font-medium", menu);
+    equipBtn.innerHTML = `<span>⚔️</span> <span>Equip Item</span>`;
+    equipBtn.addEventListener("click", () => {
+      g.equip(uid);
+      this.renderEquip();
+      this.renderInv();
+      menu.remove();
+    });
+
+    const dropBtn = el("button", "text-left px-2 py-1.5 hover:bg-red-950/70 text-red-300 rounded transition-colors flex items-center gap-2 cursor-pointer font-medium", menu);
+    dropBtn.innerHTML = `<span>📥</span> <span>Drop on Ground (10m)</span>`;
+    dropBtn.addEventListener("click", () => {
+      g.dropGear(uid);
+      this.renderInv();
+      menu.remove();
+    });
+
+    const sellPrice = npcSellPrice(gear);
+    const sellBtn = el("button", "text-left px-2 py-1.5 hover:bg-emerald-950/70 text-emerald-300 rounded transition-colors flex items-center gap-2 cursor-pointer font-medium", menu);
+    sellBtn.innerHTML = `<span>💰</span> <span>Sell (${fmt(sellPrice)} m)</span>`;
+    sellBtn.addEventListener("click", () => {
+      g.sellGear(uid);
+      this.renderInv();
+      menu.remove();
+    });
+
+    const closeHandler = (ev: PointerEvent) => {
+      if (!menu.contains(ev.target as Node)) {
+        menu.remove();
+        window.removeEventListener("pointerdown", closeHandler);
+      }
+    };
+    setTimeout(() => window.addEventListener("pointerdown", closeHandler), 10);
   }
   flash(ok: boolean) {
     const r = this.craftWin.querySelector(".craft-result");
@@ -1798,6 +2202,99 @@ export class ExtWindows {
 
     const isVisual = this.equipTab === "visual";
     const isPet = this.equipTab === "pet";
+
+    if (isPet) {
+      const activePets = g.pets ?? [];
+      const slotsHtml = [0, 1, 2].map((slotIdx) => {
+        const pet = activePets.find((p) => p.slotIndex === slotIdx);
+        if (pet) {
+          return `
+            <div class="pet-slot-card flex items-center justify-between p-2.5 rounded bg-slate-900/60 border border-emerald-500/35 shadow-sm">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded bg-black/50 border border-emerald-500/40 flex items-center justify-center overflow-hidden">
+                  <img src="/wz/pet-icon/${pet.id}" alt="${pet.name}" class="w-8 h-8 object-contain pixelated" />
+                </div>
+                <div>
+                  <div class="text-[12px] font-bold text-emerald-300 flex items-center gap-1.5">
+                    ${pet.name} <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 font-semibold uppercase">Slot ${slotIdx + 1}</span>
+                  </div>
+                  <div class="text-[9.5px] text-slate-300 mt-0.5">Auto Follow · Active Field Looting</div>
+                </div>
+              </div>
+              <button type="button" data-act="unequip-pet" data-slot="${slotIdx}" class="px-2.5 py-1 text-[10px] font-bold rounded bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40 transition-colors">
+                Dismiss
+              </button>
+            </div>
+          `;
+        }
+        return `
+          <div class="pet-slot-card flex items-center justify-between p-2.5 rounded bg-slate-900/35 border border-dashed border-white/15">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded bg-black/30 border border-dashed border-white/15 flex items-center justify-center text-slate-500 text-[11px] font-bold">
+                ${slotIdx + 1}
+              </div>
+              <div>
+                <div class="text-[11.5px] font-medium text-slate-400">Empty Pet Slot ${slotIdx + 1}</div>
+                <div class="text-[9.5px] text-slate-500 mt-0.5">Summon a companion below (Max 3 pets)</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      const catalog = [
+        { id: 5000000, name: "Brown Kitty" },
+        { id: 5000001, name: "Brown Puppy" },
+        { id: 5000002, name: "Pink Bunny" },
+        { id: 5000003, name: "Mini Kargo" },
+        { id: 5000004, name: "Black Kitty" },
+        { id: 5000005, name: "White Bunny" },
+        { id: 5000006, name: "Husky" },
+        { id: 5000008, name: "Panda" },
+        { id: 5000020, name: "Mini Yeti" },
+        { id: 5000029, name: "Rudolph" },
+        { id: 5000047, name: "Jr. Balrog" },
+        { id: 5000054, name: "Baby Dragon" },
+      ];
+
+      const catalogHtml = catalog.map((p) => {
+        const isSummoned = activePets.some((x) => x.id === p.id);
+        return `
+          <div class="pet-cat-card p-2 rounded bg-slate-900/50 border ${isSummoned ? "border-emerald-500/50 bg-emerald-950/25 shadow-[0_0_8px_rgba(16,185,129,0.15)]" : "border-white/10 hover:border-white/25"} flex flex-col items-center text-center gap-1.5 transition-all">
+            <div class="w-10 h-10 rounded bg-black/40 flex items-center justify-center overflow-hidden">
+              <img src="/wz/pet-icon/${p.id}" alt="${p.name}" class="w-8 h-8 object-contain pixelated" />
+            </div>
+            <div class="text-[11px] font-semibold text-slate-200 line-clamp-1">${p.name}</div>
+            <button type="button" data-act="${isSummoned ? "dismiss-pet" : "summon-pet"}" data-id="${p.id}" class="w-full py-1 text-[9.5px] font-bold rounded ${isSummoned ? "bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40" : "bg-sky-600/70 hover:bg-sky-500 text-white border border-sky-400/40"} transition-colors">
+              ${isSummoned ? "Dismiss" : "Summon"}
+            </button>
+          </div>
+        `;
+      }).join("");
+
+      body.innerHTML = `
+        <div class="equip-head-tabs">
+          <button type="button" data-act="equiptab" data-v="equip" class="equip-tab">Equipment</button>
+          <button type="button" data-act="equiptab" data-v="visual" class="equip-tab">Cash / Visual</button>
+          <button type="button" data-act="equiptab" data-v="pet" class="equip-tab on">Pet</button>
+        </div>
+        <div class="equip-sub-bar">
+          <span class="equip-title-label">PET COMPANIONS (${activePets.length} / 3 ACTIVE)</span>
+          <span class="text-[10px] text-emerald-400 font-bold">Auto-Follow & Looting</span>
+        </div>
+        <div class="pet-equip-view flex flex-col gap-2 p-3 overflow-y-auto max-h-[380px] scrollbar-thin">
+          <div class="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Active Pets (Follows player & loots drops)</div>
+          <div class="flex flex-col gap-1.5">
+            ${slotsHtml}
+          </div>
+          <div class="text-[11px] font-bold text-slate-300 uppercase tracking-wider mt-2">Available Pets (Click to Summon up to 3)</div>
+          <div class="grid grid-cols-3 gap-2">
+            ${catalogHtml}
+          </div>
+        </div>
+      `;
+      return;
+    }
 
     // Modern MapleStory Equipment Layout (exact 1:1 match to reference)
     const leftCol1: Slot[] = ["ring1", "ring2", "ring3", "ring4", "pocket"];
@@ -1873,12 +2370,22 @@ export class ExtWindows {
     let grid = "";
     let curCount = 0;
     if (tab === "equip") {
-      let bag = [...g.bag].sort((a, b) => b.rarity - a.rarity || (GEAR.get(b.id)?.req ?? 0) - (GEAR.get(a.id)?.req ?? 0));
+      let bag = g.bag.filter((it) => {
+        const b = GEAR.get(it.id);
+        return !b?.cosmetic && !b?.cash;
+      });
       if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
       curCount = bag.length;
-      for (const it of bag) grid += this.gearCell(it, "equip", `Click to equip · right-click to sell (${fmt(npcSellPrice(it))} mesos)`);
-      const targetPad = Math.max(32, Math.ceil(bag.length / 4) * 4 + 8);
-      for (let i = bag.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
+      const maxSlot = bag.reduce((m, it) => Math.max(m, it.slot ?? 0), 0);
+      const targetPad = Math.max(32, Math.ceil((maxSlot + 1) / 4) * 4);
+      for (let i = 0; i < targetPad; i++) {
+        const it = bag.find((x) => x.slot === i);
+        if (it) {
+          grid += `<div class="gcell r${it.rarity}" data-act="equip" data-uid="${it.uid}" data-slot-idx="${i}" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to equip · drag to move anywhere · right-click for actions"))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
+        } else {
+          grid += `<div class="gcell blank" data-slot-idx="${i}" title="Empty slot ${i + 1} (drop items here)"></div>`;
+        }
+      }
     } else if (tab === "use") {
       let ids = Object.keys(ITEMS).map(Number).filter((id) => (g.inv[id] ?? 0) > 0);
       if (q) ids = ids.filter((id) => (ITEMS[id]?.name ?? "").toLowerCase().includes(q));
@@ -1907,9 +2414,16 @@ export class ExtWindows {
       });
       if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
       curCount = bag.length;
-      for (const it of bag) grid += this.gearCell(it, "equip-visual", `Click to equip as visual outfit · right-click to sell (${fmt(npcSellPrice(it))} mesos)`);
-      const targetPad = Math.max(32, Math.ceil(bag.length / 4) * 4 + 8);
-      for (let i = bag.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
+      const maxSlot = bag.reduce((m, it) => Math.max(m, it.slot ?? 0), 0);
+      const targetPad = Math.max(32, Math.ceil((maxSlot + 1) / 4) * 4);
+      for (let i = 0; i < targetPad; i++) {
+        const it = bag.find((x) => x.slot === i);
+        if (it) {
+          grid += `<div class="gcell r${it.rarity}" data-act="equip-visual" data-uid="${it.uid}" data-slot-idx="${i}" data-is-cash="1" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to equip as visual cosmetic · drag to move anywhere · right-click for actions"))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
+        } else {
+          grid += `<div class="gcell blank" data-slot-idx="${i}" data-is-cash="1" title="Empty cash slot ${i + 1} (drop items here)"></div>`;
+        }
+      }
     } else {
       for (let i = 0; i < 32; i++) grid += `<div class="gcell blank"></div>`;
     }
@@ -1923,6 +2437,7 @@ export class ExtWindows {
         <div class="inv-sub-actions">
           <button type="button" class="inv-pill-btn cyan" data-act="sort"><span class="inv-ico">${lucideIcon("sort", 12)}</span> Sort</button>
           <button type="button" class="inv-pill-btn slate" data-act="lock"><span class="inv-ico">${lucideIcon("lock", 12)}</span> Lock</button>
+          <button type="button" class="inv-pill-btn red" data-act="drop-mode" title="Drag item outside window or right-click to drop on ground"><span class="inv-ico">${lucideIcon("trash", 12)}</span> Drop Item</button>
         </div>
         <button type="button" class="inv-plus-slot" title="Infinite Bag Storage Enabled">∞ SLOTS</button>
       </div>
@@ -1967,6 +2482,65 @@ export class ExtWindows {
     for (const c of body.querySelectorAll<HTMLElement>("[data-use]")) {
       const id = Number(c.dataset.use);
       this.w.draggable(c, () => ({ t: "item", id }), undefined, () => g.useAction({ t: "item", id }));
+    }
+
+    this.setupInventoryDrag(body);
+  }
+
+  private setupInventoryDrag(body: HTMLElement) {
+    const g = this.w.game;
+    const isCashTab = this.invTab.cur === "cash" || this.invTab.cur === "dec";
+    const cells = body.querySelectorAll<HTMLElement>(".gcell[data-slot-idx]");
+    for (const cell of cells) {
+      const fromSlot = Number(cell.dataset.slotIdx);
+      const uid = cell.dataset.uid;
+      const isCash = cell.dataset.isCash === "1" || isCashTab;
+      if (uid) {
+        cell.draggable = true;
+        cell.addEventListener("dragstart", (e) => {
+          e.dataTransfer?.setData("text/plain", JSON.stringify({ type: "bag-slot", fromSlot, uid, isCash }));
+        });
+      }
+      cell.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        cell.classList.add("drag-over");
+      });
+      cell.addEventListener("dragleave", () => {
+        cell.classList.remove("drag-over");
+      });
+      cell.addEventListener("drop", (e) => {
+        e.preventDefault();
+        cell.classList.remove("drag-over");
+        try {
+          const raw = e.dataTransfer?.getData("text/plain");
+          if (!raw) return;
+          const data = JSON.parse(raw);
+          if (data.type === "bag-slot") {
+            const toSlot = Number(cell.dataset.slotIdx);
+            g.moveBagSlot(data.fromSlot, toSlot, Boolean(data.isCash ?? isCash));
+            this.renderInv();
+          }
+        } catch {}
+      });
+    }
+
+    // Support dropping outside the inventory window onto the game canvas to drop onto ground
+    const canvas = document.getElementById("game");
+    if (canvas && !(canvas as any)._dropListenerInstalled) {
+      (canvas as any)._dropListenerInstalled = true;
+      canvas.addEventListener("dragover", (e) => e.preventDefault());
+      canvas.addEventListener("drop", (e) => {
+        e.preventDefault();
+        try {
+          const raw = e.dataTransfer?.getData("text/plain");
+          if (!raw) return;
+          const data = JSON.parse(raw);
+          if (data.type === "bag-slot" && data.uid) {
+            g.dropGear(data.uid);
+            this.renderInv();
+          }
+        } catch {}
+      });
     }
   }
 

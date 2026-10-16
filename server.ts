@@ -26,7 +26,7 @@ import {
   type WzProperty,
 } from "./wz/properties.ts";
 import { WzImage } from "./wz/wzfile.ts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve as pathResolve } from "node:path";
 const ROOT = import.meta.dir;
 function readPort(): number {
@@ -271,12 +271,29 @@ function mapData(s: SpriteStore, id: number) {
       }
       if (!bimg) continue;
       const broot = bimg.parse();
-      const node = broot.get("back")?.get(String(no)) ?? broot.get("ani")?.get(String(no)) ?? broot.get(String(no));
+      const node = broot.get("ani")?.get(String(no)) ?? broot.get("back")?.get(String(no)) ?? broot.get(String(no));
+      if (!node) continue;
+
+      let frames: any[] = [];
+      if (node instanceof WzSubProperty && !(node instanceof WzCanvasProperty)) {
+        const frameKeys = node.children().filter((fr) => /^\d+$/.test(fr.name)).sort((a, b) => Number(a.name) - Number(b.name));
+        if (frameKeys.length > 1) {
+          const isAni = Boolean(broot.get("ani")?.get(String(no)));
+          for (const fr of frameKeys) {
+            const fc = resolveCanvas(fr, (cat, img) => s.image(cat, img));
+            if (fc instanceof WzCanvasProperty) {
+              frames.push(spriteOf(`/wz/sprite/Map/${file}/${isAni ? "ani" : "back"}/${no}/${fr.name}`, fc, s));
+            }
+          }
+        }
+      }
+
       const targetNode = node instanceof WzSubProperty && !(node instanceof WzCanvasProperty) ? (node.get("0") ?? node) : node;
       const c = resolveCanvas(targetNode ?? null, (cat, img) => s.image(cat, img));
       if (!(c instanceof WzCanvasProperty)) continue;
       backs.push({
         sprite: spriteOf(`/wz/map/${id}/back/${file}/${no}`, c, s),
+        frames: frames.length > 1 ? frames : undefined,
         x: n("x"),
         y: n("y"),
         rx: n("rx"),
@@ -290,6 +307,70 @@ function mapData(s: SpriteStore, id: number) {
       });
     }
   }
+
+  // Extract animated map objects (e.g. Free Market animated portal doors, waterfalls, fountains, flowing water)
+  const aniObjs: any[] = [];
+  const objImages = new Map<string, WzSubProperty | null>();
+  const getObjImg = (oS: string) => {
+    if (objImages.has(oS)) return objImages.get(oS)!;
+    for (const mf of s.files("Map")) {
+      const od = mf.root.subdirs.get("Obj");
+      if (od?.images.has(`${oS}.img`)) {
+        const parsed = od.images.get(`${oS}.img`)!.parse();
+        objImages.set(oS, parsed);
+        return parsed;
+      }
+    }
+    objImages.set(oS, null);
+    return null;
+  };
+
+  for (let l = 0; l <= 7; l++) {
+    const layer = root.get(String(l));
+    if (!layer) continue;
+    const obj = layer.get("obj");
+    if (obj instanceof WzSubProperty) {
+      for (const oc of obj.children()) {
+        const g = oc as WzSubProperty;
+        const oS = String((g.child("oS") as any)?.value ?? "");
+        const l0 = String((g.child("l0") as any)?.value ?? "");
+        const l1 = String((g.child("l1") as any)?.value ?? "");
+        const l2 = String((g.child("l2") as any)?.value ?? "");
+        const x = Number((g.child("x") as any)?.value ?? 0);
+        const y = Number((g.child("y") as any)?.value ?? 0);
+        const z = Number((g.child("z") as any)?.value ?? 0);
+        const f = Boolean((g.child("f") as any)?.value);
+        const oroot = getObjImg(oS);
+        if (!oroot) continue;
+        const target = oroot.get(l0)?.get(l1)?.get(l2);
+        if (target instanceof WzSubProperty && !(target instanceof WzCanvasProperty)) {
+          const numChildren = target.children()
+            .filter((c) => /^\d+$/.test(c.name))
+            .sort((a, b) => Number(a.name) - Number(b.name));
+          if (numChildren.length > 1) {
+            const frames: any[] = [];
+            for (const fc of numChildren) {
+              const c = resolveCanvas(fc, (cat, img) => s.image(cat, img));
+              if (c instanceof WzCanvasProperty) {
+                frames.push(spriteOf(`/wz/sprite/Map/${oS}/${l0}/${l1}/${l2}/${fc.name}`, c, s));
+              }
+            }
+            if (frames.length > 1) {
+              aniObjs.push({
+                x,
+                y,
+                z,
+                layer: l,
+                f,
+                frames,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+  aniObjs.sort((a, b) => (a.layer === b.layer ? a.z - b.z : a.layer - b.layer));
   const bounds = mapBounds(m, id);
   const renderOrigin = { x: bounds.ox, y: bounds.oy };
   const mini = root.child("miniMap") as WzSubProperty | null;
@@ -318,9 +399,19 @@ function mapData(s: SpriteStore, id: number) {
       .portals(id)
       .map((p) => ({ x: p.x, y: p.y, to: p.to, side: p.side })),
     backs,
+    aniObjs,
   };
 }
+let cachedFxData: any = null;
 function fxData(s: SpriteStore) {
+  if (cachedFxData) return cachedFxData;
+  const cachePath = join(ROOT, ".cache", "fx.json");
+  if (existsSync(cachePath)) {
+    try {
+      cachedFxData = JSON.parse(readFileSync(cachePath, "utf8"));
+      return cachedFxData;
+    } catch {}
+  }
   const pick = (cat: string, imgName: string, path: string): any => {
     const found = s.image(cat, imgName);
     if (!found) return null;
@@ -376,7 +467,7 @@ function fxData(s: SpriteStore) {
     }
     if (meso.length) break;
   }
-  return {
+  cachedFxData = {
     dmg: digits("NoRed1"),
     dmgFirst: digits("NoRed0"),
     hurt: digits("NoViolet1"),
@@ -386,8 +477,18 @@ function fxData(s: SpriteStore) {
     portal,
     meso: meso.length ? meso : Array.from({ length: 10 }, (_, i) => pick("Effect", "BasicEff", `NoBlue1/${i}`)).filter(Boolean),
   };
+  return cachedFxData;
 }
+let cachedUiData: any = null;
 function uiData(s: SpriteStore) {
+  if (cachedUiData) return cachedUiData;
+  const cachePath = join(ROOT, ".cache", "ui.json");
+  if (existsSync(cachePath)) {
+    try {
+      cachedUiData = JSON.parse(readFileSync(cachePath, "utf8"));
+      return cachedUiData;
+    } catch {}
+  }
   const pick = (imgName: string, path: string) => {
     const found = s.image("UI", imgName);
     if (!found) return null;
@@ -419,7 +520,7 @@ function uiData(s: SpriteStore) {
     }
     if (Object.keys(states).length) menu[btn] = states;
   }
-  return {
+  cachedUiData = {
     expCover: pick("StatusBar3", "mainBar/EXPBar/1920/layer:cover"),
     expGauge: pick("StatusBar3", "mainBar/EXPBar/1920/layer:gauge"),
     expBack: pick("StatusBar3", "mainBar/EXPBar/1920/layer:back"),
@@ -442,8 +543,19 @@ function uiData(s: SpriteStore) {
       disabled: pick("Basic", "BtClose3/disabled/0"),
     },
   };
+  return cachedUiData;
 }
+
+let cachedWindowsData: any = null;
 function windowsData(s: SpriteStore) {
+  if (cachedWindowsData) return cachedWindowsData;
+  const cachePath = join(ROOT, ".cache", "windows.json");
+  if (existsSync(cachePath)) {
+    try {
+      cachedWindowsData = JSON.parse(readFileSync(cachePath, "utf8"));
+      return cachedWindowsData;
+    } catch {}
+  }
   const pick = (imgName: string, path: string) => {
     const found = s.image("UI", imgName);
     if (!found) return null;
@@ -509,8 +621,18 @@ function windowsData(s: SpriteStore) {
     chatView: nine("StatusBar3", "chat/ingame/view/backgrnd"),
     chatInput: nine("StatusBar3", "chat/ingame/input/backgrnd"),
   };
+  return cachedWindowsData;
 }
+let cachedItemsData: any = null;
 function itemsData(s: SpriteStore) {
+  if (cachedItemsData) return cachedItemsData;
+  const cachePath = join(ROOT, ".cache", "items.json");
+  if (existsSync(cachePath)) {
+    try {
+      cachedItemsData = JSON.parse(readFileSync(cachePath, "utf8"));
+      return cachedItemsData;
+    } catch {}
+  }
   const gear: any[] = [];
   const mats: { id: number; name: string }[] = [];
   const strings = s.files("String")[0];
@@ -606,6 +728,8 @@ function itemsData(s: SpriteStore) {
           if (i instanceof WzSubProperty) info = i;
         } catch {
           continue;
+        } finally {
+          img.root = null;
         }
         if (!info) continue;
         const v = (k: string) => (info.child(k) as any)?.value ?? 0;
@@ -661,14 +785,25 @@ function itemsData(s: SpriteStore) {
           }
           mats.push({ id, name: name || String(id) });
         }
+        img.root = null;
       }
     }
   }
-  return { gear, mats };
+  cachedItemsData = { gear, mats };
+  return cachedItemsData;
 }
-/** * Skill data for the client's skill browser. * * Shape matches what game.ts expects from the old skills.json: *   Record<skillId, { id, name, desc, icon, iconMouseOver, iconDisabled, effect, effect0, hit }> * Icons come from Skill.wz/<job>.img/skill/<id>/icon*; effect/hit frames from * the same entry's effect/hit subproperties. */ function skillsData(
+let cachedSkillsData: any = null;
+function skillsData(
   s: SpriteStore,
 ) {
+  if (cachedSkillsData) return cachedSkillsData;
+  const cachePath = join(ROOT, ".cache", "skills.json");
+  if (existsSync(cachePath)) {
+    try {
+      cachedSkillsData = JSON.parse(readFileSync(cachePath, "utf8"));
+      return cachedSkillsData;
+    } catch {}
+  }
   const out: Record<string, any> = {};
   const strings = s.files("String")[0];
   let skillStrings: WzSubProperty | null = null;
@@ -685,7 +820,10 @@ function itemsData(s: SpriteStore) {
         continue;
       }
       const skill = root.child("skill");
-      if (!(skill instanceof WzSubProperty)) continue;
+      if (!(skill instanceof WzSubProperty)) {
+        img.root = null;
+        continue;
+      }
       for (const entry of skill.children()) {
         if (!(entry instanceof WzSubProperty)) continue;
         const id = entry.name;
@@ -791,12 +929,14 @@ function itemsData(s: SpriteStore) {
           ball: frames(ballNode, "ball"),
         };
       }
+      img.root = null;
     }
   }
   if (out["0001000"]?.ball?.[0]) {
     out.snailShell = out["0001000"].ball[0];
   }
-  return out;
+  cachedSkillsData = out;
+  return cachedSkillsData;
 }
 // ── targeted lookups ──────────────────────────────────────────────────
 /** * Icon/metadata for an item id. * * Equips (weapons, armor, accessories — id prefix 1xx) live in Character.wz * under their category subdir; consumables/etcs live in Item.wz under a * numbered group img. Search both, cheapest first. */ function findItemField(
@@ -990,22 +1130,25 @@ function generateHoverAura(frame: number): Buffer {
 }
 
 function findEffTarget(s: SpriteStore, id: number): { node: WzSubProperty; img: any; isCharEff?: boolean } | null {
+  // Wizet Plain Suit (1042003) and Pants (1062007) must NOT grant GM effect; strictly reserved for Wizet Invincible Hat
+  if (id === 1042003 || id === 1062007) return null;
+  const lookupId = id === 1003142 ? 1002140 : id;
   // 1. ItemEff.img
   for (const f of s.files("Effect")) {
     const img = f.root.images.get("ItemEff.img");
     if (!img) continue;
-    const node = img.parse().child(String(id))?.child("effect");
+    const node = img.parse().child(String(lookupId))?.child("effect");
     if (node instanceof WzSubProperty) return { node, img };
   }
   // 2. CharacterEff.img
   for (const f of s.files("Effect")) {
     const img = f.root.images.get("CharacterEff.img");
     if (!img) continue;
-    const node = img.parse().child(String(id));
+    const node = img.parse().child(String(lookupId));
     if (node instanceof WzSubProperty) return { node, img, isCharEff: true };
   }
   // 3. Character.wz info/effect/path or root effect
-  const pad = "0" + id + ".img";
+  const pad = "0" + lookupId + ".img";
   for (const f of s.files("Character")) {
     for (const [, dir] of f.root.subdirs) {
       const charImg = dir.images.get(pad);
@@ -1219,6 +1362,128 @@ function shadowPartnerPng(s: SpriteStore, act: string, fr: string): Buffer | nul
   return null;
 }
 
+function findPetImage(s: SpriteStore, id: number): { img: WzImage; root: WzSubProperty } | null {
+  const sid = `${id}.img`;
+  for (const f of s.files("Item")) {
+    const petDir = f.root.subdirs.get("Pet");
+    const img = petDir?.images.get(sid) ?? f.root.images.get(sid);
+    if (img) {
+      return { img, root: img.parse() };
+    }
+  }
+  return null;
+}
+
+let cachedPetNames: Map<number, string> | null = null;
+function getPetName(s: SpriteStore, id: number): string {
+  if (!cachedPetNames) {
+    cachedPetNames = new Map();
+    for (const f of s.files("String")) {
+      const pet = f.root.images.get("Pet.img")?.parse();
+      if (pet) {
+        for (const child of pet.children()) {
+          const numId = Number(child.name);
+          if (numId > 0) {
+            const nameVal = (child.child("name") as any)?.value;
+            if (nameVal) cachedPetNames.set(numId, String(nameVal));
+          }
+        }
+      }
+    }
+  }
+  return cachedPetNames.get(id) ?? `Pet ${id}`;
+}
+
+const ICONIC_PET_IDS = [
+  5000000, // Brown Kitty
+  5000001, // Brown Puppy
+  5000002, // Pink Bunny
+  5000003, // Mini Kargo
+  5000004, // Black Kitty
+  5000005, // White Bunny
+  5000006, // Husky
+  5000008, // Panda
+  5000020, // Mini Yeti
+  5000029, // Rudolph
+  5000047, // Jr. Balrog
+  5000054, // Baby Dragon
+];
+
+function petList(s: SpriteStore) {
+  return ICONIC_PET_IDS.map((id) => ({
+    id,
+    name: getPetName(s, id),
+    icon: `/wz/pet-icon/${id}`,
+  }));
+}
+
+function petData(s: SpriteStore, id: number): any {
+  const found = findPetImage(s, id);
+  if (!found) return null;
+  const { root } = found;
+  const name = getPetName(s, id);
+  const actions: Record<string, any[]> = {};
+  for (const act of root.children()) {
+    if (!(act instanceof WzSubProperty)) continue;
+    if (act.name === "info" || act.name === "interact" || act.name === "food" || act.name === "slang") continue;
+    const frames: any[] = [];
+    const sorted = act.children()
+      .filter((c) => /^\d+$/.test(c.name))
+      .sort((a, b) => Number(a.name) - Number(b.name));
+    for (const fr of sorted) {
+      const raw = resolveUol(fr);
+      const c = resolveCanvas(raw, (cat, im) => s.image(cat, im));
+      if (c instanceof WzCanvasProperty) {
+        const orig = c.child("origin");
+        const ox = orig instanceof WzVectorProperty ? orig.x : Math.round(c.width / 2);
+        const oy = orig instanceof WzVectorProperty ? orig.y : c.height;
+        frames.push({
+          url: `/wz/pet/${id}/${act.name}/${fr.name}`,
+          w: c.width,
+          h: c.height,
+          ox,
+          oy,
+          delay: Number((c.child("delay") as any)?.value) || 120,
+        });
+      }
+    }
+    if (frames.length) actions[act.name] = frames;
+  }
+  return {
+    id,
+    name,
+    icon: `/wz/pet-icon/${id}`,
+    actions,
+  };
+}
+
+function petFramePng(s: SpriteStore, id: number, act: string, fr: string): Buffer | null {
+  const found = findPetImage(s, id);
+  if (!found) return null;
+  let actProp: any = found.root.child(act);
+  if (actProp instanceof WzUolProperty) actProp = resolveUol(actProp);
+  const frProp = resolveUol(actProp?.child(fr));
+  const c = resolveCanvas(frProp, (cat, im) => s.image(cat, im));
+  if (c instanceof WzCanvasProperty) {
+    const key = c.image?.file?.reader?.key ?? found.img.file.reader.key;
+    return canvasToPng(c, key);
+  }
+  return null;
+}
+
+function petIconPng(s: SpriteStore, id: number): Buffer | null {
+  const found = findPetImage(s, id);
+  if (!found) return null;
+  const info = found.root.child("info");
+  const iconRaw = info?.child("icon") ?? info?.child("iconRaw") ?? found.root.child("stand0")?.child("0");
+  const c = resolveCanvas(resolveUol(iconRaw ?? null), (cat, im) => s.image(cat, im));
+  if (c instanceof WzCanvasProperty) {
+    const key = c.image?.file?.reader?.key ?? found.img.file.reader.key;
+    return canvasToPng(c, key);
+  }
+  return null;
+}
+
 /** Map terrain & objects rendered onto a transparent canvas (no debug lines). */
 function renderMapFrameBuffer(
   m: MapStore,
@@ -1319,6 +1584,12 @@ function renderMapFrameBuffer(
         const oroot = getObjImg(String(oS));
         if (oroot) {
           const target = oroot.get(String(l0))?.get(String(l1))?.get(String(l2));
+          if (target instanceof WzSubProperty && !(target instanceof WzCanvasProperty)) {
+            const hasMultipleFrames = target.child("0") && target.child("1");
+            if (hasMultipleFrames) {
+              continue; // Animated map object: rendered dynamically in client
+            }
+          }
           const c = target instanceof WzSubProperty && !(target instanceof WzCanvasProperty) ? (target.get("0") ?? target) : target;
           const real = resolveCanvas(c ?? null, (cat, img) => s.image(cat, img));
           if (real instanceof WzCanvasProperty && real.width > 2 && real.height > 2) {
@@ -1469,7 +1740,13 @@ function renderMinimapPng(
   if (!rmb) return null;
   const down = downsampleRgba(rmb.fb.data, rmb.w, rmb.h, targetW, targetH);
   const png = encodePng(down, targetW, targetH);
-  if (png) minimapPngCache.set(id, png);
+  if (png) {
+    if (minimapPngCache.size >= 100) {
+      const firstKey = minimapPngCache.keys().next().value;
+      if (firstKey !== undefined) minimapPngCache.delete(firstKey);
+    }
+    minimapPngCache.set(id, png);
+  }
   return png;
 }
 interface PlayerSession {
@@ -1866,6 +2143,28 @@ const server = Bun.serve<{ id: string }>({
       const png = shadowPartnerPng(s, req.params.act, req.params.fr);
       return pngResponse(png, `shadow-partner ${req.params.act}/${req.params.fr}`);
     }),
+    "/wz/data/pets/list": guard(() => {
+      const s = getStore();
+      return s ? jsonNoStore(petList(s)) : noClient();
+    }),
+    "/wz/data/pet/:id": guard((req) => {
+      const s = getStore();
+      if (!s) return noClient();
+      const d = petData(s, Number(req.params.id));
+      return d ? jsonNoStore(d) : Response.json({ error: "pet not found" }, { status: 404 });
+    }),
+    "/wz/pet/:id/:act/:fr": guard((req) => {
+      const s = getStore();
+      if (!s) return noClient();
+      const png = petFramePng(s, Number(req.params.id), req.params.act, req.params.fr);
+      return pngResponse(png, `pet ${req.params.id}/${req.params.act}/${req.params.fr}`);
+    }),
+    "/wz/pet-icon/:id": guard((req) => {
+      const s = getStore();
+      if (!s) return noClient();
+      const png = petIconPng(s, Number(req.params.id));
+      return pngResponse(png, `pet-icon ${req.params.id}`);
+    }),
     "/api/spacetimedb/status": async () => {
       const spacetimeUrl = await getSpacetimeUrl();
       let alive = false;
@@ -1881,6 +2180,88 @@ const server = Bun.serve<{ id: string }>({
         onlinePlayers: wsPlayers.size,
         activeMaps: new Set([...wsPlayers.values()].map((p) => p.mapId)).size,
       });
+    },
+    "/api/gm/players": async () => {
+      const playerList = [...wsPlayers.entries()].map(([_, p]) => ({
+        id: p.id,
+        name: p.name,
+        mapId: p.mapId,
+        x: p.x,
+        y: p.y,
+        anim: p.anim,
+        frame: p.frame,
+        face: p.face,
+        look: p.look,
+      }));
+      return Response.json({
+        ok: true,
+        onlineCount: wsPlayers.size,
+        activeMaps: new Set([...wsPlayers.values()].map((p) => p.mapId)).size,
+        players: playerList,
+      });
+    },
+    "/api/gm/action": async (req: any) => {
+      try {
+        const body = await req.json();
+        const action = body.action;
+        const targetId = body.targetId;
+        const targetName = (body.targetName || "").toLowerCase().trim();
+
+        if (action === "notice") {
+          const text = String(body.text || "").slice(0, 150);
+          const noticeMsg = JSON.stringify({ t: "chat", kind: "notice", text: `[GM Notice] ${text}` });
+          for (const [c] of wsPlayers) {
+            try { c.send(noticeMsg); } catch {}
+          }
+          return Response.json({ ok: true });
+        }
+
+        let targetWs: any = null;
+        let targetSession: PlayerSession | null = null;
+        for (const [ws, session] of wsPlayers) {
+          if ((targetId && session.id === targetId) || (targetName && session.name.toLowerCase().trim() === targetName)) {
+            targetWs = ws;
+            targetSession = session;
+            break;
+          }
+        }
+
+        if (!targetWs || !targetSession) {
+          return Response.json({ ok: false, error: "Target player not found or offline" }, { status: 404 });
+        }
+
+        if (action === "kick") {
+          try {
+            targetWs.send(JSON.stringify({ t: "chat", kind: "notice", text: "[GM] You have been disconnected by a GameMaster." }));
+            targetWs.close(1000, "Kicked by GM");
+          } catch {}
+          wsPlayers.delete(targetWs);
+          return Response.json({ ok: true });
+        } else if (action === "summon") {
+          const mapId = Number(body.mapId || 910000000);
+          const x = Number(body.x || 0);
+          const y = Number(body.y || 0);
+          try {
+            targetWs.send(JSON.stringify({ t: "force_warp", mapId, x, y, reason: "Summoned to GameMaster location" }));
+          } catch {}
+          return Response.json({ ok: true });
+        } else if (action === "heal") {
+          try {
+            targetWs.send(JSON.stringify({ t: "gm_heal", reason: "GM Blessing" }));
+          } catch {}
+          return Response.json({ ok: true });
+        } else if (action === "meso") {
+          const amount = Number(body.amount || 1000000);
+          try {
+            targetWs.send(JSON.stringify({ t: "gm_meso", amount }));
+          } catch {}
+          return Response.json({ ok: true });
+        }
+
+        return Response.json({ ok: false, error: "Unknown GM action" }, { status: 400 });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Action failed" }, { status: 500 });
+      }
     },
     "/api/auth/register": async (req: any) => {
       try {
@@ -2020,7 +2401,40 @@ const server = Bun.serve<{ id: string }>({
           if (existing.length > 0) {
             return Response.json({ ok: false, error: "Character name already taken" }, { status: 409 });
           }
-          await spacetimeSql(`UPDATE character SET name = '${newName}' WHERE name = '${oldName}';`);
+          const rows = await spacetimeSql(`SELECT username, class_id, gender, level, exp, hp, max_hp, mp, max_mp, meso, map_id, x, y, look, stats, inventory, equipment, skills FROM character WHERE name = '${oldName}';`);
+          if (rows.length > 0) {
+            const [
+              username, classId, gender, level, exp, hp, maxHp, mp, maxMp, meso, mapId, x, y, look, stats, inventory, equipment, skills
+            ] = rows[0];
+            await spacetimeCall("create_char", [
+              username,
+              newName,
+              classId,
+              gender,
+              look || "[]",
+              stats || "{}",
+              equipment || "{}"
+            ]);
+            await spacetimeCall("save_char", [
+              newName,
+              Number(level || 1),
+              Number(exp || 0),
+              Number(hp || 50),
+              Number(maxHp || 50),
+              Number(mp || 20),
+              Number(maxMp || 20),
+              Number(meso || 0),
+              Number(mapId || 910000000),
+              Number(x || 0),
+              Number(y || 0),
+              look || "[]",
+              stats || "{}",
+              inventory || "[]",
+              equipment || "{}",
+              skills || "{}"
+            ]);
+            await spacetimeCall("delete_char", [oldName]);
+          }
         }
         return Response.json({ ok: true, name: newName });
       } catch (e: any) {

@@ -12,6 +12,7 @@ import {
   charUrlFor,
 } from "../game-types.ts";
 import { itemIconRaw } from "../skills.ts";
+import { PetSystem } from "./pet-system.ts";
 
 const textTexCache = new Map<string, Tex>();
 const textTexPending = new Set<string>();
@@ -166,6 +167,9 @@ export class WorldRenderer {
     const mt = game.assets.get(game.map.render);
     if (mt) r.draw(mt, -game.map.renderOrigin.x - cx, -game.map.renderOrigin.y - cy);
 
+    // Background Animated Objects (waterfalls, Free Market portal, crystals, nature)
+    WorldRenderer.drawAniObjs(game, false, cx, cy);
+
     // Portals
     const pf: Sprite[] = game.fxData?.portal;
     if (pf?.length && game.portals.length) {
@@ -193,6 +197,7 @@ export class WorldRenderer {
       }
       if (tex && fr) {
         for (const pt of game.portals) {
+          if (pt.custom) continue;
           r.draw(tex, Math.round(pt.x - fr.ox - cx), Math.round(pt.y - fr.oy - cy), fr.w, fr.h);
         }
       }
@@ -244,6 +249,9 @@ export class WorldRenderer {
       WorldRenderer.drawRemotePlayer(game, rp, cx, cy);
     }
 
+    // Active Pets
+    WorldRenderer.drawPets(game, cx, cy);
+
     // Main Player
     WorldRenderer.drawPlayer(game, cx, cy);
 
@@ -289,11 +297,44 @@ export class WorldRenderer {
     for (const m of game.mobs) WorldRenderer.drawMobHp(game, m, cx, cy);
     for (const d of game.dmg) WorldRenderer.drawDamage(game, d, cx, cy);
 
+    // Foreground Animated Objects (layer >= 7)
+    WorldRenderer.drawAniObjs(game, true, cx, cy);
+
     // Foregrounds & screen fades
     WorldRenderer.drawBacks(game, true, cx, cy);
     if (game.fade > 0) r.rect(0, 0, r.width, r.height, [0, 0, 0, game.fade]);
     if (game.loadingMap) r.rect(0, 0, r.width, r.height, [0, 0, 0, 1]);
     r.end();
+  }
+
+  public static drawAniObjs(game: Game, front: boolean, cx: number, cy: number) {
+    if (!game.map?.aniObjs?.length) return;
+    const r = game.r;
+    for (const obj of game.map.aniObjs) {
+      const isFront = obj.layer >= 7;
+      if (isFront !== front) continue;
+      if (!obj.frames || obj.frames.length === 0) continue;
+      const total = obj.frames.reduce((sum, f) => sum + (f.delay ?? 100), 0) || 100;
+      let tRem = (game.time * 1000) % total;
+      let fr = obj.frames[obj.frames.length - 1];
+      for (const f of obj.frames) {
+        const d = f.delay ?? 100;
+        if (tRem < d) {
+          fr = f;
+          break;
+        }
+        tRem -= d;
+      }
+      if (!fr || fr.w <= 1 || fr.h <= 1) continue; // Skip blank strobe frames
+      const tex = game.assets.get(fr.url);
+      if (!tex) {
+        game.assets.load(fr.url);
+        continue;
+      }
+      const drawX = obj.f ? obj.x - (fr.w - fr.ox) - cx : obj.x - fr.ox - cx;
+      const drawY = obj.y - fr.oy - cy;
+      r.draw(tex, Math.round(drawX), Math.round(drawY), fr.w, fr.h, { flip: obj.f });
+    }
   }
 
   public static drawBacks(game: Game, front: boolean, cx: number, cy: number) {
@@ -303,8 +344,25 @@ export class WorldRenderer {
     const camCenterY = cy + HO;
     for (const b of game.map.backs) {
       if (b.front !== front) continue;
-      const s = b.sprite, t = game.assets.get(s.url);
-      if (!t) continue;
+      let s = b.sprite;
+      if (b.frames && b.frames.length > 0) {
+        const total = b.frames.reduce((n, f) => n + (f.delay ?? 100), 0) || 100;
+        let tRem = (game.time * 1000) % total;
+        s = b.frames[b.frames.length - 1];
+        for (const fr of b.frames) {
+          const d = fr.delay ?? 100;
+          if (tRem < d) {
+            s = fr;
+            break;
+          }
+          tRem -= d;
+        }
+      }
+      const t = game.assets.get(s.url);
+      if (!t) {
+        game.assets.load(s.url);
+        continue;
+      }
       const cxx = b.cx || s.w, cyy = b.cy || s.h;
       const hmove = b.type === 4 || b.type === 6, vmove = b.type === 5 || b.type === 7;
       const htile = [1, 3, 4, 6, 7].includes(b.type), vtile = [2, 3, 5, 6, 7].includes(b.type);
@@ -603,6 +661,35 @@ export class WorldRenderer {
     const x = f.follow ? game.p.x : f.x, y = f.follow ? game.p.y : f.y;
     const left = f.flip ? x - (fr.w - fr.ox) : x - fr.ox;
     game.r.draw(tex, Math.round(left - cx), Math.round(y - fr.oy - cy), fr.w, fr.h, { flip: f.flip });
+  }
+
+  public static drawPets(game: Game, cx: number, cy: number) {
+    if (!game.pets?.length) return;
+    const r = game.r;
+    for (const pet of game.pets) {
+      const data = PetSystem.getPetData(pet.id);
+      const actionFrames = data?.actions[pet.state] ?? data?.actions.stand0 ?? (data ? Object.values(data.actions)[0] : undefined);
+      if (!actionFrames?.length) {
+        PetSystem.loadPetData(pet.id);
+        continue;
+      }
+      const fr = actionFrames[pet.frame % actionFrames.length];
+      if (!fr) continue;
+      let tex = game.assets.get(fr.url);
+      if (!tex) {
+        game.assets.load(fr.url);
+        if (pet.lastTex) tex = pet.lastTex;
+      }
+      if (tex) {
+        pet.lastTex = tex;
+        pet.lastFr = fr;
+        const flip = pet.dir === 1;
+        const left = flip ? pet.x - (fr.w - fr.ox) : pet.x - fr.ox;
+        const top = pet.y - fr.oy;
+        r.draw(tex, Math.round(left - cx), Math.round(top - cy), fr.w, fr.h, { flip });
+        WorldRenderer.drawNameTag(r, pet.name, Math.round(pet.x), Math.round(pet.y + 2), cx, cy);
+      }
+    }
   }
 
   public static drawDamage(game: Game, d: DmgText, cx: number, cy: number) {

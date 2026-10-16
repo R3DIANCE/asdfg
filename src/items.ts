@@ -28,7 +28,7 @@ export const slotCategory = (s: Slot) => SLOT_CATEGORY[s] ?? (s as string);
 export interface GearBase { id: number; name: string; slot: string; req: number; watk: number; str: number; dex: number; int: number; luk: number; hp: number; def: number; price: number; cosmetic?: boolean; cash?: boolean }
 
 export interface Potential { stat: "att" | "str" | "dex" | "int" | "luk" | "hp" | "boss" | "meso" | "drop" | "exp"; pct: number }
-export interface Gear { uid: string; id: number; rarity: number; star: number; pot: Potential[] }
+export interface Gear { uid: string; id: number; rarity: number; star: number; pot: Potential[]; slot?: number }
 
 export const RARITY = ["Normal", "Rare", "Epic", "Unique", "Legendary"];
 export const RARITY_COLOR = ["#ffffff", "#66d9ff", "#c77dff", "#ffcc33", "#5cff7a"];
@@ -45,104 +45,120 @@ const STARTER: GearBase[] = [
 ];
 
 export const COSMETICS: GearBase[] = [
-  // Transparent cosmetics
-  { id: 1002140, name: "Transparent Hat", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true },
-  { id: 1042003, name: "Transparent Top", slot: "top", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true },
-  { id: 1062007, name: "Transparent Bottom", slot: "bottom", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true },
-  { id: 1072153, name: "Transparent Shoes", slot: "shoes", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true },
-  { id: 1082149, name: "Transparent Gloves", slot: "gloves", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true },
-  { id: 1102039, name: "Transparent Cape", slot: "cape", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true },
+  // Transparent & Special cosmetics (Strictly pure cosmetics with no combat bonus stats)
+  { id: 1002140, name: "Wizet Invincible Hat", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 999999, cosmetic: true, cash: true },
+  { id: 1003142, name: "Wizet Invincible Hat", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 999999, cosmetic: true, cash: true },
+  { id: 1002186, name: "Transparent Hat", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true, cash: true },
+  { id: 1042003, name: "Wizet Plain Suit", slot: "top", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true, cash: true },
+  { id: 1062007, name: "Wizet Plain Suit Pants", slot: "bottom", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true, cash: true },
+  { id: 1060115, name: "Transparent Bottom", slot: "bottom", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true, cash: true },
+  { id: 1072153, name: "Transparent Shoes", slot: "shoes", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true, cash: true },
+  { id: 1082149, name: "Transparent Gloves", slot: "gloves", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true, cash: true },
+  { id: 1102039, name: "Transparent Cape", slot: "cape", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true, cash: true },
   
-  // Hats & Bandanas & Ears
-  { id: 1002008, name: "Green Bandana", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 10, def: 3, price: 500, cosmetic: true },
-  { id: 1002057, name: "White Bandana", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 1, luk: 1, hp: 10, def: 4, price: 500, cosmetic: true },
-  { id: 1002058, name: "Black Bandana", slot: "hat", req: 0, watk: 0, str: 2, dex: 2, int: 2, luk: 2, hp: 15, def: 5, price: 800, cosmetic: true },
-  { id: 1002064, name: "Red Bandana", slot: "hat", req: 0, watk: 0, str: 2, dex: 0, int: 0, luk: 0, hp: 10, def: 3, price: 500, cosmetic: true },
-  { id: 1002186, name: "Red Beret", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 1, luk: 1, hp: 20, def: 8, price: 1200, cosmetic: true },
-  { id: 1002274, name: "Chief Stan Hat", slot: "hat", req: 0, watk: 0, str: 3, dex: 3, int: 0, luk: 0, hp: 30, def: 12, price: 2000, cosmetic: true },
-  { id: 1003112, name: "Chaos Zakum Helmet", slot: "hat", req: 100, watk: 25, str: 21, dex: 21, int: 21, luk: 21, hp: 250, def: 180, price: 120000, cosmetic: true },
-  { id: 1004646, name: "Royal Azure Feather Turban", slot: "hat", req: 0, watk: 5, str: 5, dex: 5, int: 5, luk: 5, hp: 150, def: 30, price: 15000, cosmetic: true, cash: true },
-  { id: 1002798, name: "Fox Ears", slot: "hat", req: 0, watk: 0, str: 3, dex: 3, int: 3, luk: 3, hp: 45, def: 12, price: 3500, cosmetic: true },
-  { id: 1002419, name: "Angelic Halo", slot: "hat", req: 0, watk: 2, str: 4, dex: 4, int: 4, luk: 4, hp: 80, def: 15, price: 5000, cosmetic: true },
-  { id: 1002067, name: "Skull Cap", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 15, def: 5, price: 600, cosmetic: true },
-  { id: 1002175, name: "Cat Hat", slot: "hat", req: 0, watk: 0, str: 2, dex: 2, int: 2, luk: 2, hp: 35, def: 10, price: 2500, cosmetic: true },
-
-  // Tops & Casual
-  { id: 1040004, name: "Blue Sailor Shirt", slot: "top", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 10, def: 6, price: 400, cosmetic: true },
-  { id: 1040008, name: "Orange T-Shirt", slot: "top", req: 0, watk: 0, str: 1, dex: 0, int: 0, luk: 1, hp: 10, def: 5, price: 350, cosmetic: true },
-  { id: 1040014, name: "Striped T-Shirt", slot: "top", req: 0, watk: 0, str: 0, dex: 1, int: 1, luk: 0, hp: 10, def: 5, price: 350, cosmetic: true },
-  { id: 1040036, name: "Red Cross Shirt", slot: "top", req: 0, watk: 0, str: 2, dex: 1, int: 0, luk: 0, hp: 20, def: 8, price: 800, cosmetic: true },
-  { id: 1050018, name: "Bath Towel (M)", slot: "top", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 50, def: 10, price: 1500, cosmetic: true },
-  { id: 1050037, name: "Red Kimono", slot: "top", req: 0, watk: 1, str: 3, dex: 3, int: 0, luk: 0, hp: 40, def: 15, price: 2800, cosmetic: true },
-
-  // Bottoms
-  { id: 1060006, name: "Denim Jeans", slot: "bottom", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 10, def: 5, price: 400, cosmetic: true },
-  { id: 1060014, name: "Blue Jean Pants", slot: "bottom", req: 0, watk: 0, str: 1, dex: 0, int: 0, luk: 1, hp: 10, def: 5, price: 400, cosmetic: true },
-  { id: 1060026, name: "Camo Pants", slot: "bottom", req: 0, watk: 0, str: 2, dex: 1, int: 0, luk: 0, hp: 15, def: 8, price: 800, cosmetic: true },
-
-  // Shoes
-  { id: 1072005, name: "Red High Tops", slot: "shoes", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 10, def: 4, price: 500, cosmetic: true },
-  { id: 1072008, name: "Blue High Tops", slot: "shoes", req: 0, watk: 0, str: 0, dex: 2, int: 0, luk: 0, hp: 10, def: 4, price: 500, cosmetic: true },
-  { id: 1072037, name: "Yellow Snowshoes", slot: "shoes", req: 0, watk: 0, str: 1, dex: 2, int: 0, luk: 0, hp: 15, def: 6, price: 900, cosmetic: true },
-
-  // Gloves
-  { id: 1082002, name: "Work Gloves", slot: "gloves", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 2, price: 1000, cosmetic: true },
-  { id: 1082145, name: "Yellow Work Gloves", slot: "gloves", req: 0, watk: 1, str: 1, dex: 0, int: 0, luk: 0, hp: 0, def: 3, price: 2500, cosmetic: true },
-  { id: 1082146, name: "Red Work Gloves", slot: "gloves", req: 0, watk: 2, str: 2, dex: 0, int: 0, luk: 0, hp: 0, def: 4, price: 5000, cosmetic: true },
-  { id: 1082147, name: "Blue Work Gloves", slot: "gloves", req: 0, watk: 1, str: 0, dex: 2, int: 0, luk: 0, hp: 0, def: 3, price: 3000, cosmetic: true },
-
-  // Capes & Wings
-  { id: 1102041, name: "Black Seraph's Cape", slot: "cape", req: 0, watk: 2, str: 3, dex: 3, int: 0, luk: 0, hp: 50, def: 15, price: 8000, cosmetic: true },
-  { id: 1102042, name: "White Seraph's Cape", slot: "cape", req: 0, watk: 2, str: 0, dex: 0, int: 3, luk: 3, hp: 50, def: 15, price: 8000, cosmetic: true },
-  { id: 1102084, name: "Pink Adventurer Cape", slot: "cape", req: 0, watk: 3, str: 2, dex: 2, int: 2, luk: 2, hp: 40, def: 12, price: 10000, cosmetic: true },
-  { id: 1103305, name: "[BTS] Swan Serenade", slot: "cape", req: 0, watk: 5, str: 5, dex: 5, int: 5, luk: 5, hp: 150, def: 30, price: 20000, cosmetic: true, cash: true },
-
-  // Iconic Weapons
-  { id: 1302001, name: "Wooden Club", slot: "weapon", req: 0, watk: 19, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100, cosmetic: true },
-  { id: 1302005, name: "Aluminum Baseball Bat", slot: "weapon", req: 0, watk: 25, str: 2, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 1500, cosmetic: true },
-  { id: 1302014, name: "Frozen Tuna", slot: "weapon", req: 0, watk: 60, str: 5, dex: 0, int: 0, luk: 0, hp: 50, def: 0, price: 15000, cosmetic: true },
-  { id: 1302016, name: "Red Whip", slot: "weapon", req: 0, watk: 38, str: 0, dex: 5, int: 0, luk: 0, hp: 0, def: 0, price: 8000, cosmetic: true },
-  { id: 1302063, name: "Pan Lid", slot: "shield", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 10, price: 2000, cosmetic: true },
-  { id: 1302066, name: "Frying Pan", slot: "weapon", req: 0, watk: 32, str: 3, dex: 0, int: 0, luk: 0, hp: 20, def: 0, price: 4000, cosmetic: true },
-  { id: 1302081, name: "Maple Sword", slot: "weapon", req: 0, watk: 48, str: 3, dex: 3, int: 0, luk: 0, hp: 30, def: 0, price: 12000, cosmetic: true },
-
-  // Additional Iconic Helms & Hats
-  { id: 1002357, name: "Zakum Helmet", slot: "hat", req: 50, watk: 15, str: 15, dex: 15, int: 15, luk: 15, hp: 150, def: 50, price: 50000, cosmetic: true },
-  { id: 1002011, name: "Brown Bamboo Hat", slot: "hat", req: 25, watk: 0, str: 0, dex: 3, int: 0, luk: 0, hp: 20, def: 12, price: 3000, cosmetic: true },
-  { id: 1002012, name: "Blue Bamboo Hat", slot: "hat", req: 25, watk: 0, str: 0, dex: 0, int: 3, luk: 0, hp: 20, def: 12, price: 3000, cosmetic: true },
-  { id: 1002013, name: "Green Bamboo Hat", slot: "hat", req: 25, watk: 0, str: 0, dex: 0, int: 0, luk: 3, hp: 20, def: 12, price: 3000, cosmetic: true },
-  { id: 1002434, name: "Maple Hat", slot: "hat", req: 0, watk: 1, str: 2, dex: 2, int: 2, luk: 2, hp: 50, def: 15, price: 10000, cosmetic: true },
-  { id: 1002001, name: "Wizard Hat", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 5, luk: 2, hp: 30, def: 10, price: 2500, cosmetic: true },
-
-  // Iconic Capes & Cloaks
-  { id: 1102046, name: "Cape of Warmth", slot: "cape", req: 25, watk: 0, str: 2, dex: 2, int: 2, luk: 2, hp: 50, def: 10, price: 4000, cosmetic: true },
-  { id: 1102085, name: "Yellow Adventurer Cape", slot: "cape", req: 50, watk: 2, str: 0, dex: 5, int: 0, luk: 0, hp: 40, def: 15, price: 12000, cosmetic: true },
-  { id: 1102086, name: "Black Adventurer Cape", slot: "cape", req: 50, watk: 3, str: 3, dex: 0, int: 0, luk: 3, hp: 40, def: 15, price: 15000, cosmetic: true },
-
-  // Iconic Weapons & Boards
-  { id: 1442011, name: "Surfboard", slot: "weapon", req: 15, watk: 35, str: 2, dex: 0, int: 0, luk: 0, hp: 30, def: 0, price: 5000, cosmetic: true },
-  { id: 1442012, name: "Red Surfboard", slot: "weapon", req: 35, watk: 55, str: 5, dex: 0, int: 0, luk: 0, hp: 50, def: 0, price: 15000, cosmetic: true },
-  { id: 1442007, name: "Sky Snowboard", slot: "weapon", req: 18, watk: 40, str: 2, dex: 2, int: 0, luk: 0, hp: 20, def: 0, price: 6000, cosmetic: true },
-  { id: 1442010, name: "Blood Snowboard", slot: "weapon", req: 48, watk: 68, str: 6, dex: 2, int: 0, luk: 0, hp: 60, def: 0, price: 20000, cosmetic: true },
-  { id: 1332025, name: "Maple Wagner", slot: "weapon", req: 43, watk: 58, str: 0, dex: 0, int: 0, luk: 4, hp: 0, def: 0, price: 18000, cosmetic: true },
-  { id: 1382009, name: "Maple Staff", slot: "weapon", req: 35, watk: 48, str: 0, dex: 0, int: 5, luk: 2, hp: 100, def: 0, price: 14000, cosmetic: true },
-  { id: 1452016, name: "Maple Bow", slot: "weapon", req: 35, watk: 48, str: 0, dex: 4, int: 0, luk: 0, hp: 40, def: 0, price: 14000, cosmetic: true },
-  { id: 1472030, name: "Maple Claw", slot: "weapon", req: 35, watk: 24, str: 0, dex: 0, int: 0, luk: 4, hp: 0, def: 0, price: 14000, cosmetic: true },
-
-  // Iconic Outfits & Robes
-  { id: 1050014, name: "Sauna Robe (M)", slot: "top", req: 30, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 100, def: 20, price: 8000, cosmetic: true },
-  { id: 1051013, name: "Sauna Robe (F)", slot: "top", req: 30, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 100, def: 20, price: 8000, cosmetic: true },
+  // Raven Persona Hats (Visual levitation effect only, no bonus stats)
+  { id: 1003409, name: "Raven Persona", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 50000, cosmetic: true, cash: true },
+  { id: 1003422, name: "Garnet Raven Persona", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 75000, cosmetic: true, cash: true },
+  { id: 1004782, name: "Raven Persona", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 50000, cosmetic: true, cash: true },
+  { id: 1004646, name: "Royal Azure Feather Turban", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 15000, cosmetic: true, cash: true },
+  { id: 1103305, name: "[BTS] Swan Serenade", slot: "cape", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 20000, cosmetic: true, cash: true },
 ];
 
-export const GEAR = new Map<number, GearBase>([...STARTER, ...COSMETICS].map((g) => [g.id, { ...g }]));
+export const ICONIC_GEAR: GearBase[] = [
+  // Hats & Bandanas & Ears
+  { id: 1002008, name: "Green Bandana", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 10, def: 3, price: 500 },
+  { id: 1002057, name: "White Bandana", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 1, luk: 1, hp: 10, def: 4, price: 500 },
+  { id: 1002058, name: "Black Bandana", slot: "hat", req: 0, watk: 0, str: 2, dex: 2, int: 2, luk: 2, hp: 15, def: 5, price: 800 },
+  { id: 1002064, name: "Red Bandana", slot: "hat", req: 0, watk: 0, str: 2, dex: 0, int: 0, luk: 0, hp: 10, def: 3, price: 500 },
+  { id: 1002374, name: "Red Beret", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 1, luk: 1, hp: 20, def: 8, price: 1200 },
+  { id: 1002274, name: "Chief Stan Hat", slot: "hat", req: 0, watk: 0, str: 3, dex: 3, int: 0, luk: 0, hp: 30, def: 12, price: 2000 },
+  { id: 1003112, name: "Chaos Zakum Helmet", slot: "hat", req: 100, watk: 25, str: 21, dex: 21, int: 21, luk: 21, hp: 250, def: 180, price: 120000 },
+  { id: 1002798, name: "Fox Ears", slot: "hat", req: 0, watk: 0, str: 3, dex: 3, int: 3, luk: 3, hp: 45, def: 12, price: 3500 },
+  { id: 1002419, name: "Angelic Halo", slot: "hat", req: 0, watk: 2, str: 4, dex: 4, int: 4, luk: 4, hp: 80, def: 15, price: 5000 },
+  { id: 1002067, name: "Skull Cap", slot: "hat", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 15, def: 5, price: 600 },
+  { id: 1002175, name: "Cat Hat", slot: "hat", req: 0, watk: 0, str: 2, dex: 2, int: 2, luk: 2, hp: 35, def: 10, price: 2500 },
+
+  // Tops & Casual
+  { id: 1040004, name: "Blue Sailor Shirt", slot: "top", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 10, def: 6, price: 400 },
+  { id: 1040008, name: "Orange T-Shirt", slot: "top", req: 0, watk: 0, str: 1, dex: 0, int: 0, luk: 1, hp: 10, def: 5, price: 350 },
+  { id: 1040014, name: "Striped T-Shirt", slot: "top", req: 0, watk: 0, str: 0, dex: 1, int: 1, luk: 0, hp: 10, def: 5, price: 350 },
+  { id: 1040036, name: "Red Cross Shirt", slot: "top", req: 0, watk: 0, str: 2, dex: 1, int: 0, luk: 0, hp: 20, def: 8, price: 800 },
+  { id: 1050018, name: "Bath Towel (M)", slot: "top", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 50, def: 10, price: 1500 },
+  { id: 1050037, name: "Red Kimono", slot: "top", req: 0, watk: 1, str: 3, dex: 3, int: 0, luk: 0, hp: 40, def: 15, price: 2800 },
+
+  // Bottoms
+  { id: 1060006, name: "Denim Jeans", slot: "bottom", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 10, def: 5, price: 400 },
+  { id: 1060014, name: "Blue Jean Pants", slot: "bottom", req: 0, watk: 0, str: 1, dex: 0, int: 0, luk: 1, hp: 10, def: 5, price: 400 },
+  { id: 1060026, name: "Camo Pants", slot: "bottom", req: 0, watk: 0, str: 2, dex: 1, int: 0, luk: 0, hp: 15, def: 8, price: 800 },
+
+  // Shoes
+  { id: 1072005, name: "Red High Tops", slot: "shoes", req: 0, watk: 0, str: 1, dex: 1, int: 0, luk: 0, hp: 10, def: 4, price: 500 },
+  { id: 1072008, name: "Blue High Tops", slot: "shoes", req: 0, watk: 0, str: 0, dex: 2, int: 0, luk: 0, hp: 10, def: 4, price: 500 },
+  { id: 1072037, name: "Yellow Snowshoes", slot: "shoes", req: 0, watk: 0, str: 1, dex: 2, int: 0, luk: 0, hp: 15, def: 6, price: 900 },
+
+  // Gloves
+  { id: 1082002, name: "Work Gloves", slot: "gloves", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 2, price: 1000 },
+  { id: 1082145, name: "Yellow Work Gloves", slot: "gloves", req: 0, watk: 1, str: 1, dex: 0, int: 0, luk: 0, hp: 0, def: 3, price: 2500 },
+  { id: 1082146, name: "Red Work Gloves", slot: "gloves", req: 0, watk: 2, str: 2, dex: 0, int: 0, luk: 0, hp: 0, def: 4, price: 5000 },
+  { id: 1082147, name: "Blue Work Gloves", slot: "gloves", req: 0, watk: 1, str: 0, dex: 2, int: 0, luk: 0, hp: 0, def: 3, price: 3000 },
+
+  // Capes & Wings
+  { id: 1102041, name: "Black Seraph's Cape", slot: "cape", req: 0, watk: 2, str: 3, dex: 3, int: 0, luk: 0, hp: 50, def: 15, price: 8000 },
+  { id: 1102042, name: "White Seraph's Cape", slot: "cape", req: 0, watk: 2, str: 0, dex: 0, int: 3, luk: 3, hp: 50, def: 15, price: 8000 },
+  { id: 1102084, name: "Pink Adventurer Cape", slot: "cape", req: 0, watk: 3, str: 2, dex: 2, int: 2, luk: 2, hp: 40, def: 12, price: 10000 },
+
+  // Iconic Weapons
+  { id: 1302001, name: "Wooden Club", slot: "weapon", req: 0, watk: 19, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 100 },
+  { id: 1302005, name: "Aluminum Baseball Bat", slot: "weapon", req: 0, watk: 25, str: 2, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 1500 },
+  { id: 1302014, name: "Frozen Tuna", slot: "weapon", req: 0, watk: 60, str: 5, dex: 0, int: 0, luk: 0, hp: 50, def: 0, price: 15000 },
+  { id: 1302016, name: "Red Whip", slot: "weapon", req: 0, watk: 38, str: 0, dex: 5, int: 0, luk: 0, hp: 0, def: 0, price: 8000 },
+  { id: 1302063, name: "Pan Lid", slot: "shield", req: 0, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 10, price: 2000 },
+  { id: 1302066, name: "Frying Pan", slot: "weapon", req: 0, watk: 32, str: 3, dex: 0, int: 0, luk: 0, hp: 20, def: 0, price: 4000 },
+  { id: 1302081, name: "Maple Sword", slot: "weapon", req: 0, watk: 48, str: 3, dex: 3, int: 0, luk: 0, hp: 30, def: 0, price: 12000 },
+
+  // Additional Iconic Helms & Hats
+  { id: 1002357, name: "Zakum Helmet", slot: "hat", req: 50, watk: 15, str: 15, dex: 15, int: 15, luk: 15, hp: 150, def: 50, price: 50000 },
+  { id: 1002011, name: "Brown Bamboo Hat", slot: "hat", req: 25, watk: 0, str: 0, dex: 3, int: 0, luk: 0, hp: 20, def: 12, price: 3000 },
+  { id: 1002012, name: "Blue Bamboo Hat", slot: "hat", req: 25, watk: 0, str: 0, dex: 0, int: 3, luk: 0, hp: 20, def: 12, price: 3000 },
+  { id: 1002013, name: "Green Bamboo Hat", slot: "hat", req: 25, watk: 0, str: 0, dex: 0, int: 0, luk: 3, hp: 20, def: 12, price: 3000 },
+  { id: 1002434, name: "Maple Hat", slot: "hat", req: 0, watk: 1, str: 2, dex: 2, int: 2, luk: 2, hp: 50, def: 15, price: 10000 },
+  { id: 1002001, name: "Wizard Hat", slot: "hat", req: 0, watk: 0, str: 0, dex: 0, int: 5, luk: 2, hp: 30, def: 10, price: 2500 },
+
+  // Iconic Capes & Cloaks
+  { id: 1102046, name: "Cape of Warmth", slot: "cape", req: 25, watk: 0, str: 2, dex: 2, int: 2, luk: 2, hp: 50, def: 10, price: 4000 },
+  { id: 1102085, name: "Yellow Adventurer Cape", slot: "cape", req: 50, watk: 2, str: 0, dex: 5, int: 0, luk: 0, hp: 40, def: 15, price: 12000 },
+  { id: 1102086, name: "Black Adventurer Cape", slot: "cape", req: 50, watk: 3, str: 3, dex: 0, int: 0, luk: 3, hp: 40, def: 15, price: 15000 },
+
+  // Iconic Weapons & Boards
+  { id: 1442011, name: "Surfboard", slot: "weapon", req: 15, watk: 35, str: 2, dex: 0, int: 0, luk: 0, hp: 30, def: 0, price: 5000 },
+  { id: 1442012, name: "Red Surfboard", slot: "weapon", req: 35, watk: 55, str: 5, dex: 0, int: 0, luk: 0, hp: 50, def: 0, price: 15000 },
+  { id: 1442007, name: "Sky Snowboard", slot: "weapon", req: 18, watk: 40, str: 2, dex: 2, int: 0, luk: 0, hp: 20, def: 0, price: 6000 },
+  { id: 1442010, name: "Blood Snowboard", slot: "weapon", req: 48, watk: 68, str: 6, dex: 2, int: 0, luk: 0, hp: 60, def: 0, price: 20000 },
+  { id: 1332025, name: "Maple Wagner", slot: "weapon", req: 43, watk: 58, str: 0, dex: 0, int: 0, luk: 4, hp: 0, def: 0, price: 18000 },
+  { id: 1382009, name: "Maple Staff", slot: "weapon", req: 35, watk: 48, str: 0, dex: 0, int: 5, luk: 2, hp: 100, def: 0, price: 14000 },
+  { id: 1452016, name: "Maple Bow", slot: "weapon", req: 35, watk: 48, str: 0, dex: 4, int: 0, luk: 0, hp: 40, def: 0, price: 14000 },
+  { id: 1472030, name: "Maple Claw", slot: "weapon", req: 35, watk: 24, str: 0, dex: 0, int: 0, luk: 4, hp: 0, def: 0, price: 14000 },
+
+  // Iconic Outfits & Robes
+  { id: 1050014, name: "Sauna Robe (M)", slot: "top", req: 30, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 100, def: 20, price: 8000 },
+  { id: 1051013, name: "Sauna Robe (F)", slot: "top", req: 30, watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 100, def: 20, price: 8000 },
+];
+
+export const GEAR = new Map<number, GearBase>([...STARTER, ...ICONIC_GEAR, ...COSMETICS].map((g) => [g.id, { ...g }]));
 export const MATS = new Map<number, string>();
 
 export function loadItemData(d: { gear: (GearBase & { slot: string })[]; mats: { id: number; name: string }[] }) {
-  for (const g of [...STARTER, ...COSMETICS, ...d.gear]) {
-    const b = { ...g, cash: Boolean((g as any).cash), cosmetic: Boolean((g as any).cosmetic || (g as any).cash) } as GearBase;
-    // Some accessories only carry magic defence in the data; give them level-scaled stats.
-    if (!b.watk && !b.str && !b.dex && !b.hp && !b.def) { b.def = 2 + Math.round(b.req / 4); b.hp = b.req * 2; if (b.slot === "earrings") b.str = Math.round(b.req / 10); }
-    if (b.slot === "weapon" && !b.watk) b.watk = 17 + b.req;
+  for (const g of [...STARTER, ...ICONIC_GEAR, ...COSMETICS, ...d.gear]) {
+    const isCash = Boolean((g as any).cash);
+    const isCosmetic = Boolean((g as any).cosmetic || isCash);
+    const b = { ...g, cash: isCash, cosmetic: isCosmetic } as GearBase;
+    if (isCash || isCosmetic) {
+      b.watk = 0; b.str = 0; b.dex = 0; b.int = 0; b.luk = 0; b.hp = 0; b.def = 0;
+    } else {
+      // Some accessories only carry magic defence in the data; give them level-scaled stats.
+      if (!b.watk && !b.str && !b.dex && !b.hp && !b.def) { b.def = 2 + Math.round(b.req / 4); b.hp = b.req * 2; if (b.slot === "earrings") b.str = Math.round(b.req / 10); }
+      if (b.slot === "weapon" && !b.watk) b.watk = 17 + b.req;
+    }
     b.price = Math.max(b.price, 40 + b.req * 60);
     GEAR.set(b.id, b);
   }
@@ -183,6 +199,9 @@ export function rollPotential(slot: string, rarity: number): Potential[] {
 
 export function makeGear(id: number, luck = 0, minRarity = 0): Gear {
   const b = GEAR.get(id)!;
+  if (b?.cash || b?.cosmetic) {
+    return { uid: newUid(), id, rarity: 0, star: 0, pot: [] };
+  }
   const rarity = Math.max(minRarity, rollRarity(luck));
   return { uid: newUid(), id, rarity, star: 0, pot: rollPotential(b.slot, rarity) };
 }
@@ -196,7 +215,7 @@ export function randomGearFor(level: number) {
 export interface GearStats { watk: number; str: number; dex: number; int: number; luk: number; hp: number; def: number }
 export function gearStats(g: Gear): GearStats {
   const b = GEAR.get(g.id);
-  if (!b) return { watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0 };
+  if (!b || b.cash || b.cosmetic) return { watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0 };
   const rb = 1 + g.rarity * 0.08; // higher rarity also rolls slightly better base stats
   const s = g.star;
   return {
@@ -213,14 +232,27 @@ export const POT_LABEL: Record<Potential["stat"], string> = {
   att: "ATT", str: "STR", dex: "DEX", int: "INT", luk: "LUK", hp: "Max HP", boss: "Boss Damage", meso: "Meso Obtained", drop: "Item Drop Rate", exp: "EXP Obtained",
 };
 
-/** Equips that confer a floating / hovering levitation effect (wings & seraph capes) */
+/** Equips that confer a floating / hovering levitation effect (ONLY Raven Persona hats) */
+export const RAVEN_PERSONA_IDS = new Set<number>([
+  1003409, // Raven Persona
+  1003422, // Garnet Raven Persona
+  1004782, // Raven Persona
+]);
+export const isRavenPersona = (id: number) => RAVEN_PERSONA_IDS.has(id);
+
 export const HOVER_ITEM_IDS = new Set<number>([
-  1102041, // Black Seraph's Cape
-  1102042, // White Seraph's Cape
-  1102232, // Seraph Cape
-  1103305, // [BTS] Swan Serenade
+  1003409, // Raven Persona
+  1003422, // Garnet Raven Persona
+  1004782, // Raven Persona
 ]);
 export const isHoverItem = (id: number) => HOVER_ITEM_IDS.has(id);
+
+/** Wizet GM hats conferring invulnerability and glowing GM item aura */
+export const WIZET_INVINCIBLE_HAT_IDS = new Set<number>([
+  1002140, // Wizet Invincible Hat
+  1003142, // Wizet Invincible Hat
+]);
+export const isWizetHat = (id: number) => WIZET_INVINCIBLE_HAT_IDS.has(id);
 
 // ------------------------------------------------------------- star force & cubes
 export const starRate = (star: number) => Math.max(0.3, 0.95 - star * 0.045);

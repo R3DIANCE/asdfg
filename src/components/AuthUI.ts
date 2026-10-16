@@ -177,7 +177,65 @@ export class AuthUI {
     const health = await spacetime.checkHealth();
     this.dbConnected = health.ok;
 
-    // Check if user already logged in
+    // Check if user explicitly opted to skip auto-login (e.g. clicked Switch Character or Logout)
+    const skipAutoLogin = sessionStorage.getItem("ms_skip_autologin") === "1";
+    if (skipAutoLogin) {
+      sessionStorage.removeItem("ms_skip_autologin");
+    } else {
+      const lastSavedName = localStorage.getItem("ms_current_character") || localStorage.getItem("ms_player_name");
+
+      // 1) If logged into SpacetimeDB user account, auto-login to matching character or first character
+      if (spacetime.currentUser) {
+        try {
+          const res = await spacetime.getCharacters();
+          if (res.ok && res.characters.length > 0) {
+            const target = (lastSavedName ? res.characters.find((c) => c.name === lastSavedName) : null) || res.characters[0];
+            if (target) {
+              this.selectAndPlay(target);
+              return;
+            }
+          }
+        } catch {}
+      }
+
+      // 2) If played previously in guest or local mode with a saved character
+      if (lastSavedName) {
+        let sv: any = null;
+        try {
+          sv = JSON.parse(localStorage.getItem(`maple-wayfarer-save-${lastSavedName}`) ?? "null")
+            ?? JSON.parse(localStorage.getItem("maple-wayfarer-save") ?? "null");
+        } catch {}
+
+        if (sv || lastSavedName) {
+          const charObj: SpacetimeCharacter = {
+            name: sv?.stats?.name || lastSavedName,
+            username: spacetime.currentUser || "guest",
+            classId: sv?.stats?.classId || "beginner",
+            gender: "male",
+            level: sv?.stats?.level || 1,
+            exp: sv?.stats?.exp || 0,
+            hp: sv?.stats?.hp || 50,
+            maxHp: sv?.stats?.maxHp || 50,
+            mp: sv?.stats?.mp || 20,
+            maxMp: sv?.stats?.maxMp || 20,
+            meso: sv?.stats?.meso || 1000,
+            mapId: sv?.map || 910000000,
+            x: sv?.p?.x || 0,
+            y: sv?.p?.y || 0,
+            look: sv?.look || [2000, 12000, 20000, 30030, 1040002, 1060002, 1072001, 1302000],
+            stats: sv?.stats || {},
+            inventory: sv?.bag || [],
+            equipment: { eq: sv?.eq, visualEq: sv?.visualEq },
+            skills: { skillLv: sv?.skillLv, quick: sv?.quick },
+            updatedAt: Date.now(),
+          };
+          this.selectAndPlay(charObj);
+          return;
+        }
+      }
+    }
+
+    // Default flow: If no auto-login occurred
     if (spacetime.currentUser) {
       this.mode = "char_select";
       await this.loadCharacters();
@@ -239,6 +297,7 @@ export class AuthUI {
   }
 
   render() {
+    this.container.classList.remove("hidden");
     this.container.innerHTML = "";
     const card = document.createElement("div");
     card.className = `ms-auth-card ms-mode-${this.mode}`;
@@ -257,7 +316,7 @@ export class AuthUI {
             </div>
             <div class="flex items-center gap-2 mt-0.5">
               <span class="inline-block w-2 h-2 rounded-full ${this.dbConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}"></span>
-              <span class="text-[11px] font-semibold text-slate-400">${this.dbConnected ? "SpacetimeDB v2.11.0 Active" : "Connecting to SpacetimeDB…"}</span>
+              <span class="text-[11px] font-semibold text-slate-400">${this.dbConnected ? "Server Online" : "Connecting to Server…"}</span>
             </div>
           </div>
         </div>
@@ -351,10 +410,44 @@ export class AuthUI {
           <input id="auth-confirm" type="password" autocomplete="new-password" placeholder="Re-enter password" required />
         </label>
       ` : ""}
-      <button type="submit" class="ms-btn-primary w-full mt-3 py-2.5 text-sm" ${this.loading ? "disabled" : ""}>
-        ${this.loading ? "Authenticating…" : this.mode === "login" ? "Log In to SpacetimeDB" : "Create Account"}
+      <button type="submit" class="ms-btn-primary w-full mt-3 py-2.5 text-sm cursor-pointer" ${this.loading ? "disabled" : ""}>
+        ${this.loading ? "Connecting…" : this.mode === "login" ? "Log In" : "Create Account"}
+      </button>
+      <div class="flex items-center my-3 gap-2 opacity-60">
+        <div class="flex-1 h-[1px] bg-slate-600"></div>
+        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">or</span>
+        <div class="flex-1 h-[1px] bg-slate-600"></div>
+      </div>
+      <button type="button" id="btn-guest-play" class="w-full py-2 px-3 text-xs font-bold text-slate-200 bg-slate-800/90 hover:bg-slate-700/90 border border-slate-600 rounded cursor-pointer transition-colors flex items-center justify-center gap-2">
+        <span>🍁</span> <span>Instant Play (Guest Mode)</span>
       </button>
     `;
+
+    form.querySelector("#btn-guest-play")?.addEventListener("click", () => {
+      this.destroy();
+      this.onCharacterSelected({
+        name: "Wayfarer",
+        username: "guest",
+        classId: "beginner",
+        gender: "male",
+        level: 1,
+        exp: 0,
+        hp: 50,
+        maxHp: 50,
+        mp: 20,
+        maxMp: 20,
+        meso: 1000,
+        mapId: 910000000,
+        x: 0,
+        y: 0,
+        look: [2000, 12000, 20000, 30030, 1040002, 1060002, 1072001, 1302000],
+        stats: {},
+        inventory: [],
+        equipment: {},
+        skills: {},
+        updatedAt: Date.now(),
+      });
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -1012,7 +1105,7 @@ export class AuthUI {
               </div>
               <div class="row">
                 <span class="k">Starting World</span>
-                <span class="v text-cyan-300">Scania / SpacetimeDB</span>
+                <span class="v text-cyan-300">Scania</span>
               </div>
               <div class="row">
                 <span class="k">Starting Town</span>
@@ -1029,10 +1122,51 @@ export class AuthUI {
             </div>
           </div>
 
+          <!-- Post-Creation First Steps & Roadmap Card -->
+          <div class="ms-roadmap-card mt-3 p-3 bg-slate-900/80 border border-sky-500/30 rounded-lg text-left shadow-md">
+            <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10">
+              <span class="text-[11px] font-black text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                <span class="inline-block w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span>
+                First Steps & Progression Roadmap
+              </span>
+              <span class="text-[9.5px] font-mono text-slate-400">Press 'G' for Codex</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-[10.5px]">
+              <div class="flex items-start gap-1.5 bg-slate-950/60 p-2 rounded border border-white/5">
+                <span class="font-bold text-sky-400 font-mono">1.</span>
+                <div>
+                  <b class="text-white">Spawn & Gear:</b>
+                  <p class="text-slate-300 text-[10px] mt-0.5 leading-snug">Spawn in Free Market safe zone. Open Inventory (<b>I</b>/<b>E</b>) to equip starter gear in free grid.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-1.5 bg-slate-950/60 p-2 rounded border border-white/5">
+                <span class="font-bold text-emerald-400 font-mono">2.</span>
+                <div>
+                  <b class="text-white">Hunt Victoria:</b>
+                  <p class="text-slate-300 text-[10px] mt-0.5 leading-snug">Take portals (<b>↑</b>). Attack (<b>Ctrl</b>/<b>X</b>) Snails/Slimes. Loot (<b>Z</b>) or Auto Battle (<b>B</b>).</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-1.5 bg-slate-950/60 p-2 rounded border border-white/5">
+                <span class="font-bold text-amber-400 font-mono">3.</span>
+                <div>
+                  <b class="text-white">25-Kill Bosses:</b>
+                  <p class="text-slate-300 text-[10px] mt-0.5 leading-snug">Every 25 kills summons Stage Boss! Toggle <b>AUTO BOSS</b> for guaranteed rare gear & cubes.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-1.5 bg-slate-950/60 p-2 rounded border border-white/5">
+                <span class="font-bold text-purple-400 font-mono">4.</span>
+                <div>
+                  <b class="text-white">Jobs & Stars:</b>
+                  <p class="text-slate-300 text-[10px] mt-0.5 leading-snug">1st/2nd/3rd/4th Job at Lv. 10/30/70/120. Enhance gear up to 15 Stars (<b>J</b>) & re-roll potentials.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- CTA Button -->
           <button type="button" class="ms-btn-gamestart w-full mt-4" id="btn-create-finish" ${this.loading ? "disabled" : ""}>
             <span class="play-text">${this.loading ? "CREATING ADVENTURER…" : "★ ENTER MAPLE WORLD ★"}</span>
-            <span class="play-sub">Save to SpacetimeDB & Begin Journey</span>
+            <span class="play-sub">Begin Journey</span>
           </button>
         </div>
       </div>

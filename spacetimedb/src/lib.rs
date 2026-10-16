@@ -130,6 +130,24 @@ pub fn delete_char(ctx: &ReducerContext, name: String) {
 }
 
 #[reducer]
+pub fn rename_char(ctx: &ReducerContext, old_name: String, new_name: String) {
+    if new_name.trim().is_empty() {
+        return;
+    }
+    if ctx.db.character().name().find(&new_name).is_some() {
+        return;
+    }
+    if let Some(ch) = ctx.db.character().name().find(&old_name) {
+        ctx.db.character().name().delete(&old_name);
+        let now = ctx.timestamp.duration_since(spacetimedb::Timestamp::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let mut new_ch = ch;
+        new_ch.name = new_name;
+        new_ch.updated_at = now;
+        ctx.db.character().insert(new_ch);
+    }
+}
+
+#[reducer]
 pub fn save_char(
     ctx: &ReducerContext,
     name: String,

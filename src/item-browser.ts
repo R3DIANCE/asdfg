@@ -8,10 +8,11 @@ import { esc, fmt } from "./util.ts";
 import { clampWindow } from "./windows.ts";
 
 /** Categories shown in the All Items browser. */
-export type ItemCat = "all" | "cosmetic" | "weapon" | "armor" | "accessory" | "material" | "use" | "etc";
+export type ItemCat = "all" | "pet" | "cosmetic" | "weapon" | "armor" | "accessory" | "material" | "use" | "etc";
 
 const ALL_TABS: { key: ItemCat; label: string }[] = [
   { key: "all", label: "ALL" },
+  { key: "pet", label: "PETS" },
   { key: "cosmetic", label: "COSMETICS" },
   { key: "weapon", label: "WEAPONS" },
   { key: "armor", label: "ARMOR" },
@@ -19,6 +20,21 @@ const ALL_TABS: { key: ItemCat; label: string }[] = [
   { key: "material", label: "MATERIALS" },
   { key: "use", label: "CONSUMABLES" },
   { key: "etc", label: "ETC" },
+];
+
+export const PET_CATALOG: { id: number; name: string }[] = [
+  { id: 5000000, name: "Brown Kitty" },
+  { id: 5000001, name: "Brown Puppy" },
+  { id: 5000002, name: "Pink Bunny" },
+  { id: 5000003, name: "Mini Kargo" },
+  { id: 5000004, name: "Black Kitty" },
+  { id: 5000005, name: "White Bunny" },
+  { id: 5000006, name: "Husky" },
+  { id: 5000008, name: "Panda" },
+  { id: 5000020, name: "Mini Yeti" },
+  { id: 5000029, name: "Rudolph" },
+  { id: 5000047, name: "Jr. Balrog" },
+  { id: 5000054, name: "Baby Dragon" },
 ];
 
 export class ItemBrowser {
@@ -66,6 +82,17 @@ export class ItemBrowser {
           g.mats[id] = (g.mats[id] ?? 0) + 10;
           g.onGain?.("exp", `+10 ${MATS.get(id) ?? "materials"}`);
           g.onChat?.("item", `Obtained 10x ${MATS.get(id) ?? "material"}.`);
+        } else if (kind === "pet") {
+          const petInfo = PET_CATALOG.find((p) => p.id === id);
+          const petName = petInfo?.name ?? "Pet";
+          const res = g.equipPet(id);
+          if (res) {
+            g.onGain?.("level", `Equipped ${petName} as your companion!`);
+            g.onChat?.("item", `Equipped ${petName} (Active pets: ${g.pets.length}/3).`);
+          } else {
+            g.onChat?.("system", `Unable to equip ${petName}.`);
+          }
+          this.parent?.renderPets?.();
         }
         g.onChange?.();
         // Immediately refresh open Inventory or Equipment panels
@@ -91,6 +118,10 @@ export class ItemBrowser {
         html = renderUseTooltip(id, this.parent.game?.inv?.[id] ?? 0, "Click to claim 10x into inventory");
       } else if (kind === "mat") {
         html = renderMatTooltip(id, this.parent.game?.mats?.[id] ?? 0, "Click to claim 10x into inventory");
+      } else if (kind === "pet") {
+        const petInfo = PET_CATALOG.find((p) => p.id === id);
+        const petName = petInfo?.name ?? "Pet";
+        html = `<b>${esc(petName)}</b><p class="tip-dim">Pet Companion · Auto-Loot</p><p>Summons a loyal companion that follows you into battle and automatically loots mesos and items.</p><p class="tip-dim">Click to equip as companion (Up to 3 pets active)</p>`;
       }
       if (html) this.parent.showTip(html, (e as PointerEvent).clientX, (e as PointerEvent).clientY);
       else this.parent.hideTip();
@@ -110,9 +141,9 @@ export class ItemBrowser {
   }
 
   /** One flat list of every item in the current category, with search applied. */
-  private items(): { id: number; name: string; kind: "gear" | "mat" | "use"; icon: string; slot?: string; req?: number; cosmetic?: boolean }[] {
+  private items(): { id: number; name: string; kind: "gear" | "mat" | "use" | "pet"; icon: string; slot?: string; req?: number; cosmetic?: boolean }[] {
     const q = this.search.trim().toLowerCase();
-    const list: { id: number; name: string; kind: "gear" | "mat" | "use"; icon: string; slot?: string; req?: number; cosmetic?: boolean }[] = [];
+    const list: { id: number; name: string; kind: "gear" | "mat" | "use" | "pet"; icon: string; slot?: string; req?: number; cosmetic?: boolean }[] = [];
     const accSlots = new Set(["ring", "ring1", "ring2", "ring3", "ring4", "earrings", "pendant", "shoulder", "belt", "pocket", "emblem", "badge"]);
 
     const addGears = (filter?: (g: GearBase) => boolean) => {
@@ -135,11 +166,20 @@ export class ItemBrowser {
         list.push({ id: n, name: it.name, kind: "use", icon: itemIcon(n) });
       }
     };
+    const addPets = () => {
+      for (const p of PET_CATALOG) {
+        if (q && !p.name.toLowerCase().includes(q) && !String(p.id).includes(q)) continue;
+        list.push({ id: p.id, name: p.name, kind: "pet", icon: `/wz/pet-icon/${p.id}` });
+      }
+    };
 
     if (this.tab === "all") {
+      addPets();
       addGears();
       addUse();
       addMats();
+    } else if (this.tab === "pet") {
+      addPets();
     } else if (this.tab === "cosmetic") {
       addGears((g) => !!g.cosmetic);
     } else if (this.tab === "material" || this.tab === "etc") {
@@ -157,7 +197,11 @@ export class ItemBrowser {
         return true;
       });
     }
-    list.sort((a, b) => (a.req ?? 0) - (b.req ?? 0) || a.name.localeCompare(b.name));
+    list.sort((a, b) => {
+      if (a.kind === "pet" && b.kind !== "pet") return -1;
+      if (b.kind === "pet" && a.kind !== "pet") return 1;
+      return (a.req ?? 0) - (b.req ?? 0) || a.name.localeCompare(b.name);
+    });
     return list;
   }
 
@@ -181,7 +225,7 @@ export class ItemBrowser {
       <div class="ai-grid">
         ${shown.map((it) => `<div class="gcell ${it.kind === "gear" ? "" : "blank"}" data-item-id="${it.id}" data-kind="${it.kind}">
           <span class="ic" style="background-image:url('${it.icon}')" data-cache="${it.id}"></span>
-          ${it.kind === "gear" ? `<span class="gstar">${it.cosmetic ? "★" : "L" + (it.req ?? 0)}</span>` : ""}
+          ${it.kind === "gear" ? `<span class="gstar">${it.cosmetic ? "★" : "L" + (it.req ?? 0)}</span>` : it.kind === "pet" ? `<span class="gstar text-amber-300">🐾</span>` : ""}
         </div>`).join("")}
       </div>
       <div class="inv-foot ai-foot">

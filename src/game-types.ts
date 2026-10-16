@@ -6,6 +6,7 @@ import type { Action, ClassId } from "./skills.ts";
 
 export interface Back {
   sprite: Sprite;
+  frames?: Sprite[];
   x: number;
   y: number;
   rx: number;
@@ -16,6 +17,15 @@ export interface Back {
   a: number;
   flip: boolean;
   front: boolean;
+}
+
+export interface AniObj {
+  x: number;
+  y: number;
+  z: number;
+  layer: number;
+  f: boolean;
+  frames: Sprite[];
 }
 
 export interface MapData {
@@ -32,6 +42,7 @@ export interface MapData {
   ladders: Ladder[];
   spawns: { id: number; x: number; y: number; fh: number; rx0: number; rx1: number }[];
   backs: Back[];
+  aniObjs?: AniObj[];
 }
 
 export interface MobData {
@@ -59,6 +70,42 @@ export interface ItemEffData {
   pos?: number;
   fixed?: boolean;
   actions: Record<string, ItemEffFrame[]>;
+}
+
+export interface PetFrame {
+  url: string;
+  w: number;
+  h: number;
+  ox: number;
+  oy: number;
+  delay?: number;
+}
+
+export interface PetData {
+  id: number;
+  name: string;
+  icon: string;
+  actions: Record<string, PetFrame[]>;
+}
+
+export interface PetInstance {
+  id: number;
+  name: string;
+  slotIndex: number; // 0, 1, 2 (max 3 pets)
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  dir: -1 | 1;
+  state: "stand0" | "move" | "jump" | "hang" | "rest0";
+  animTimer: number;
+  frame: number;
+  fh: Foothold | null;
+  targetX?: number;
+  targetY?: number;
+  lootCooldown?: number;
+  lastTex?: Tex | null;
+  lastFr?: PetFrame | null;
 }
 
 // World links and constants
@@ -214,6 +261,7 @@ export interface Portal {
   y: number;
   to: number;
   side: "left" | "right";
+  custom?: boolean;
 }
 
 export interface Stats {
@@ -251,4 +299,4 @@ export interface AutoSettings {
   magnet: boolean;
 }
 
-export type ChatKind = "system" | "exp" | "meso" | "level" | "notice" | "say" | "item";
+export type ChatKind = "system" | "exp" | "meso" | "level" | "notice" | "say" | "item" | "whisper" | "party" | "guild";

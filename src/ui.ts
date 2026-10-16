@@ -7,6 +7,7 @@ import { ChatComponent } from "./components/chat.ts";
 import { MinimapComponent } from "./components/minimap.ts";
 import { StatusCapsule, MenuButtons, PlayerStatusTag } from "./components/hud.ts";
 import { QuickBarComponent } from "./components/quick-bar.ts";
+import { GmOnlinePanel } from "./components/GmOnlinePanel.ts";
 import type { Action } from "./skills.ts";
 import { el, esc } from "./util.ts";
 
@@ -52,6 +53,7 @@ export class Hud extends ComponentBase {
   quick!: QuickBarComponent;
   chat!: ChatComponent;
   mini!: MinimapComponent;
+  gmPanel!: GmOnlinePanel;
   wins!: Windows;
   gain!: HTMLElement;
   noticeBanner!: HTMLElement;
@@ -81,7 +83,7 @@ export class Hud extends ComponentBase {
     this.root = el("div", "hud", document.body);
 
     // Floating Bottom Dock (Tailwind CSS exact match to MapleStory HUD)
-    this.dock = el("div", "dock fixed left-0 right-0 bottom-[12px] h-[34px] flex items-end justify-between px-2.5 pb-0.5 pointer-events-none select-none z-[12]", this.root);
+    this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] h-[34px] flex items-end justify-between px-2.5 pb-0.5 pointer-events-none select-none z-[12]", this.root);
     this.dockLeft = el("div", "dock-left pointer-events-auto flex items-end gap-2 min-w-0 mb-0.5", this.dock);
     this.dockCenter = el("div", "dock-center pointer-events-auto flex items-center justify-center gap-1.5 min-w-0", this.dock);
     this.dockRight = el("div", "dock-right pointer-events-auto flex flex-col items-end gap-0.5 min-w-0", this.dock);
@@ -137,6 +139,11 @@ export class Hud extends ComponentBase {
             iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
             onClick: () => this.wins.toggle(this.wins.autoWin),
           },
+          guide: {
+            title: "Game Guide & Codex (G)",
+            iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>`,
+            onClick: () => this.wins.toggle(this.wins.guideWin),
+          },
           mainMenu: {
             title: "Main Menu",
             iconSvg: `<svg viewBox="0 0 24 24" class="menu-svg"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`,
@@ -189,6 +196,15 @@ export class Hud extends ComponentBase {
     addEventListener("gm-broadcast-notice", (e: any) => {
       this.showNoticeBanner(e.detail?.text ?? "");
     });
+
+    // 8. GM Online Count & Player List with Quick Action Menu (WebGPU Collapsible Side Panel)
+    this.gmPanel = createUIEntity(
+      "GmOnlinePanel",
+      GmOnlinePanel,
+      { parent: document.body, game, wins: this.wins },
+      this.childEntities,
+      canOrillusion
+    );
 
     this.layout();
     addEventListener("resize", () => this.layout());
@@ -283,8 +299,8 @@ export class Hud extends ComponentBase {
   layout() {
     const W = innerWidth, H = innerHeight;
     const dockH = this.dock.offsetHeight || 34;
-    const expH = 12;
-    const above = expH + dockH + 6;
+    const expH = 8;
+    const above = expH + dockH + 3;
     this.root.style.setProperty("--dock-h", `${dockH}px`);
 
     // Chat sits bottom-left above dock
@@ -328,6 +344,7 @@ export class Hud extends ComponentBase {
     this.wins.update(dt);
     this.mini.updatePlayer(p.x, p.y, g.remotePlayers);
     this.quick.render();
+    this.gmPanel?.update(dt);
   }
 
   public override start(): void {
@@ -345,6 +362,7 @@ export class Hud extends ComponentBase {
 
   public override destroy(force?: boolean): void {
     super.destroy(force);
+    this.gmPanel?.destroy(force);
     for (const child of this.childEntities) {
       child.destroy(force);
     }
