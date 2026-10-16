@@ -1,7 +1,7 @@
-// GM Control Panel & Online Status Monitor using dat.gui
 import { GUI } from "dat.gui";
 import type { Game } from "../game.ts";
 import { PartyClient } from "../party.ts";
+import { setUiMode, getUiMode, type UiMode } from "../systems/ui-mode.ts";
 
 export interface OnlinePlayerItem {
   id: string;
@@ -42,6 +42,7 @@ export class GmDatGui {
   private cheatsFolder!: GUI;
   private worldFolder!: GUI;
   private combatFolder!: GUI;
+  private uiFolder!: GUI;
 
   private onlinePlayers: OnlinePlayerItem[] = [];
   private playerDropdownController: any = null;
@@ -49,6 +50,9 @@ export class GmDatGui {
   private isVisible = true;
 
   public params = {
+    // UI Mode
+    uiMode: getUiMode(),
+
     // Online status
     onlineStatus: "ACTIVE",
     onlineCount: 1,
@@ -241,6 +245,22 @@ export class GmDatGui {
         g.onChat("notice", `[GM] Teleported to (${g.p.x}, ${g.p.y}).`);
       }
     }, "warpCoords").name("🎯 Warp To Coords");
+
+    // ── 5. Interface & UI Style ──────────────────────────────
+    this.uiFolder = this.gui.addFolder("🖥️ Interface & UI Style");
+    this.uiFolder.add(this.params, "uiMode", ["new", "old"]).name("UI Version").onChange((val: "new" | "old") => {
+      setUiMode(val);
+      g.onChat("notice", `★ [UI Mode] Switched to ${val.toUpperCase()} UI (${val === "new" ? "WebGPU Canvas WZ HUD" : "Classic Modern DOM HUD"}). Hotkey: F2.`);
+    });
+    this.uiFolder.add({
+      toggleUi: () => {
+        const next = this.params.uiMode === "new" ? "old" : "new";
+        this.params.uiMode = next;
+        setUiMode(next);
+        g.onChat("notice", `★ [UI Mode] Switched to ${next.toUpperCase()} UI (${next === "new" ? "WebGPU Canvas WZ HUD" : "Classic Modern DOM HUD"}).`);
+      }
+    }, "toggleUi").name("⚡ Toggle UI (F2)");
+    this.uiFolder.open();
   }
 
   public toggle() {

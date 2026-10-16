@@ -12,6 +12,7 @@ import { AuthUI } from "./components/AuthUI";
 import { spacetime, type SpacetimeCharacter } from "./spacetimedb";
 import { StatsManager } from "./systems/stats-manager.ts";
 import { GmDatGui } from "./components/GmDatGui.ts";
+import { setUiMode, getUiMode, type UiMode } from "./systems/ui-mode.ts";
 
 let root: HTMLElement | null = null;
 let statsMgr: StatsManager = new StatsManager();
@@ -175,8 +176,13 @@ addEventListener("keydown", (e: KeyboardEvent) => {
     else if (k === "m") hud.toggleMinimap();
     else if (k === "'") hud.toggleChatMinimize();
     else if (k === "]") hud.toggleQuickSlots();
-    else if (k === "F1" || k === "f1" || k === "F2" || k === "f2" || k === "\\") {
+    else if (k === "F1" || k === "f1" || k === "\\") {
       if (game.isGm()) w.toggle(w.debugWin);
+    }
+    else if (k === "F2" || k === "f2") {
+      const nextMode = game.uiMode === "new" ? "old" : "new";
+      setUiMode(nextMode);
+      game.onChat("notice", `★ [UI Mode] Switched to ${nextMode.toUpperCase()} UI (${nextMode === "new" ? "WebGPU Canvas WZ HUD" : "Classic Modern DOM HUD"}).`);
     }
   }
   if (!game.keys.has(k)) game.pressed.add(k);

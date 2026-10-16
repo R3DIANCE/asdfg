@@ -320,13 +320,32 @@ button, a, select, [role="button"],
   right: 0;
   bottom: 18px;
   min-height: 64px;
-  display: flex !important;
+  display: flex;
   align-items: flex-end;
   justify-content: space-between;
   padding: 0 12px 2px 12px;
   pointer-events: none;
   user-select: none;
   z-index: 12;
+}
+
+/* ---------- UI Mode Switcher (New WebGPU Canvas vs Old DOM Tailwind) ---------- */
+body.ui-mode-new .dock,
+body.ui-mode-new .ms-screen-exp-bar,
+body.ui-mode-new .gm-online-container {
+  display: none !important;
+}
+
+body.ui-mode-old .dock {
+  display: flex !important;
+}
+
+body.ui-mode-old .ms-screen-exp-bar {
+  display: flex !important;
+}
+
+body.ui-mode-old .gm-online-container {
+  display: block !important;
 }
 .dock-left, .dock-center, .dock-right { pointer-events: auto; }
 .dock-right {

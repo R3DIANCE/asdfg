@@ -114,14 +114,13 @@ export class StatusCapsule extends ComponentBase {
     this.mpPctText = el("span", "ms-mp-pct text-cyan-100 text-[8.5px]", mpOverlay);
     this.mpPctText.textContent = "100%";
 
-    // 3. Screen Bottom Translucent EXP Bar (Hidden in favor of WebGPU Canvas EXP bar)
+    // 3. Screen Bottom Translucent EXP Bar (Governed by UI Mode)
     document.querySelectorAll(".ms-screen-exp-bar").forEach((e) => e.remove());
     this.expBarRoot = el(
       "div",
-      "ms-screen-exp-bar fixed left-0 right-0 bottom-0 h-4 bg-slate-950/85 backdrop-blur-[10px] border-t border-white/10 z-[20] pointer-events-auto flex items-center justify-center select-none overflow-hidden cursor-default shadow-lg hidden",
+      "ms-screen-exp-bar fixed left-0 right-0 bottom-0 h-4 bg-slate-950/85 backdrop-blur-[10px] border-t border-white/10 z-[20] pointer-events-auto flex items-center justify-center select-none overflow-hidden cursor-default shadow-lg",
       document.body
     );
-    this.expBarRoot.style.display = "none";
     this.expFill = el(
       "div",
       "ms-exp-fill absolute left-0 top-0 bottom-0 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 transition-all duration-300 shadow-[0_0_12px_rgba(52,211,153,0.4)]",

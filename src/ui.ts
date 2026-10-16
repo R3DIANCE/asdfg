@@ -74,9 +74,8 @@ export class Hud extends ComponentBase {
 
     this.root = el("div", "hud", document.body);
 
-    // Floating Bottom Dock (Hidden in favor of unified WebGPU Canvas HUD rendered via WebGpuMenuInput)
-    this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] min-h-[64px] flex items-end justify-between px-3 pb-0.5 pointer-events-none select-none z-[12] hidden", this.root);
-    this.dock.style.display = "none";
+    // Floating Bottom Dock (Governed dynamically by UI Mode)
+    this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] min-h-[64px] flex items-end justify-between px-3 pb-0.5 pointer-events-none select-none z-[12]", this.root);
     this.dockLeft = el("div", "dock-left pointer-events-auto flex items-end gap-2 min-w-0 mb-0.5", this.dock);
     this.dockCenter = el("div", "dock-center pointer-events-auto flex items-center justify-center gap-2 min-w-0", this.dock);
     this.dockRight = el("div", "dock-right pointer-events-auto flex flex-col items-end gap-1 min-w-0", this.dock);

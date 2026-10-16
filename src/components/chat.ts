@@ -9,6 +9,7 @@ import { ITEMS } from "../skills.ts";
 import { renderGearTooltip, renderUseTooltip, renderMatTooltip } from "../tooltip.ts";
 import { PartyClient } from "../party.ts";
 import { DAMAGE_SKIN_PRESETS } from "../systems/damage-skin-system.ts";
+import { setUiMode, type UiMode } from "../systems/ui-mode.ts";
 
 export type ChatFilter = "all" | "say" | "party" | "guild" | "whisper" | "notice";
 
@@ -287,6 +288,16 @@ export class ChatComponent extends ComponentBase {
           } else if (cmd === "/gmoff" || cmd === "/deop" || cmd === "/gm off") {
             this.game.setGm(false);
             this.game.onChat("system", "[GM] GameMaster privileges relinquished. Operating as regular player.");
+          } else if (cmd === "/uimode" || cmd === "/ui" || cmd === "/switchui") {
+            const next = this.game.uiMode === "new" ? "old" : "new";
+            setUiMode(next);
+            this.game.onChat("notice", `★ [UI Mode] Switched to ${next.toUpperCase()} UI (${next === "new" ? "WebGPU Canvas WZ HUD" : "Classic Modern DOM HUD"}). Press F2 to toggle anytime.`);
+          } else if (cmd === "/uimode new" || cmd === "/ui new") {
+            setUiMode("new");
+            this.game.onChat("notice", "★ [UI Mode] Switched to NEW UI (WebGPU Canvas WZ HUD).");
+          } else if (cmd === "/uimode old" || cmd === "/ui old") {
+            setUiMode("old");
+            this.game.onChat("notice", "★ [UI Mode] Switched to OLD UI (Classic Modern DOM HUD).");
           } else if (cmd === "/gmonline" || cmd === "/roster" || cmd === "/players") {
             const gmTab = document.querySelector(".gm-collapse-tab") as HTMLElement;
             gmTab?.click();

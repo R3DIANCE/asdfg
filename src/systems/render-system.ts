@@ -670,6 +670,18 @@ export class WebGpuMenuInput {
     this.installed = true;
 
     window.addEventListener("pointermove", (e: PointerEvent) => {
+      if (game.uiMode === "old") {
+        this.hoveredQuickKey = null;
+        this.hoveredAutoBtn = null;
+        this.hoveredBtnId = null;
+        this.hoveredSubmenuItem = null;
+        this.hoveredHp = false;
+        this.hoveredMp = false;
+        this.hoveredLevel = false;
+        this.hoveredExp = false;
+        this.activeTooltip = null;
+        return;
+      }
       const rect = canvas.getBoundingClientRect();
       this.mouseX = Math.round(e.clientX - rect.left);
       this.mouseY = Math.round(e.clientY - rect.top);
@@ -700,7 +712,7 @@ export class WebGpuMenuInput {
     });
 
     window.addEventListener("pointerdown", (e: PointerEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || game.uiMode === "old") return;
       this.isDown = true;
       this.downStartX = this.mouseX;
       this.downStartY = this.mouseY;
@@ -715,7 +727,7 @@ export class WebGpuMenuInput {
     });
 
     window.addEventListener("pointerup", (e: PointerEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || game.uiMode === "old") return;
       this.isDown = false;
 
       if (this.isDragging) {
@@ -754,6 +766,7 @@ export class WebGpuMenuInput {
     });
 
     canvas.addEventListener("contextmenu", (e: MouseEvent) => {
+      if (game.uiMode === "old") return;
       if (this.hoveredQuickKey && game.quick[this.hoveredQuickKey]) {
         e.preventDefault();
         delete game.quick[this.hoveredQuickKey];
@@ -763,6 +776,7 @@ export class WebGpuMenuInput {
   }
 
   static handleClick(game: Game) {
+    if (game.uiMode === "old") return;
     let win = (game as any).hud?.wins ?? (game as any).windows ?? (window as any).__windows ?? (window as any).__game?.hud?.wins;
     if (win && typeof win.toggle !== "function" && win.wins) {
       win = win.wins;
@@ -1047,12 +1061,14 @@ export class WorldRenderer {
     if (game.fade > 0) r.rect(0, 0, r.width, r.height, [0, 0, 0, game.fade]);
     if (game.loadingMap) r.rect(0, 0, r.width, r.height, [0, 0, 0, 1]);
 
-    // Unified WebGPU HUD rendered via WebGpuMenuInput with consistent theme across all panels
-    WorldRenderer.drawHpMpPanel(game);
-    WorldRenderer.drawExpBar(game);
-    WorldRenderer.drawMenuButtons(game);
-    WorldRenderer.drawQuickBar(game);
-    WorldRenderer.drawHudTooltips(game);
+    // Unified WebGPU HUD rendered via WebGpuMenuInput with consistent theme across all panels (when uiMode !== "old")
+    if (game.uiMode !== "old") {
+      WorldRenderer.drawHpMpPanel(game);
+      WorldRenderer.drawExpBar(game);
+      WorldRenderer.drawMenuButtons(game);
+      WorldRenderer.drawQuickBar(game);
+      WorldRenderer.drawHudTooltips(game);
+    }
 
     r.end();
   }

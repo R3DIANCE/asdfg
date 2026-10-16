@@ -14,6 +14,7 @@ import { preloadIcon } from "./util.ts";
 import { type Guild, type GuildEmblem, GuildClient } from "./guild.ts";
 import { type Party, PartyClient } from "./party.ts";
 import { DamageSkinSystem, DAMAGE_SKIN_PRESETS } from "./systems/damage-skin-system.ts";
+import { getInitialUiMode, type UiMode } from "./systems/ui-mode.ts";
 export * from "./game-types.ts";
 import {
   type Back,
@@ -116,6 +117,7 @@ export class Game extends ComponentBase {
   itemEffCache = new Map<number, ItemEffData | null>();
   activeItemEffs: ItemEffData[] = [];
   gt = emptyGt();
+  uiMode: UiMode = getInitialUiMode();
 
   spawnDrop(item: Partial<Drop>, x: number, y = this.p.y - 20, vx = rand(-40, 40), vy = -400) {
     const id = item.item ?? item.mat ?? item.gear?.id;
