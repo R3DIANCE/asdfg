@@ -212,12 +212,14 @@ export class StageSystem {
   ) {
     const rewards = r || game.unclaimedOffline;
     if (!rewards) return;
+    if (game.lastOfflineClaimAt && (Date.now() - game.lastOfflineClaimAt < 1000)) return;
 
     // Enforce single claim: clear the accumulated pool immediately
     game.unclaimedOffline = null;
     try {
       const charKey = game.stats.name ? `maple-offline-unclaimed-${game.stats.name}` : "maple-offline-unclaimed";
       localStorage.removeItem(charKey);
+      localStorage.removeItem("maple-offline-unclaimed");
     } catch {}
 
     game.stats.meso += Math.round(rewards.meso * mult);
@@ -232,5 +234,8 @@ export class StageSystem {
     game.onGain?.("meso", `Claimed ${Math.round(rewards.meso * mult).toLocaleString()} mesos & ${Math.round(rewards.exp * mult).toLocaleString()} EXP from offline hunting!`);
     game.onChat("notice", `★ [Welcome Back] Claimed offline rewards: ${rewards.kills} monsters defeated, ${Math.round(rewards.exp * mult).toLocaleString()} EXP, ${Math.round(rewards.meso * mult).toLocaleString()} Mesos!`);
     game.onChange();
+    if (typeof (game as any).persist === "function") {
+      try { (game as any).persist(); } catch {}
+    }
   }
 }

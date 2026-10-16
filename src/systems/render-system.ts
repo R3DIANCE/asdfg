@@ -13,7 +13,7 @@ import {
   DEFAULT_LOOK,
   expToLevel,
 } from "../game-types.ts";
-import { itemIconRaw } from "../skills.ts";
+import { itemIcon, itemIconRaw, QUICK_KEYS, KEY_LABEL, WEAPON_ICON, SKILL, ITEMS } from "../skills.ts";
 import { PetSystem } from "./pet-system.ts";
 import { type GuildEmblem, EMBLEM_COLORS, guildEmblemUrl } from "../guild.ts";
 import { getWeaponType } from "../items.ts";
@@ -21,6 +21,58 @@ import { DamageSkinSystem } from "./damage-skin-system.ts";
 
 const textTexCache = new Map<string, Tex>();
 const textTexPending = new Set<string>();
+
+export function renderLabelTexture(r: Renderer, text: string, fontSize = 8, color = "#d2d8e1"): Tex | null {
+  const key = `label:${text}:${fontSize}:${color}`;
+  const hit = textTexCache.get(key);
+  if (hit) return hit;
+  if (textTexPending.has(key)) return null;
+  textTexPending.add(key);
+
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      textTexPending.delete(key);
+      return null;
+    }
+
+    ctx.font = `bold ${fontSize}px Tahoma, 'Segoe UI', Arial, sans-serif`;
+    const tm = ctx.measureText(text);
+    const tw = Math.ceil(tm.width);
+    const w = tw + 4;
+    const h = fontSize + 6;
+    canvas.width = w;
+    canvas.height = h;
+
+    ctx.font = `bold ${fontSize}px Tahoma, 'Segoe UI', Arial, sans-serif`;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.imageSmoothingEnabled = false;
+
+    // Crisp text outline
+    ctx.fillStyle = "#000000";
+    ctx.fillText(text, w / 2 - 1, h / 2);
+    ctx.fillText(text, w / 2 + 1, h / 2);
+    ctx.fillText(text, w / 2, h / 2 - 1);
+    ctx.fillText(text, w / 2, h / 2 + 1);
+
+    ctx.fillStyle = color;
+    ctx.fillText(text, w / 2, h / 2);
+
+    createImageBitmap(canvas).then((bmp) => {
+      const tex = r.texture(bmp);
+      textTexCache.set(key, tex);
+      textTexPending.delete(key);
+    }).catch(() => {
+      textTexPending.delete(key);
+    });
+  } catch {
+    textTexPending.delete(key);
+  }
+
+  return null;
+}
 
 const balloonSlices: Record<string, HTMLImageElement> = {};
 let balloonSlicesLoaded = false;
@@ -464,6 +516,13 @@ export const MENU_UI = {
   },
 };
 
+export const QUICK_UI = {
+  backgrnd: "/wz/sprite/UI/StatusBar3/mainBar/quickSlot/backgrnd",
+  cover: "/wz/sprite/UI/StatusBar3/mainBar/quickSlot/layer:cover",
+  selected: "/wz/sprite/UI/StatusBar3/mainBar/quickSlot/selected/0",
+  fold: "/wz/sprite/UI/StatusBar3/mainBar/quickSlot/button:Fold/normal/0",
+};
+
 export class WebGpuMenuInput {
   static mouseX = -1;
   static mouseY = -1;
@@ -471,6 +530,8 @@ export class WebGpuMenuInput {
   static hoveredBtnId: string | null = null;
   static activeSubmenu: string | null = null;
   static hoveredSubmenuItem: string | null = null;
+  static hoveredQuickKey: string | null = null;
+  static hoveredAutoBtn: "battle" | "boss" | null = null;
   static installed = false;
 
   static install(canvas: HTMLCanvasElement, game: Game) {
@@ -493,12 +554,40 @@ export class WebGpuMenuInput {
       this.isDown = false;
       this.handleClick(game);
     });
+
+    canvas.addEventListener("contextmenu", (e: MouseEvent) => {
+      if (this.hoveredQuickKey && game.quick[this.hoveredQuickKey]) {
+        e.preventDefault();
+        delete game.quick[this.hoveredQuickKey];
+        game.onChange();
+      }
+    });
   }
 
   static handleClick(game: Game) {
     let win = (game as any).hud?.wins ?? (game as any).windows ?? (window as any).__windows ?? (window as any).__game?.hud?.wins;
     if (win && typeof win.toggle !== "function" && win.wins) {
       win = win.wins;
+    }
+
+    if (this.hoveredAutoBtn === "battle") {
+      game.auto.battle = !game.auto.battle;
+      game.onChat("notice", game.auto.battle ? "Auto Combat is ON" : "Auto Combat is OFF");
+      game.onChange();
+      return;
+    }
+
+    if (this.hoveredAutoBtn === "boss") {
+      game.auto.boss = !game.auto.boss;
+      game.onChat("notice", game.auto.boss ? "Auto Boss is ON. Stage boss will be challenged automatically." : "Auto Boss is OFF.");
+      game.onChange();
+      return;
+    }
+
+    if (this.hoveredQuickKey) {
+      const a = game.quick[this.hoveredQuickKey];
+      if (a) game.useAction(a);
+      return;
     }
 
     if (this.hoveredSubmenuItem) {
@@ -753,10 +842,11 @@ export class WorldRenderer {
     if (game.fade > 0) r.rect(0, 0, r.width, r.height, [0, 0, 0, game.fade]);
     if (game.loadingMap) r.rect(0, 0, r.width, r.height, [0, 0, 0, 1]);
 
-    // WebGPU UI: Draw HP/MP status panel, EXP bar, and menu buttons directly from authentic .wz assets
+    // WebGPU UI: Draw HP/MP status panel, EXP bar, menu buttons, and quickbar directly from authentic .wz assets
     WorldRenderer.drawHpMpPanel(game);
     WorldRenderer.drawExpBar(game);
     WorldRenderer.drawMenuButtons(game);
+    WorldRenderer.drawQuickBar(game);
 
     r.end();
   }
@@ -765,18 +855,12 @@ export class WorldRenderer {
     if (!game.stats || game.loadingMap) return;
     const r = game.r;
 
-    // Anchor with .ms-hud-center DOM element if present, otherwise bottom center
+    // Center bottom layout directly above the authentic WZ EXP bar
     const totalW = 424;
-    const centerEl = typeof document !== "undefined" ? document.querySelector(".ms-hud-center") : null;
-    const rect = centerEl?.getBoundingClientRect();
     const panelW = 204;
     const panelH = 70;
-    const x = (rect && rect.width > 0)
-      ? Math.round(rect.left + (rect.width - totalW) / 2)
-      : Math.round((r.width - totalW) / 2);
-    const y = (rect && rect.height > 0)
-      ? Math.round(rect.top + (rect.height - panelH) / 2)
-      : Math.round(r.height - panelH - 18);
+    const x = Math.round((r.width - totalW) / 2);
+    const y = Math.round(r.height - panelH - 10);
 
     // 1. Panel Background
     const bgTex = game.assets.get(STATUS_UI.backgrnd);
@@ -858,46 +942,16 @@ export class WorldRenderer {
       }
     }
 
-    // 6. Character Avatar & Character Name (centered in panel header next to level)
+    // 6. Character Name (cleanly centered in panel header next to level, NO player avatar sprite)
     const charName = (game.stats.name || "Wayfarer").trim();
     const nameTex = renderPlayerNameTexture(r, charName);
     const nameW = nameTex ? nameTex.w : (charName.length * 7);
 
-    // Authentic character stand sprite
-    const charLook = (game.look && game.look.length) ? game.look : DEFAULT_LOOK;
-    const charAnim = "stand1";
-    const charFrame = Math.floor((game.time * 2) % 3);
-    const charUrl = charUrlFor(charLook, charAnim, charFrame);
-    const charTex = game.assets.get(charUrl)
-      ?? game.assets.get(charUrlFor(charLook, "stand1", 0))
-      ?? game.lastPlayerTex;
-    if (!game.assets.get(charUrl)) {
-      game.assets.load(charUrl);
-    }
-
-    const hasCharSprite = Boolean(charTex);
-    const iconW = 16;
-    const iconH = 20;
-    const gap = 4;
-    const totalClusterW = (hasCharSprite ? (iconW + gap) : 0) + nameW;
-
-    // Center cluster between level number end and panel right boundary (x + 196)
+    // Center name between level number end and panel right boundary (x + 196)
     const areaStart = curLvX + 6;
     const areaEnd = x + 196;
     const areaCenter = Math.round((areaStart + areaEnd) / 2);
-    const clusterX = Math.max(areaStart, Math.round(areaCenter - totalClusterW / 2));
-    let drawItemX = clusterX;
-
-    // Draw mini character standing avatar
-    if (hasCharSprite && charTex) {
-      r.draw(charTex, drawItemX, y + 2, iconW, iconH, {
-        sx: 168,
-        sy: 190,
-        sw: 40,
-        sh: 62,
-      });
-      drawItemX += iconW + gap;
-    }
+    const drawItemX = Math.max(areaStart, Math.round(areaCenter - nameW / 2));
 
     // Draw Character Name
     if (nameTex) {
@@ -1108,16 +1162,10 @@ export class WorldRenderer {
     const r = game.r;
     if (r.canvas) WebGpuMenuInput.install(r.canvas, game);
 
-    // Anchor aligned with HP/MP status panel
+    // Anchor aligned with HP/MP status panel directly above authentic EXP bar
     const totalW = 424;
-    const centerEl = typeof document !== "undefined" ? document.querySelector(".ms-hud-center") : null;
-    const rect = centerEl?.getBoundingClientRect();
-    const x = (rect && rect.width > 0)
-      ? Math.round(rect.left + (rect.width - totalW) / 2)
-      : Math.round((r.width - totalW) / 2);
-    const y = (rect && rect.height > 0)
-      ? Math.round(rect.top + (rect.height - 70) / 2)
-      : Math.round(r.height - 70 - 18);
+    const x = Math.round((r.width - totalW) / 2);
+    const y = Math.round(r.height - 70 - 10);
 
     const menuX = x + 214;
     const menuY = y + 24;
@@ -1217,10 +1265,187 @@ export class WorldRenderer {
 
     // Set cursor style
     if (r.canvas) {
-      if (anyHovered) {
+      if (anyHovered || WebGpuMenuInput.hoveredQuickKey || WebGpuMenuInput.hoveredAutoBtn) {
         r.canvas.style.cursor = "pointer";
       } else if (r.canvas.style.cursor === "pointer") {
         r.canvas.style.cursor = "default";
+      }
+    }
+  }
+
+  public static drawQuickBar(game: Game) {
+    if (!game.stats || game.loadingMap) return;
+    const r = game.r;
+
+    const qsW = 562;
+    const qsH = 73;
+    const qsX = Math.round(r.width - qsW - 4);
+    const qsY = Math.round(r.height - 10 - qsH + 2);
+
+    // 1. QuickSlot Background
+    const bgTex = game.assets.get(QUICK_UI.backgrnd);
+    if (bgTex) {
+      r.draw(bgTex, qsX + 2, qsY + 3, 557, 67);
+    } else {
+      game.assets.load(QUICK_UI.backgrnd);
+    }
+
+    const mx = WebGpuMenuInput.mouseX;
+    const my = WebGpuMenuInput.mouseY;
+    WebGpuMenuInput.hoveredQuickKey = null;
+
+    // 2. Draw QuickSlot Grid (16 columns x 2 rows)
+    const row0Keys = QUICK_KEYS.slice(0, 16);
+    const row1Keys = QUICK_KEYS.slice(16, 32);
+
+    for (let row = 0; row < 2; row++) {
+      const keys = row === 0 ? row0Keys : row1Keys;
+      const sy = qsY + 5 + row * 32;
+
+      for (let col = 0; col < 16; col++) {
+        const k = keys[col];
+        const sx = qsX + 11 + col * 34;
+
+        const isHover = mx >= sx && mx < sx + 34 && my >= sy && my < sy + 30;
+        if (isHover) {
+          WebGpuMenuInput.hoveredQuickKey = k;
+          const selTex = game.assets.get(QUICK_UI.selected);
+          if (selTex) {
+            r.draw(selTex, sx - 1, sy - 1, 36, 32);
+          } else {
+            game.assets.load(QUICK_UI.selected);
+            r.rect(sx, sy, 34, 30, [1, 1, 1, 0.25]);
+          }
+        }
+
+        // Draw Key Label in top-left
+        const label = KEY_LABEL[k] || k;
+        const lblTex = renderLabelTexture(r, label, 8, "#d2d8e1");
+        if (lblTex) {
+          r.draw(lblTex, sx + 2, sy + 2, lblTex.w, lblTex.h);
+        }
+
+        // Draw Action (skill, item, attack)
+        const a = game.quick[k];
+        if (a) {
+          let iconUrl = "";
+          if (a.t === "attack") {
+            iconUrl = WEAPON_ICON;
+          } else if (a.t === "item") {
+            iconUrl = itemIcon(a.id);
+          } else if (a.t === "skill") {
+            iconUrl = game.skillArt[a.id]?.icon?.url || `/wz/skill/${a.id}/icon`;
+          }
+
+          if (iconUrl) {
+            const iconTex = game.assets.get(iconUrl);
+            if (iconTex) {
+              r.draw(iconTex, sx + 5, sy + 3, 24, 24);
+            } else {
+              game.assets.load(iconUrl);
+            }
+          }
+
+          // If item, draw count
+          if (a.t === "item") {
+            const count = game.inv[a.id] ?? 0;
+            if (count > 0) {
+              const cntTex = renderLabelTexture(r, String(count), 8, "#ffffff");
+              if (cntTex) {
+                r.draw(cntTex, sx + 33 - cntTex.w, sy + 20, cntTex.w, cntTex.h);
+              }
+            }
+          }
+
+          // If skill, draw cooldown overlay
+          if (a.t === "skill") {
+            const cd = game.skillCd[a.id];
+            if (cd && cd.left > 0) {
+              r.rect(sx, sy, 34, 30, [0, 0, 0, 0.65]);
+              const sec = Math.ceil(cd.left);
+              const cdTex = renderLabelTexture(r, `${sec}s`, 9, "#ffdd55");
+              if (cdTex) {
+                r.draw(cdTex, Math.round(sx + (34 - cdTex.w) / 2), Math.round(sy + (30 - cdTex.h) / 2), cdTex.w, cdTex.h);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. QuickSlot Bezel Cover
+    const coverTex = game.assets.get(QUICK_UI.cover);
+    if (coverTex) {
+      r.draw(coverTex, qsX, qsY, 562, 73);
+    } else {
+      game.assets.load(QUICK_UI.cover);
+    }
+
+    // 4. Auto Combat & Auto Boss Buttons directly above QuickSlots
+    const abY = qsY - 22;
+
+    // Auto Combat
+    const abX = qsX + 336;
+    const abW = 106;
+    const abH = 20;
+    const isAbHover = mx >= abX && mx < abX + abW && my >= abY && my < abY + abH;
+    if (isAbHover) WebGpuMenuInput.hoveredAutoBtn = "battle";
+
+    r.rect(abX, abY, abW, abH, game.auto.battle ? [0.1, 0.28, 0.18, 0.9] : [0.12, 0.16, 0.22, 0.85]);
+    r.rect(abX, abY, abW, 1, isAbHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+    r.rect(abX, abY + abH - 1, abW, 1, isAbHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+    r.rect(abX, abY, 1, abH, isAbHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+    r.rect(abX + abW - 1, abY, 1, abH, isAbHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+
+    r.rect(abX + 8, abY + 7, 6, 6, game.auto.battle ? [0.2, 0.9, 0.4, 1] : [0.6, 0.2, 0.2, 0.8]);
+    const abLabel = renderLabelTexture(r, "AUTO COMBAT", 9, game.auto.battle ? "#4ade80" : "#94a3b8");
+    if (abLabel) r.draw(abLabel, abX + 18, abY + 5, abLabel.w, abLabel.h);
+
+    // Auto Boss
+    const bossX = qsX + 448;
+    const bossW = 100;
+    const bossH = 20;
+    const isBossHover = mx >= bossX && mx < bossX + bossW && my >= abY && my < abY + bossH;
+    if (isBossHover) WebGpuMenuInput.hoveredAutoBtn = "boss";
+
+    r.rect(bossX, abY, bossW, bossH, game.auto.boss ? [0.1, 0.28, 0.18, 0.9] : [0.12, 0.16, 0.22, 0.85]);
+    r.rect(bossX, abY, bossW, 1, isBossHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+    r.rect(bossX, abY + bossH - 1, bossW, 1, isBossHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+    r.rect(bossX, abY, 1, bossH, isBossHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+    r.rect(bossX + bossW - 1, abY, 1, bossH, isBossHover ? [0.3, 0.8, 0.5, 0.9] : [0.35, 0.45, 0.55, 0.6]);
+
+    r.rect(bossX + 8, abY + 7, 6, 6, game.auto.boss ? [0.2, 0.9, 0.4, 1] : [0.6, 0.2, 0.2, 0.8]);
+    const bossLabel = renderLabelTexture(r, "AUTO BOSS", 9, game.auto.boss ? "#4ade80" : "#94a3b8");
+    if (bossLabel) r.draw(bossLabel, bossX + 18, abY + 5, bossLabel.w, bossLabel.h);
+
+    if (!isAbHover && !isBossHover && !WebGpuMenuInput.hoveredBtnId && !WebGpuMenuInput.hoveredSubmenuItem && !WebGpuMenuInput.hoveredQuickKey) {
+      WebGpuMenuInput.hoveredAutoBtn = null;
+    }
+
+    // 5. Tooltip on hovered QuickSlot
+    if (WebGpuMenuInput.hoveredQuickKey) {
+      const a = game.quick[WebGpuMenuInput.hoveredQuickKey];
+      if (a) {
+        let title = "";
+        if (a.t === "attack") title = "Regular Attack";
+        else if (a.t === "item") title = ITEMS[a.id]?.name || `Item ${a.id}`;
+        else if (a.t === "skill") title = game.skillArt[a.id]?.name || `Skill ${a.id}`;
+
+        if (title) {
+          const tipTex = renderLabelTexture(r, title, 10, "#ffffff");
+          if (tipTex) {
+            const tipW = tipTex.w + 12;
+            const tipH = 18;
+            const tx = Math.max(10, Math.min(r.width - tipW - 10, mx - tipW / 2));
+            const ty = my - 24;
+            r.rect(tx, ty, tipW, tipH, [0.06, 0.09, 0.14, 0.92]);
+            r.rect(tx, ty, tipW, 1, [0.4, 0.5, 0.65, 0.7]);
+            r.rect(tx, ty + tipH - 1, tipW, 1, [0.4, 0.5, 0.65, 0.7]);
+            r.rect(tx, ty, 1, tipH, [0.4, 0.5, 0.65, 0.7]);
+            r.rect(tx + tipW - 1, ty, 1, tipH, [0.4, 0.5, 0.65, 0.7]);
+            r.draw(tipTex, tx + 6, ty + 4, tipTex.w, tipTex.h);
+          }
+        }
       }
     }
   }

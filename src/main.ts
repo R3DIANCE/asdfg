@@ -413,7 +413,7 @@ async function start(char?: SpacetimeCharacter) {
   }
 
   // Accumulate offline hunting progress across logout/login and prompt Welcome Back
-  const savedTimestamp = localSaved?.savedAt || (char?.stats?.fullSave?.savedAt as number) || 0;
+  const savedTimestamp = localSaved?.lastLogoutAt || localSaved?.savedAt || (char?.stats?.fullSave?.lastLogoutAt as number) || (char?.stats?.fullSave?.savedAt as number) || 0;
   game.offlineRewards(savedTimestamp);
 
   game.ah.refresh(Date.now());

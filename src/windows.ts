@@ -277,10 +277,25 @@ export class Windows {
         if (!dragging) { onClick?.(); return; }
         this.ghost?.remove(); this.ghost = null;
         if (fromKey) e.classList.remove("dragging");
-        const target = (document.elementFromPoint(u.clientX, u.clientY) as HTMLElement | null)?.closest<HTMLElement>(".slot[data-key]");
+        let to: string | null = (document.elementFromPoint(u.clientX, u.clientY) as HTMLElement | null)?.closest<HTMLElement>(".slot[data-key]")?.dataset?.key ?? null;
+        if (!to && this.game.r?.canvas) {
+          const rect = this.game.r.canvas.getBoundingClientRect();
+          const mx = Math.round(u.clientX - rect.left);
+          const my = Math.round(u.clientY - rect.top);
+          const qsW = 562;
+          const qsH = 73;
+          const qsX = Math.round(this.game.r.width - qsW - 4);
+          const qsY = Math.round(this.game.r.height - 10 - qsH + 2);
+          if (mx >= qsX + 11 && mx < qsX + 11 + 16 * 34 && my >= qsY + 5 && my < qsY + 5 + 64) {
+            const col = Math.floor((mx - (qsX + 11)) / 34);
+            const row = my < qsY + 36 ? 0 : 1;
+            if (col >= 0 && col < 16) {
+              to = row === 0 ? QUICK_KEYS[col] : QUICK_KEYS[16 + col];
+            }
+          }
+        }
         const q = this.game.quick;
-        if (target) {
-          const to = target.dataset.key!;
+        if (to) {
           if (fromKey) { const tmp = q[to] ?? null; q[to] = q[fromKey] ?? null; q[fromKey] = tmp; }
           else {
             // Placing an action that already exists elsewhere moves it (like the real client).

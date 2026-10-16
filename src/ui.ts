@@ -73,8 +73,9 @@ export class Hud extends ComponentBase {
 
     this.root = el("div", "hud", document.body);
 
-    // Floating Bottom Dock (Tailwind CSS exact match to MapleStory HUD)
+    // Floating Bottom Dock (Legacy HTML HUD suppressed in favor of pure WebGPU rendering)
     this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] min-h-[70px] flex items-end justify-between px-2.5 pb-0.5 pointer-events-none select-none z-[12]", this.root);
+    this.dock.style.display = "none";
     this.dockLeft = el("div", "dock-left pointer-events-auto flex items-end gap-2 min-w-0 mb-0.5", this.dock);
     this.dockCenter = el("div", "dock-center pointer-events-auto flex items-center justify-center gap-1.5 min-w-0", this.dock);
     this.dockRight = el("div", "dock-right pointer-events-auto flex flex-col items-end gap-0.5 min-w-0", this.dock);
@@ -86,7 +87,7 @@ export class Hud extends ComponentBase {
 
     // Center: Dual HP/MP Stacked Bars + Menu Buttons drawn via WebGPU directly from WZ
     this.status = createUIEntity("StatusCapsule", StatusCapsule, { parent: this.dockCenter }, this.childEntities, canOrillusion);
-    this.perfContainer = el("div", "dock-perf-container select-none pointer-events-none", this.status.root);
+    this.perfContainer = el("div", "dock-perf-container select-none pointer-events-none fixed top-2.5 right-4 z-50", this.root);
 
     // Right: Action Controls Header + Quick Slots Keyboard
     const ctrlRow = el("div", "dock-controls-row flex items-center justify-end w-full mb-1 px-0.5 gap-2", this.dockRight);
@@ -170,15 +171,11 @@ export class Hud extends ComponentBase {
   showDailyGift() {
     const g = this.game;
     if (!g) return;
-    const kills = Math.floor(1800 * 0.4);
-    this.wins.ext.showOffline({
-      seconds: 1800,
-      kills,
-      exp: kills * (15 + g.stats.level * 8),
-      meso: kills * (25 + g.stats.level * 10),
-      mats: { 4000000: 5 },
-      gear: [],
-    });
+    if (g.unclaimedOffline && (g.unclaimedOffline.kills > 0 || g.unclaimedOffline.seconds >= 60)) {
+      this.wins.ext.showOffline(g.unclaimedOffline);
+    } else {
+      g.onChat("notice", "★ [Welcome Back] No accumulated offline rewards right now. Offline rewards accumulate while logged out (up to 24h) and can be claimed when you log back in!");
+    }
   }
 
   expandChat() {
@@ -237,20 +234,17 @@ export class Hud extends ComponentBase {
 
   layout() {
     const W = innerWidth, H = innerHeight;
-    const dockH = this.dock.offsetHeight || 34;
-    const expH = 8;
-    const above = expH + dockH + 3;
-    this.root.style.setProperty("--dock-h", `${dockH}px`);
+    const above = 18;
+    this.root.style.setProperty("--dock-h", "0px");
 
-    // Chat sits bottom-left above dock
+    // Chat sits bottom-left above exp bar
     Object.assign(this.chat.root.style, { left: "8px", bottom: `${above}px` });
     this.chat.root.style.display = W >= 480 && H >= 360 ? "" : "none";
 
     // Minimap sits top-left
     Object.assign(this.mini.root.style, { left: "8px", top: "8px" });
 
-    const qr = this.quickWrap.getBoundingClientRect();
-    this.wins.layoutLogs(W, H, qr.width, expH, dockH);
+    this.wins.layoutLogs(W, H, 562, 10, 0);
     this.lastSig = "";
   }
 

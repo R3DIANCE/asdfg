@@ -313,18 +313,9 @@ button, a, select, [role="button"],
 ============================================================================ */
 .hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; font-size: 12px; }
 .spr { position: absolute; background-repeat: no-repeat; image-rendering: pixelated; }
-.nopoint { pointer-events: none; }/* ---------- Bottom dock (MapleSEA NEXT 2025 Floating HUD) ---------- */
+.nopoint { pointer-events: none; }/* ---------- Bottom dock (HTML HUD suppressed in favor of pure WebGPU rendering) ---------- */
 .dock {
-  position: fixed; left: 0; right: 0; bottom: 12px;
-  height: 44px;
-  display: flex; align-items: flex-end; justify-content: space-between;
-  padding: 0 10px 2px 10px;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  pointer-events: none; user-select: none; z-index: 12;
+  display: none !important;
 }
 .dock-left, .dock-center, .dock-right { pointer-events: auto; }
 .dock-right {
