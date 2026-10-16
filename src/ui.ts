@@ -14,23 +14,12 @@ import { el, esc } from "./util.ts";
 export type UiData = Record<string, any>;
 
 export function createUIEntity<T extends ComponentBase>(
-  name: string,
+  _name: string,
   comp: new (...args: any[]) => T,
   param: any,
-  container?: Object3D[],
-  canUseOrillusion = false
+  _container?: Object3D[],
+  _canUseOrillusion = false
 ): T {
-  if (canUseOrillusion) {
-    try {
-      const ent = new Object3D();
-      ent.name = name;
-      const instance = ent.addComponent(comp, param);
-      if (instance) {
-        if (container) container.push(ent);
-        return instance;
-      }
-    } catch {}
-  }
   const inst = new comp(param);
   if (typeof (inst as any).init === "function" && !(inst as any).root) {
     (inst as any).init(param);

@@ -2087,7 +2087,8 @@ export class Windows {
     if (guild) {
       if (this.guildTab === "create") this.guildTab = "members";
 
-      const myMember = guild.members.find((m) => m.name.toLowerCase() === myName.toLowerCase());
+      const membersList = Array.isArray(guild.members) ? guild.members : [];
+      const myMember = membersList.find((m) => m.name.toLowerCase() === myName.toLowerCase());
       const isMaster = myMember?.rank === 1 || guild.master.toLowerCase() === myName.toLowerCase();
       const isJrMaster = myMember?.rank === 2;
       const canManage = isMaster || isJrMaster;
@@ -2106,7 +2107,7 @@ export class Windows {
       let contentHtml = "";
 
       if (this.guildTab === "members") {
-        const sortedMembers = [...guild.members].sort((a, b) => a.rank - b.rank || b.contribution - a.contribution);
+        const sortedMembers = [...membersList].sort((a, b) => a.rank - b.rank || b.contribution - a.contribution);
         const rows = sortedMembers.map((m) => {
           const isSelf = m.name.toLowerCase() === myName.toLowerCase();
           const rankTitle = guild.ranks[m.rank - 1] ?? `Rank ${m.rank}`;
@@ -2265,23 +2266,26 @@ export class Windows {
         `;
       } else if (this.guildTab === "directory") {
         const query = this.guildDirectorySearch.toLowerCase().trim();
-        const filtered = this.guildCachedDirectory.filter((gItem) =>
-          !query || gItem.name.toLowerCase().includes(query) || gItem.master.toLowerCase().includes(query)
+        const filtered = (this.guildCachedDirectory || []).filter((gItem) =>
+          !query || (gItem.name || "").toLowerCase().includes(query) || (gItem.master || "").toLowerCase().includes(query)
         );
 
-        const dirRows = filtered.map((gItem) => `
+        const dirRows = filtered.map((gItem) => {
+          const mCount = Array.isArray(gItem.members) ? gItem.members.length : ((gItem as any).memberCount ?? 1);
+          return `
           <tr>
             <td class="w-9">${renderEmblemSvg(gItem.emblem, 22)}</td>
             <td class="font-bold text-white">${esc(gItem.name)}</td>
-            <td><span class="guild-level-badge">Lv. ${gItem.level}</span></td>
+            <td><span class="guild-level-badge">Lv. ${gItem.level ?? 1}</span></td>
             <td>${esc(gItem.master)}</td>
-            <td class="font-mono text-amber-300">${gItem.gp.toLocaleString()} GP</td>
-            <td>${gItem.members.length} / ${gItem.capacity}</td>
+            <td class="font-mono text-amber-300">${(gItem.gp ?? 0).toLocaleString()} GP</td>
+            <td>${mCount} / ${gItem.capacity ?? 20}</td>
             <td class="text-right">
               ${gItem.id === guild.id ? `<span class="text-emerald-400 font-bold text-[10px]">Current</span>` : ""}
             </td>
           </tr>
-        `).join("");
+        `;
+        }).join("");
 
         contentHtml = `
           <div class="flex-1 flex flex-col overflow-hidden">
@@ -2322,8 +2326,8 @@ export class Windows {
             </div>
             <div class="guild-sub-meta">
               <span>Master: <b class="text-white">${esc(guild.master)}</b></span>
-              <span>Guild Points: <b class="text-amber-300 font-mono">${guild.gp.toLocaleString()}</b></span>
-              <span>Members: <b class="text-white">${guild.members.length} / ${guild.capacity}</b></span>
+              <span>Guild Points: <b class="text-amber-300 font-mono">${(guild.gp ?? 0).toLocaleString()}</b></span>
+              <span>Members: <b class="text-white">${membersList.length} / ${guild.capacity ?? 20}</b></span>
             </div>
           </div>
         </div>
@@ -2431,23 +2435,26 @@ export class Windows {
         `;
       } else {
         const query = this.guildDirectorySearch.toLowerCase().trim();
-        const filtered = this.guildCachedDirectory.filter((gItem) =>
-          !query || gItem.name.toLowerCase().includes(query) || gItem.master.toLowerCase().includes(query)
+        const filtered = (this.guildCachedDirectory || []).filter((gItem) =>
+          !query || (gItem.name || "").toLowerCase().includes(query) || (gItem.master || "").toLowerCase().includes(query)
         );
 
-        const dirRows = filtered.map((gItem) => `
+        const dirRows = filtered.map((gItem) => {
+          const mCount = Array.isArray(gItem.members) ? gItem.members.length : ((gItem as any).memberCount ?? 1);
+          return `
           <tr>
             <td class="w-9">${renderEmblemSvg(gItem.emblem, 22)}</td>
             <td class="font-bold text-white">${esc(gItem.name)}</td>
-            <td><span class="guild-level-badge">Lv. ${gItem.level}</span></td>
+            <td><span class="guild-level-badge">Lv. ${gItem.level ?? 1}</span></td>
             <td>${esc(gItem.master)}</td>
-            <td class="font-mono text-amber-300">${gItem.gp.toLocaleString()} GP</td>
-            <td>${gItem.members.length} / ${gItem.capacity}</td>
+            <td class="font-mono text-amber-300">${(gItem.gp ?? 0).toLocaleString()} GP</td>
+            <td>${mCount} / ${gItem.capacity ?? 20}</td>
             <td class="text-right">
               <button type="button" class="guild-act-btn primary px-2 py-0.5 text-[10px]" data-guildact="join-guild" data-guild-id="${gItem.id}">Join</button>
             </td>
           </tr>
-        `).join("");
+        `;
+        }).join("");
 
         contentHtml = `
           <div class="flex-1 flex flex-col overflow-hidden">

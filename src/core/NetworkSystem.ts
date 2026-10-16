@@ -2,10 +2,59 @@
 import type { Game } from "../game.ts";
 import { charUrlFor, FREE_MARKET_MAP, type ChatKind } from "../game-types.ts";
 import { SKILL } from "../skills.ts";
+import { spacetime } from "../spacetimedb.ts";
 
 export class NetworkSystem {
+  private static isSamePlayerName(a?: string, b?: string): boolean {
+    const na = (a || "").trim().toLowerCase();
+    const nb = (b || "").trim().toLowerCase();
+    if (!na || !nb || na === "player" || /^p-[a-f0-9]{4}$/i.test(na)) return false;
+    return na === nb;
+  }
+
+  private static removeDuplicateRemoteByName(game: Game, name?: string, keepId?: string) {
+    if (!name) return;
+    for (const [existingId, existingPlayer] of [...game.remotePlayers.entries()]) {
+      if (existingId !== keepId && NetworkSystem.isSamePlayerName(existingPlayer.name, name)) {
+        game.remotePlayers.delete(existingId);
+      }
+    }
+  }
+
+  private static showSessionReplacedOverlay(game: Game, reason: string) {
+    if (typeof document === "undefined") return;
+    let overlay = document.getElementById("session-replaced-overlay");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "session-replaced-overlay";
+      overlay.style.cssText =
+        "position:fixed;inset:0;z-index:99999;background:rgba(8,10,18,0.82);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;font-family:Tahoma,Verdana,sans-serif;";
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `
+      <div style="background:linear-gradient(180deg,#23293a 0%,#151924 100%);border:2px solid #ffcc44;border-radius:10px;padding:24px 28px;max-width:400px;width:90%;color:#fff;box-shadow:0 12px 40px rgba(0,0,0,0.75);text-align:center;">
+        <div style="font-size:18px;font-weight:bold;color:#ffcc44;margin-bottom:10px;">Disconnected — Active Session Elsewhere</div>
+        <div style="font-size:13px;line-height:1.5;color:#d6deeb;margin-bottom:20px;">${reason}</div>
+        <div style="display:flex;gap:10px;justify-content:center;">
+          <button id="session-reconnect-btn" style="background:linear-gradient(180deg,#ffcc44,#e09b1b);color:#1b1300;border:1px solid #ffe599;border-radius:6px;padding:8px 16px;font-weight:bold;cursor:pointer;font-size:12px;">Reconnect Here</button>
+          <button id="session-switch-btn" style="background:#2b3248;color:#d6deeb;border:1px solid #4a5578;border-radius:6px;padding:8px 16px;font-weight:bold;cursor:pointer;font-size:12px;">Switch Account</button>
+        </div>
+      </div>
+    `;
+    overlay.querySelector("#session-reconnect-btn")?.addEventListener("click", () => {
+      overlay?.remove();
+      game.sessionReplaced = false;
+      NetworkSystem.initWs(game);
+    });
+    overlay.querySelector("#session-switch-btn")?.addEventListener("click", () => {
+      overlay?.remove();
+      try { spacetime.logout(); } catch {}
+      window.location.reload();
+    });
+  }
+
   static initWs(game: Game) {
-    if (!game.fullyLoaded) return;
+    if (!game.fullyLoaded || game.sessionReplaced) return;
     if (game.wsPingTimer) {
       clearInterval(game.wsPingTimer);
       game.wsPingTimer = null;
@@ -39,14 +88,18 @@ export class NetworkSystem {
         } catch {}
       };
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         if (game.wsPingTimer) {
           clearInterval(game.wsPingTimer);
           game.wsPingTimer = null;
         }
         game.ws = null;
+        if (game.sessionReplaced || ev.code === 4001) {
+          game.sessionReplaced = true;
+          return;
+        }
         setTimeout(() => {
-          if (!game.ws) NetworkSystem.initWs(game);
+          if (!game.ws && !game.sessionReplaced) NetworkSystem.initWs(game);
         }, 3000);
       };
 
@@ -64,6 +117,7 @@ export class NetworkSystem {
     if (!game.fullyLoaded || game.loadingMap || !game.ws || game.ws.readyState !== WebSocket.OPEN) return;
     game.ws.send(JSON.stringify({
       t: "join",
+      username: spacetime.currentUser || undefined,
       name: game.stats.name,
       mapId: game.map?.id || FREE_MARKET_MAP,
       x: Math.round(game.p.x),
@@ -76,13 +130,14 @@ export class NetworkSystem {
   }
 
   static syncAll(game: Game, forceReconnect = false) {
-    if (!game.fullyLoaded || game.loadingMap) return;
+    if (!game.fullyLoaded || game.loadingMap || game.sessionReplaced) return;
     if (forceReconnect || !game.ws || game.ws.readyState !== WebSocket.OPEN) {
       NetworkSystem.initWs(game);
       return;
     }
     game.ws.send(JSON.stringify({
       t: "sync",
+      username: spacetime.currentUser || undefined,
       name: game.stats.name,
       mapId: game.map?.id || FREE_MARKET_MAP,
       x: Math.round(game.p.x),
@@ -135,6 +190,22 @@ export class NetworkSystem {
 
   static handleWsMessage(game: Game, msg: any) {
     if (!msg || !msg.t) return;
+    if (msg.t === "session_replaced") {
+      game.sessionReplaced = true;
+      if (game.wsPingTimer) {
+        clearInterval(game.wsPingTimer);
+        game.wsPingTimer = null;
+      }
+      if (game.ws) {
+        try { game.ws.close(4001, "Session replaced"); } catch {}
+        game.ws = null;
+      }
+      game.remotePlayers.clear();
+      const reason = msg.reason || "Your account was logged in from another window or device.";
+      game.onChat("notice", `[System] ${reason}`);
+      NetworkSystem.showSessionReplacedOverlay(game, reason);
+      return;
+    }
     if (msg.t === "welcome") {
       game.wsId = msg.id;
       const current = (game.stats.name || "").trim();
@@ -159,22 +230,34 @@ export class NetworkSystem {
         game.stats.name = activeName;
         try { localStorage.setItem("ms_player_name", activeName); } catch {}
         if (game.ws && game.ws.readyState === WebSocket.OPEN) {
-          game.ws.send(JSON.stringify({ t: "name", name: activeName }));
+          game.ws.send(JSON.stringify({
+            t: "name",
+            name: activeName,
+            username: spacetime.currentUser || undefined,
+          }));
         }
         game.onChange();
       }
     } else if (msg.t === "player_name") {
       if (msg.id === game.wsId) return;
+      if (NetworkSystem.isSamePlayerName(msg.name, game.stats.name)) {
+        game.remotePlayers.delete(msg.id);
+        return;
+      }
+      NetworkSystem.removeDuplicateRemoteByName(game, msg.name, msg.id);
       const rp = game.remotePlayers.get(msg.id);
       if (rp) {
         rp.name = msg.name;
+        if (msg.guildName !== undefined) rp.guildName = msg.guildName;
+        if (msg.guildEmblem !== undefined) rp.guildEmblem = msg.guildEmblem;
         game.onChange();
       }
     } else if (msg.t === "roster") {
       game.remotePlayers.clear();
       if (Array.isArray(msg.players)) {
         for (const p of msg.players) {
-          if (p.id !== game.wsId) {
+          if (p.id !== game.wsId && !NetworkSystem.isSamePlayerName(p.name, game.stats.name)) {
+            NetworkSystem.removeDuplicateRemoteByName(game, p.name, p.id);
             game.remotePlayers.set(p.id, {
               ...p,
               targetX: p.x,
@@ -185,7 +268,8 @@ export class NetworkSystem {
         }
       }
     } else if (msg.t === "player_join") {
-      if (msg.player && msg.player.id !== game.wsId) {
+      if (msg.player && msg.player.id !== game.wsId && !NetworkSystem.isSamePlayerName(msg.player.name, game.stats.name)) {
+        NetworkSystem.removeDuplicateRemoteByName(game, msg.player.name, msg.player.id);
         game.remotePlayers.set(msg.player.id, {
           ...msg.player,
           targetX: msg.player.x,
@@ -252,6 +336,8 @@ export class NetworkSystem {
       if (rp) {
         game.onChat("system", `${rp.name || "A player"} left the map.`);
         game.remotePlayers.delete(msg.id);
+      } else if (msg.name) {
+        NetworkSystem.removeDuplicateRemoteByName(game, msg.name);
       }
     } else if (msg.t === "player_look") {
       if (msg.id === game.wsId) return;

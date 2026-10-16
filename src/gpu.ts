@@ -129,49 +129,13 @@ export class Renderer {
   private async initWebGPU() {
     this.backend = "webgpu";
 
-    // Initialize Orillusion WebGPU Engine per https://www.orillusion.com/en/guide/
-    try {
-      const engine = await Engine3D.init({
-        canvasConfig: {
-          canvas: this.canvas,
-          devicePixelRatio: Math.min(2, window.devicePixelRatio || 1),
-        },
-      });
-
-      this.scene = new Scene3D();
-      const camObj = new Object3D();
-      this.camera = camObj.addComponent(Camera3D);
-      this.camera.orthoOffCenter(0, this.width, this.height, 0, -1000, 1000);
-      this.scene.addChild(camObj);
-
-      this.view = new View3D();
-      this.view.scene = this.scene;
-      this.view.camera = this.camera;
-
-      this.device = engine?.context3D?.device;
-      this.ctx = engine?.context3D?.context ?? (this.canvas.getContext("webgpu") as GPUCanvasContext);
-    } catch {
-      // Fallback direct WebGPU initialization if Orillusion headlessly mocked
-      const adapter = await navigator.gpu.requestAdapter();
-      if (!adapter) throw new Error("No WebGPU adapter available.");
-      this.device = await adapter.requestDevice();
-      this.ctx = this.canvas.getContext("webgpu") as GPUCanvasContext;
-      const format = navigator.gpu.getPreferredCanvasFormat();
-      this.ctx.configure({ device: this.device, format, alphaMode: "opaque" });
-    }
-
-    if (!this.device) {
-      const adapter = await navigator.gpu.requestAdapter();
-      if (!adapter) throw new Error("No WebGPU adapter available.");
-      this.device = await adapter.requestDevice();
-    }
-    if (!this.ctx) {
-      this.ctx = this.canvas.getContext("webgpu") as GPUCanvasContext;
-      const format = navigator.gpu.getPreferredCanvasFormat();
-      this.ctx.configure({ device: this.device, format, alphaMode: "opaque" });
-    }
-
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("No WebGPU adapter available.");
+    this.device = await adapter.requestDevice();
+    this.ctx = this.canvas.getContext("webgpu") as GPUCanvasContext;
+    if (!this.ctx) throw new Error("Could not acquire WebGPU canvas context.");
     const format = navigator.gpu.getPreferredCanvasFormat();
+    this.ctx.configure({ device: this.device, format, alphaMode: "opaque" });
     const module = this.device.createShaderModule({ code: SHADER });
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",

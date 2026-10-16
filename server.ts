@@ -1751,6 +1751,7 @@ function renderMinimapPng(
 }
 interface PlayerSession {
   id: string;
+  username?: string;
   name: string;
   mapId: number;
   x: number;
@@ -1765,6 +1766,72 @@ interface PlayerSession {
 }
 
 const wsPlayers = new Map<any, PlayerSession>();
+
+function isCustomCharName(name?: string): boolean {
+  const clean = (name || "").trim();
+  return Boolean(clean && clean !== "Player" && !/^P-[A-F0-9]{4}$/i.test(clean));
+}
+
+function evictDuplicateSessions(currentWs: any, username?: string, charName?: string) {
+  const normUser = (username || "").trim().toLowerCase();
+  const hasRealUser = Boolean(normUser && normUser !== "guest");
+  const normName = (charName || "").trim().toLowerCase();
+  const hasRealName = isCustomCharName(charName);
+
+  if (!hasRealUser && !hasRealName) return;
+
+  for (const [existingWs, existingSession] of [...wsPlayers.entries()]) {
+    if (existingWs === currentWs) continue;
+    const existingUser = (existingSession.username || "").trim().toLowerCase();
+    const existingName = (existingSession.name || "").trim().toLowerCase();
+
+    const sameAccount = hasRealUser && existingUser && existingUser === normUser;
+    const sameChar = hasRealName && existingName && existingName === normName;
+
+    if (sameAccount || sameChar) {
+      wsPlayers.delete(existingWs);
+      const leaveMsg = JSON.stringify({
+        t: "player_leave",
+        id: existingSession.id,
+        name: existingSession.name,
+      });
+      for (const [c, p] of wsPlayers) {
+        if (c !== existingWs && p.mapId === existingSession.mapId) {
+          try { c.send(leaveMsg); } catch {}
+        }
+      }
+      try {
+        existingWs.send(JSON.stringify({
+          t: "session_replaced",
+          reason: "Your account was logged in from another window or device.",
+        }));
+      } catch {}
+      try {
+        existingWs.close(4001, "Session replaced");
+      } catch {}
+    }
+  }
+}
+
+function getMapRosterFor(currentWs: any, session: PlayerSession): PlayerSession[] {
+  const seenNames = new Set<string>();
+  const seenUsers = new Set<string>();
+  if (session.name) seenNames.add(session.name.trim().toLowerCase());
+  if (session.username) seenUsers.add(session.username.trim().toLowerCase());
+
+  const others: PlayerSession[] = [];
+  for (const [c, p] of wsPlayers.entries()) {
+    if (c === currentWs || p.mapId !== session.mapId) continue;
+    const nKey = (p.name || "").trim().toLowerCase();
+    const uKey = (p.username || "").trim().toLowerCase();
+    if (nKey && isCustomCharName(p.name) && seenNames.has(nKey)) continue;
+    if (uKey && uKey !== "guest" && seenUsers.has(uKey)) continue;
+    if (nKey) seenNames.add(nKey);
+    if (uKey) seenUsers.add(uKey);
+    others.push(p);
+  }
+  return others;
+}
 
 // ── Guild Persistence & Management ──────────────────────────────────────────
 interface ServerGuildMember {
@@ -2244,21 +2311,28 @@ const server = Bun.serve<{ id: string }>({
       });
     },
     "/api/gm/players": async () => {
-      const playerList = [...wsPlayers.entries()].map(([_, p]) => ({
-        id: p.id,
-        name: p.name,
-        mapId: p.mapId,
-        x: p.x,
-        y: p.y,
-        anim: p.anim,
-        frame: p.frame,
-        face: p.face,
-        look: p.look,
-      }));
+      const seen = new Set<string>();
+      const playerList: any[] = [];
+      for (const [_, p] of wsPlayers.entries()) {
+        const key = (p.username && p.username !== "guest" ? `u:${p.username.toLowerCase()}` : `n:${p.name.toLowerCase()}`);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        playerList.push({
+          id: p.id,
+          name: p.name,
+          mapId: p.mapId,
+          x: p.x,
+          y: p.y,
+          anim: p.anim,
+          frame: p.frame,
+          face: p.face,
+          look: p.look,
+        });
+      }
       return Response.json({
         ok: true,
-        onlineCount: wsPlayers.size,
-        activeMaps: new Set([...wsPlayers.values()].map((p) => p.mapId)).size,
+        onlineCount: playerList.length,
+        activeMaps: new Set(playerList.map((p) => p.mapId)).size,
         players: playerList,
       });
     },
@@ -2560,6 +2634,7 @@ const server = Bun.serve<{ id: string }>({
           level: g.level,
           gp: g.gp,
           capacity: g.capacity,
+          members: g.members,
           memberCount: g.members.length,
           onlineCount,
           emblem: g.emblem,
@@ -2935,9 +3010,13 @@ const server = Bun.serve<{ id: string }>({
         const msg = JSON.parse(String(raw));
         if (msg.t === "join") {
           const assignedId = ws.data?.id || ("P-" + crypto.randomUUID().slice(0, 4).toUpperCase());
+          const username = msg.username ? String(msg.username).trim() : undefined;
+          const charName = String(msg.name || assignedId).slice(0, 16);
+          evictDuplicateSessions(ws, username, charName);
           const session: PlayerSession = {
             id: assignedId,
-            name: String(msg.name || assignedId).slice(0, 16),
+            username,
+            name: charName,
             mapId: Number(msg.mapId || 910000000),
             x: Number(msg.x || 0),
             y: Number(msg.y || 0),
@@ -2954,9 +3033,7 @@ const server = Bun.serve<{ id: string }>({
           }
           wsPlayers.set(ws, session);
           ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g }));
-          const others = [...wsPlayers.entries()]
-            .filter(([c, p]) => c !== ws && p.mapId === session.mapId)
-            .map(([_, p]) => p);
+          const others = getMapRosterFor(ws, session);
           ws.send(JSON.stringify({ t: "roster", players: others }));
           const joinMsg = JSON.stringify({ t: "player_join", player: session });
           for (const [c, p] of wsPlayers) {
@@ -3008,10 +3085,14 @@ const server = Bun.serve<{ id: string }>({
         } else if (msg.t === "sync") {
           let session = wsPlayers.get(ws);
           const assignedId = ws.data?.id || ("P-" + crypto.randomUUID().slice(0, 4).toUpperCase());
+          const username = msg.username ? String(msg.username).trim() : session?.username;
+          const charName = String(msg.name || session?.name || assignedId).slice(0, 16);
+          evictDuplicateSessions(ws, username, charName);
           if (!session) {
             session = {
               id: assignedId,
-              name: String(msg.name || assignedId).slice(0, 16),
+              username,
+              name: charName,
               mapId: Number(msg.mapId || 910000000),
               x: Number(msg.x || 0),
               y: Number(msg.y || 0),
@@ -3022,7 +3103,8 @@ const server = Bun.serve<{ id: string }>({
             };
             wsPlayers.set(ws, session);
           } else {
-            if (msg.name) session.name = String(msg.name).slice(0, 16);
+            if (username) session.username = username;
+            if (msg.name) session.name = charName;
             if (msg.mapId !== undefined) session.mapId = Number(msg.mapId);
             if (msg.x !== undefined) session.x = Number(msg.x);
             if (msg.y !== undefined) session.y = Number(msg.y);
@@ -3038,9 +3120,7 @@ const server = Bun.serve<{ id: string }>({
             session.guildEmblem = g.emblem;
           }
           ws.send(JSON.stringify({ t: "welcome", id: session.id, guild: g }));
-          const others = [...wsPlayers.entries()]
-            .filter(([c, p]) => c !== ws && p.mapId === session.mapId)
-            .map(([_, p]) => p);
+          const others = getMapRosterFor(ws, session);
           ws.send(JSON.stringify({ t: "roster", players: others }));
           const joinMsg = JSON.stringify({ t: "player_join", player: session });
           for (const [c, p] of wsPlayers) {
@@ -3057,9 +3137,7 @@ const server = Bun.serve<{ id: string }>({
           for (const [c, p] of wsPlayers) {
             if (c !== ws && p.mapId === oldMap) c.send(leaveMsg);
           }
-          const others = [...wsPlayers.entries()]
-            .filter(([c, p]) => c !== ws && p.mapId === session.mapId)
-            .map(([_, p]) => p);
+          const others = getMapRosterFor(ws, session);
           ws.send(JSON.stringify({ t: "roster", players: others }));
           const joinMsg = JSON.stringify({ t: "player_join", player: session });
           for (const [c, p] of wsPlayers) {
@@ -3077,7 +3155,9 @@ const server = Bun.serve<{ id: string }>({
           const session = wsPlayers.get(ws);
           if (!session) return;
           const clean = String(msg.name || "").trim().slice(0, 16);
+          if (msg.username) session.username = String(msg.username).trim();
           if (clean) {
+            evictDuplicateSessions(ws, session.username, clean);
             session.name = clean;
             const g = getGuildForPlayer(clean);
             if (g) {

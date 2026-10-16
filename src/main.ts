@@ -224,26 +224,12 @@ async function boot() {
       await r.init();
       window.__activeRendererInitialized = true;
     }
-    const isWebGPU = r.backend === "webgpu";
     setLoading(
       "Loading Maple World…",
       25,
       "Setting up scene, camera & world display"
     );
-    try {
-      if (isWebGPU) {
-        gameEntity = new Object3D();
-        gameEntity.name = "GameSystem";
-        game = gameEntity.addComponent(Game, { r });
-        if (r.scene) {
-          r.scene.addChild(gameEntity);
-        }
-      } else {
-        game = new Game(r);
-      }
-    } catch {
-      game = new Game(r);
-    }
+    game = new Game(r);
     window.__game = game;
   } catch (e) {
     errorBox.querySelector(".err-detail")!.textContent = e instanceof Error ? e.message : String(e);
@@ -394,21 +380,7 @@ async function start(char?: SpacetimeCharacter) {
   }
 
   setLoading("Entering Game…", 88, "Preparing health bars, chat & minimap");
-  const isWebGPU = r.backend === "webgpu" && !!r.scene;
-  try {
-    if (isWebGPU) {
-      hudEntity = new Object3D();
-      hudEntity.name = "UISystem";
-      hud = hudEntity.addComponent(Hud, { ui, game, win }) ?? new Hud(ui, game, win);
-      if (r.scene) {
-        r.scene.addChild(hudEntity);
-      }
-    } else {
-      hud = new Hud(ui, game, win);
-    }
-  } catch {
-    hud = new Hud(ui, game, win);
-  }
+  hud = new Hud(ui, game, win);
   if (!hud.wins) hud.setup(ui, game, win);
   hud.setMap(game.map);
   game.loadGuild().catch(() => null);

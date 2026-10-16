@@ -152,6 +152,7 @@ export class Game extends ComponentBase {
   wsId: string | null = null;
   wsPing = 0;
   wsPingTimer: any = null;
+  sessionReplaced = false;
   remotePlayers = new Map<string, RemotePlayer>();
   lastMoveSync = 0;
   lastSyncedState = { x: 0, y: 0, face: 1, anim: "", frame: 0 };
