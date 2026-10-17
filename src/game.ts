@@ -27,6 +27,7 @@ import {
   type RemotePlayer,
   type Mob,
   type Drop,
+  type GmDropPickupRecord,
   type Projectile,
   type Fx,
   type DmgText,
@@ -78,6 +79,7 @@ export class Game extends ComponentBase {
   mobs: Mob[] = [];
   mobData = new Map<number, MobData>();
   drops: Drop[] = [];
+  gmDropLogs: GmDropPickupRecord[] = [];
   fx: Fx[] = [];
   dmg: DmgText[] = [];
   pets: PetInstance[] = [];
@@ -1290,33 +1292,7 @@ export class Game extends ComponentBase {
       for (const d of this.drops) {
         if (d.picked || !d.fh) continue;
         if (Math.abs(d.x - p.x) < 40 && Math.abs(d.y - p.y) < 40) {
-          d.picked = 0.001;
-          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
-              t: "loot",
-              x: Math.round(d.x),
-              y: Math.round(d.y),
-              amount: d.amount,
-              item: d.item,
-              mat: d.mat,
-              gear: d.gear?.id,
-              magnet: false,
-            }));
-          }
-          if (d.gear) {
-            this.addGear(d.gear);
-            this.onChat("item", `You have gained ${RARITY[d.gear.rarity]} ${GEAR.get(d.gear.id)?.name ?? "equipment"}.`);
-          } else if (d.mat) {
-            this.mats[d.mat] = (this.mats[d.mat] ?? 0) + 1;
-            this.onChat("item", `You have gained an item (${MATS.get(d.mat) ?? d.mat})`);
-          } else if (d.item) {
-            this.inv[d.item] = (this.inv[d.item] ?? 0) + 1;
-            this.onChat("item", `You have gained an item (${ITEMS[d.item]?.name ?? d.item})`);
-          } else {
-            s.meso += d.amount;
-            this.onGain("meso", `You have gained mesos (+${d.amount})`);
-          }
-          this.onChange();
+          this.collectDrop(d, "manual");
           break;
         }
       }
@@ -1632,6 +1608,225 @@ export class Game extends ComponentBase {
   dropMat(id: number, count = 1): boolean { return InventorySystem.dropMat(this, id, count); }
   equipPet(id: number, slotIndex?: number) { return PetSystem.equipPet(this, id, slotIndex); }
   unequipPet(slotIndex: number) { PetSystem.unequipPet(this, slotIndex); }
+
+  // ------------------------------------------------------------ drop collection & GM drop audit
+  recordGmDropPickup(record: GmDropPickupRecord) {
+    this.gmDropLogs.unshift(record);
+    if (this.gmDropLogs.length > 120) {
+      this.gmDropLogs.pop();
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("gm-drop-pickup", { detail: record }));
+    }
+  }
+
+  verifyDropInInventory(record: GmDropPickupRecord): { confirmed: boolean; detail: string; currentCount?: number } {
+    if (record.type === "gear") {
+      const foundInBag = this.bag.find(x => (record.gearUid && x.uid === record.gearUid) || x.id === record.itemId);
+      if (foundInBag) {
+        return {
+          confirmed: true,
+          detail: `In Bag (Slot #${foundInBag.slot ?? 0}, UID: ${foundInBag.uid.slice(0, 8)}...)`,
+        };
+      }
+      const foundInEq = Object.entries(this.eq).find(([_, g]) => g && ((record.gearUid && g.uid === record.gearUid) || g.id === record.itemId));
+      if (foundInEq) {
+        return {
+          confirmed: true,
+          detail: `Equipped in ${foundInEq[0].toUpperCase()} slot`,
+        };
+      }
+      return {
+        confirmed: false,
+        detail: `Not in inventory (sold, moved, or dropped)`,
+      };
+    } else if (record.type === "mat") {
+      const cnt = this.mats[record.itemId!] ?? 0;
+      return {
+        confirmed: cnt > 0,
+        detail: cnt > 0 ? `Confirmed: ${cnt}x currently in Etc bag` : `0x in Etc bag (missing/consumed)`,
+        currentCount: cnt,
+      };
+    } else if (record.type === "item") {
+      const cnt = this.inv[record.itemId!] ?? 0;
+      return {
+        confirmed: cnt > 0,
+        detail: cnt > 0 ? `Confirmed: ${cnt}x currently in Use bag` : `0x in Use bag (missing/consumed)`,
+        currentCount: cnt,
+      };
+    } else {
+      const meso = this.stats.meso;
+      return {
+        confirmed: true,
+        detail: `Confirmed: ${meso.toLocaleString()} Mesos currently in wallet`,
+        currentCount: meso,
+      };
+    }
+  }
+
+  collectDrop(d: Drop, method: "manual" | "magnet" | "pet" = "manual"): GmDropPickupRecord {
+    d.picked = 0.001;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        t: "loot",
+        x: Math.round(d.x),
+        y: Math.round(d.y),
+        amount: d.amount,
+        item: d.item,
+        mat: d.mat,
+        gear: d.gear?.id,
+        magnet: method === "magnet",
+      }));
+    }
+
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
+    const id = d.dropId || `drop_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+    let record: GmDropPickupRecord;
+
+    if (d.gear) {
+      const g = d.gear;
+      const b = GEAR.get(g.id);
+      this.addGear(g);
+      this.onChat("item", `You have gained ${RARITY[g.rarity]} ${b?.name ?? "equipment"}.`);
+
+      const foundInBag = this.bag.find(x => x.uid === g.uid || (x.id === g.id && x.slot === g.slot));
+      const confirmed = Boolean(foundInBag);
+
+      record = {
+        id,
+        timestamp: Date.now(),
+        timeStr,
+        type: "gear",
+        itemId: g.id,
+        gearUid: g.uid,
+        name: b?.name ?? `Gear #${g.id}`,
+        iconUrl: gearIcon(g.id),
+        amount: 1,
+        rarity: g.rarity,
+        method,
+        sourceMob: d.sourceMob,
+        confirmedInInventory: confirmed,
+        inventoryDetail: confirmed ? `Slot #${foundInBag?.slot ?? 0} in Equip Bag (UID: ${g.uid.slice(0, 8)}...)` : "MISSING FROM BAG ❌",
+      };
+    } else if (d.mat) {
+      const count = d.amount || 1;
+      const preCount = this.mats[d.mat] ?? 0;
+      this.mats[d.mat] = preCount + count;
+      const matName = MATS.get(d.mat) ?? `Etc #${d.mat}`;
+      this.onChat("item", `You have gained an item (${matName})`);
+
+      const currentCount = this.mats[d.mat] ?? 0;
+      const confirmed = currentCount >= preCount + count;
+
+      record = {
+        id,
+        timestamp: Date.now(),
+        timeStr,
+        type: "mat",
+        itemId: d.mat,
+        name: matName,
+        iconUrl: matIcon(d.mat),
+        amount: count,
+        method,
+        sourceMob: d.sourceMob,
+        confirmedInInventory: confirmed,
+        inventoryDetail: confirmed ? `Confirmed: ${currentCount}x in Etc (was ${preCount}x)` : `MISSING FROM ETC (Total: ${currentCount}x) ❌`,
+        preCount,
+        postCount: currentCount,
+      };
+    } else if (d.item) {
+      const count = d.amount || 1;
+      const preCount = this.inv[d.item] ?? 0;
+      this.inv[d.item] = preCount + count;
+      const itemName = ITEMS[d.item]?.name ?? `Item #${d.item}`;
+      this.onChat("item", `You have gained an item (${itemName})`);
+
+      const currentCount = this.inv[d.item] ?? 0;
+      const confirmed = currentCount >= preCount + count;
+
+      record = {
+        id,
+        timestamp: Date.now(),
+        timeStr,
+        type: "item",
+        itemId: d.item,
+        name: itemName,
+        iconUrl: itemIcon(d.item),
+        amount: count,
+        method,
+        sourceMob: d.sourceMob,
+        confirmedInInventory: confirmed,
+        inventoryDetail: confirmed ? `Confirmed: ${currentCount}x in Use (was ${preCount}x)` : `MISSING FROM USE (Total: ${currentCount}x) ❌`,
+        preCount,
+        postCount: currentCount,
+      };
+    } else {
+      const amt = d.amount || 0;
+      const preMeso = this.stats.meso;
+      this.stats.meso += amt;
+      this.onGain("meso", `You have gained mesos (+${amt.toLocaleString()})`);
+
+      const currentMeso = this.stats.meso;
+      const confirmed = currentMeso >= preMeso + amt;
+
+      record = {
+        id,
+        timestamp: Date.now(),
+        timeStr,
+        type: "meso",
+        name: "Mesos",
+        iconUrl: "/wz/ui/meso.png",
+        amount: amt,
+        method,
+        sourceMob: d.sourceMob,
+        confirmedInInventory: confirmed,
+        inventoryDetail: confirmed ? `Confirmed: ${currentMeso.toLocaleString()} Mesos (was ${preMeso.toLocaleString()})` : "MESO BALANCE MISMATCH ❌",
+        preCount: preMeso,
+        postCount: currentMeso,
+      };
+    }
+
+    this.onChange();
+    this.recordGmDropPickup(record);
+    return record;
+  }
+
+  spawnTestMonsterDrop() {
+    const p = this.p;
+    const testMob = {
+      id: 100006,
+      name: "Slime (Lv.7)",
+      level: 7,
+      elite: false,
+    };
+    // 1. Equip Gear
+    this.spawnDrop({
+      gear: makeGear(randomGearFor(this.stats.level, this.stats.classId)),
+      sourceMob: testMob,
+    }, p.x - 30, p.y - 20, -50, -420);
+
+    // 2. Etc Material
+    this.spawnDrop({
+      mat: 4000004, // Squishy Liquid
+      sourceMob: testMob,
+    }, p.x - 10, p.y - 20, -20, -400);
+
+    // 3. Use Potion
+    this.spawnDrop({
+      item: 2000000, // Red Potion
+      sourceMob: testMob,
+    }, p.x + 10, p.y - 20, 20, -400);
+
+    // 4. Mesos
+    this.spawnDrop({
+      amount: Math.round(rand(100, 350)),
+      sourceMob: testMob,
+    }, p.x + 30, p.y - 20, 50, -420);
+
+    this.onChat("notice", "★ [GM Audit] Spawned 4 test monster drops from Slime (Lv.7)! Pick them up or let magnet/pet loot them.");
+  }
 
   // ------------------------------------------------------------ crafting
   canCraft(r: Recipe) { return EconomySystem.canCraft(this, r); }

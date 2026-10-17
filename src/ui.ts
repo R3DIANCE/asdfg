@@ -23,6 +23,7 @@ import { PartyComponent } from "./components/party.ts";
 import { QuickBarComponent } from "./components/quick-bar.ts";
 import { GmOnlinePanel } from "./components/GmOnlinePanel.ts";
 import { PartyWidget } from "./components/PartyWidget.ts";
+import { GmDropAuditWidget } from "./components/GmDropAuditWidget.ts";
 import type { Action } from "./skills.ts";
 import { el, esc } from "./util.ts";
 import { lucideIcon } from "./lucide.ts";
@@ -74,6 +75,7 @@ export class Hud extends ComponentBase {
   mini!: MinimapComponent;
   gmPanel!: GmOnlinePanel;
   partyWidget!: PartyWidget;
+  gmDropWidget!: GmDropAuditWidget;
   statsComp!: StatsComponent;
   invComp!: InventoryComponent;
   equipComp!: EquipmentComponent;
@@ -266,6 +268,15 @@ export class Hud extends ComponentBase {
       "PartyWidget",
       PartyWidget,
       { parent: this.root, game },
+      this.childEntities,
+      canOrillusion
+    );
+
+    // 9. GM Monster Drop & Inventory Confirmation Audit Widget
+    this.gmDropWidget = createUIEntity(
+      "GmDropAuditWidget",
+      GmDropAuditWidget,
+      { parent: this.root, game, wins: this.wins },
       this.childEntities,
       canOrillusion
     );

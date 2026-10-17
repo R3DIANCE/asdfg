@@ -317,6 +317,37 @@ export interface Drop {
   ignoreFh?: number;
   targetPlayer?: RemotePlayer;
   isCosmetic?: boolean;
+  dropId?: string;
+  sourceMob?: {
+    id: number;
+    name: string;
+    level?: number;
+    elite?: boolean;
+  };
+}
+
+export interface GmDropPickupRecord {
+  id: string;
+  timestamp: number;
+  timeStr: string;
+  type: "gear" | "item" | "mat" | "meso";
+  itemId?: number;
+  gearUid?: string;
+  name: string;
+  iconUrl?: string;
+  amount: number;
+  rarity?: number;
+  method: "manual" | "magnet" | "pet";
+  sourceMob?: {
+    id: number;
+    name: string;
+    level?: number;
+    elite?: boolean;
+  };
+  confirmedInInventory: boolean;
+  inventoryDetail: string;
+  preCount?: number;
+  postCount?: number;
 }
 
 export interface Projectile {

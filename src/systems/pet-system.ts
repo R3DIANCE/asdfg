@@ -148,22 +148,7 @@ export class PetSystem {
         // Check pickup radius
         if (nearestDropDist < 28 && (!pet.lootCooldown || pet.lootCooldown <= 0)) {
           pet.lootCooldown = 0.2;
-          // Loot this drop
-          nearestDrop.picked = 0.01;
-          if (nearestDrop.gear) {
-            game.addGear(nearestDrop.gear);
-            game.onChat("item", `Pet looted an item (${GEAR.get(nearestDrop.gear.id)?.name ?? nearestDrop.gear.id})`);
-          } else if (nearestDrop.item) {
-            game.inv[nearestDrop.item] = (game.inv[nearestDrop.item] ?? 0) + nearestDrop.amount;
-            game.onChat("item", `Pet looted an item (${ITEMS[nearestDrop.item]?.name ?? nearestDrop.item})`);
-          } else if (nearestDrop.mat) {
-            game.mats[nearestDrop.mat] = (game.mats[nearestDrop.mat] ?? 0) + nearestDrop.amount;
-            game.onChat("item", `Pet looted an item (${MATS.get(nearestDrop.mat) ?? nearestDrop.mat})`);
-          } else {
-            game.stats.meso += nearestDrop.amount;
-            game.onGain("meso", `Pet looted mesos (+${nearestDrop.amount})`);
-          }
-          game.onChange();
+          game.collectDrop(nearestDrop, "pet");
         }
       }
 

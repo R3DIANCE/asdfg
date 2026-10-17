@@ -543,6 +543,11 @@ export class GmDatGui {
     actionsGrid.appendChild(
       createActionBtn("Map Alert Banner", "bell", "text-yellow-400", () => this.promptMapAlert())
     );
+    actionsGrid.appendChild(
+      createActionBtn("Drop Audit Widget", "package", "text-amber-400", () => {
+        window.dispatchEvent(new CustomEvent("toggle-gm-drop-widget"));
+      })
+    );
 
     wrap.appendChild(actionsGrid);
     this.contentEl.appendChild(wrap);

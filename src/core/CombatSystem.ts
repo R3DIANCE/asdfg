@@ -458,12 +458,19 @@ export class CombatSystem {
         }
       }
 
+      const mobSource = {
+        id: m.data.id,
+        name: m.data.meta?.name || "Monster",
+        level: m.data.meta?.level,
+        elite: Boolean(m.elite),
+      };
+
       if (m.elite) {
         for (let i = 0; i < 4; i++) {
-          game.spawnDrop({ amount: Math.round(rand(60, 160) * m.mul.meso) }, m.x + rand(-30, 30), m.y - 30);
+          game.spawnDrop({ amount: Math.round(rand(60, 160) * m.mul.meso), sourceMob: mobSource }, m.x + rand(-30, 30), m.y - 30);
         }
-        game.spawnDrop({ gear: makeGear(randomGearFor(game.stats.level, game.stats.classId), 1.5, 1) }, m.x, m.y - 30);
-        game.spawnDrop({ mat: ORES[Math.floor(Math.random() * ORES.length)] }, m.x + 20, m.y - 30);
+        game.spawnDrop({ gear: makeGear(randomGearFor(game.stats.level, game.stats.classId), 1.5, 1), sourceMob: mobSource }, m.x, m.y - 30);
+        game.spawnDrop({ mat: ORES[Math.floor(Math.random() * ORES.length)], sourceMob: mobSource }, m.x + 20, m.y - 30);
       }
 
       if (game.partyId && game.ws && game.ws.readyState === WebSocket.OPEN) {
@@ -482,17 +489,17 @@ export class CombatSystem {
       id.expPerKill = id.expPerKill * 0.9 + exp * 0.1;
       if (game.auto.battle) id.autoKills++;
       const dropMul = 1 + game.gt.drop / 100, mat = MOB_MAT[m.data.id];
-      if (mat && Math.random() < 0.45 * dropMul) game.spawnDrop({ mat }, m.x + rand(-10, 10), m.y - 20, rand(-50, 50));
-      if (Math.random() < 0.05 * dropMul) game.spawnDrop({ mat: ORES[Math.floor(Math.random() * Math.min(ORES.length, 2 + Math.floor(game.stage.n / 4)))] }, m.x, m.y - 20, rand(-50, 50), -420);
-      if (Math.random() < 0.045 * dropMul) game.spawnDrop({ gear: makeGear(randomGearFor(game.stats.level, game.stats.classId)) }, m.x, m.y - 20, rand(-50, 50), -420);
+      if (mat && Math.random() < 0.45 * dropMul) game.spawnDrop({ mat, sourceMob: mobSource }, m.x + rand(-10, 10), m.y - 20, rand(-50, 50));
+      if (Math.random() < 0.05 * dropMul) game.spawnDrop({ mat: ORES[Math.floor(Math.random() * Math.min(ORES.length, 2 + Math.floor(game.stage.n / 4)))], sourceMob: mobSource }, m.x, m.y - 20, rand(-50, 50), -420);
+      if (Math.random() < 0.045 * dropMul) game.spawnDrop({ gear: makeGear(randomGearFor(game.stats.level, game.stats.classId)), sourceMob: mobSource }, m.x, m.y - 20, rand(-50, 50), -420);
       if (Math.random() < 0.14) {
         const pool = [2000000, 2000000, 2000000, 2000003, 2000003, 2000001, 2000002, 2000006];
-        game.spawnDrop({ item: pool[Math.floor(Math.random() * pool.length)] }, m.x, m.y - 20, rand(-40, 40), -380);
+        game.spawnDrop({ item: pool[Math.floor(Math.random() * pool.length)], sourceMob: mobSource }, m.x, m.y - 20, rand(-40, 40), -380);
       }
       if (Math.random() < 0.75) {
         const lv = m.data.meta?.level ?? 5, amt = Math.round(rand(lv * 1.5, lv * 3.5) * m.mul.meso * (1 + game.gt.meso / 100));
         game.idle.mesoPerKill = game.idle.mesoPerKill * 0.9 + amt * 0.75 * 0.1;
-        game.spawnDrop({ amount: amt }, m.x, m.y - 20, rand(-40, 40), -380);
+        game.spawnDrop({ amount: amt, sourceMob: mobSource }, m.x, m.y - 20, rand(-40, 40), -380);
       }
     } else {
       if (!m.boss || Math.random() < 0.12) {

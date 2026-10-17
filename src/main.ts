@@ -185,6 +185,9 @@ addEventListener("keydown", (e: KeyboardEvent) => {
     else if (k === "F1" || k === "f1" || k === "\\") {
       if (game.isGm()) w.toggle(w.debugWin);
     }
+    else if (k === "F6" || k === "f6") {
+      if (game.isGm()) hud.gmDropWidget?.toggle();
+    }
     else if (k === "F2" || k === "f2") {
       const nextMode = game.uiMode === "new" ? "old" : "new";
       setUiMode(nextMode);
@@ -422,6 +425,7 @@ async function start(char?: SpacetimeCharacter) {
 
   gmGui = new GmDatGui(game);
   (window as any).__gmGui = gmGui;
+  (window as any).__gmDropWidget = hud.gmDropWidget;
 
 
   // Accumulate offline hunting progress across logout/login and prompt Welcome Back

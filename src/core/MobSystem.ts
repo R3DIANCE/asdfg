@@ -45,6 +45,7 @@ export class MobSystem {
       amount: 1,
       t: 0,
       picked: 0,
+      dropId: item.dropId || `drop_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       ...item,
     };
     game.drops.push(d);
@@ -236,19 +237,7 @@ export class MobSystem {
       for (const d of game.drops) {
         if (d.picked || d.targetPlayer) continue;
         if (Math.abs(d.x - game.p.x) < 36 && Math.abs(d.y - (game.p.y - 20)) < 36) {
-          d.picked = 0.001;
-          if (game.ws && game.ws.readyState === WebSocket.OPEN) {
-            game.ws.send(JSON.stringify({
-              t: "loot",
-              x: Math.round(d.x),
-              y: Math.round(d.y),
-              amount: d.amount,
-              item: d.item,
-              mat: d.mat,
-              gear: d.gear?.id,
-              magnet: true,
-            }));
-          }
+          game.collectDrop(d, "magnet");
         }
       }
     }

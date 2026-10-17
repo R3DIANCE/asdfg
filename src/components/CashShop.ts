@@ -25,7 +25,7 @@ export const CASH_CATALOG: CashItem[] = [
   { id: 1702786, name: "Death's Scythe", category: "featured", slot: "weapon", priceNx: 6900, isHot: true, desc: "A fearsome spectral scythe that overrides any equipped weapon." },
   { id: 1103305, name: "[BTS] Swan Serenade", category: "featured", slot: "cape", priceNx: 4500, isNew: true, desc: "Graceful swan wings radiating soft pastel starlight." },
   { id: 1050305, name: "Gothic Lolita Dress", category: "featured", slot: "top", priceNx: 4200, isHot: true, desc: "An intricate gothic Victorian layered dress." },
-  { id: 5000047, name: "Jr. Balrog Pet", category: "featured", slot: "pet", priceNx: 6900, isHot: true, desc: "A loyal mini demon lord pet that auto-loots items and mesos." },
+  { id: 5000047, name: "Jr. Balrog Pet", category: "featured", slot: "pet", priceNx: 6900, isHot: true, desc: "A loyal mini demon lord pet companion that follows your journey." },
   { id: 1002186, name: "Transparent Hat", category: "featured", slot: "hat", priceNx: 1500, desc: "Hides your helmet while retaining all stats." },
 
   // Apparel (Hats, Overalls, Tops, Bottoms, Shoes, Gloves, Capes)
@@ -60,7 +60,7 @@ export const CASH_CATALOG: CashItem[] = [
   { id: 1032052, name: "Slime Earrings", category: "accessory", slot: "earrings", priceNx: 1200, desc: "Jiggly green slime dangle earrings." },
 
   // Pets
-  { id: 5000000, name: "Brown Kitty", category: "pet", slot: "pet", priceNx: 4900, desc: "Playful kitten companion. Automatically loots items and mesos." },
+  { id: 5000000, name: "Brown Kitty", category: "pet", slot: "pet", priceNx: 4900, desc: "Playful kitten companion that follows you everywhere." },
   { id: 5000001, name: "Brown Puppy", category: "pet", slot: "pet", priceNx: 4900, desc: "Loyal puppy companion that follows you everywhere." },
   { id: 5000002, name: "Pink Bunny", category: "pet", slot: "pet", priceNx: 4900, desc: "Charming hopping bunny with a cute ribbon." },
   { id: 5000003, name: "Mini Kargo", category: "pet", slot: "pet", priceNx: 5500, desc: "A fierce mini dinosaur from the deep Sleepywood dungeons." },

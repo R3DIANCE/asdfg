@@ -1347,13 +1347,19 @@ export class Windows {
         }
       });
 
-      // All Items Catalog Launcher
+      // Visual Item Browser & Drop Audit
       const secBrowser = el("div", "debug-section", it);
-      el("div", "debug-sec-title", secBrowser).textContent = "Visual Item Browser";
-      const browserRow = el("div", "debug-row", secBrowser);
+      el("div", "debug-sec-title", secBrowser).textContent = "Visual Item Browser & Audit Tools";
+      const browserRow = el("div", "debug-row gap-2", secBrowser);
       const openBrowserBtn = el("button", "debug-btn gold flex-1 py-1", browserRow) as HTMLButtonElement;
-      openBrowserBtn.innerHTML = `<span>★ Open All-Items Catalog (Hotkey: L)</span>`;
+      openBrowserBtn.innerHTML = `<span>★ Open All-Items Catalog (L)</span>`;
       openBrowserBtn.addEventListener("click", () => this.ext.items.open());
+
+      const openAuditBtn = el("button", "debug-btn green flex-1 py-1", browserRow) as HTMLButtonElement;
+      openAuditBtn.innerHTML = `<span>★ Drop & Inv Audit (F6)</span>`;
+      openAuditBtn.addEventListener("click", () => {
+        window.dispatchEvent(new CustomEvent("toggle-gm-drop-widget"));
+      });
 
       // Preset Item Bundles
       const secBundles = el("div", "debug-section", it);
@@ -3510,6 +3516,9 @@ export class ExtWindows {
         gmTab?.click();
       }, isGm: true });
       entries.push({ label: "★ GM Control Panel", key: "F1", fn: () => w.toggle(w.debugWin), isGm: true });
+      entries.push({ label: "★ Drop & Inv Confirmation Audit", key: "F6", fn: () => {
+        window.dispatchEvent(new CustomEvent("toggle-gm-drop-widget"));
+      }, isGm: true });
       entries.push({ label: "★ All Items Spawner", key: "L", fn: () => this.items.open(), isGm: true });
     }
     if (w.game.unclaimedOffline && (w.game.unclaimedOffline.kills > 0 || w.game.unclaimedOffline.seconds >= 60)) {

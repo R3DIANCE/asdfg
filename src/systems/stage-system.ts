@@ -127,9 +127,16 @@ export class StageSystem {
       const exp = Math.round((ref?.data.meta?.exp ?? 15) * (ref?.mul.exp ?? 1) * 18);
       game.gainExp(exp);
 
+      const bossSource = {
+        id: m.data.id,
+        name: `${m.data.name.trim()} (Boss)`,
+        level: m.data.meta?.level ?? 1,
+        elite: true,
+      };
+
       for (let i = 0; i < 6; i++) {
         game.spawnDrop(
-          { amount: Math.round(rand(20, 40) * m.mul.meso * (1 + game.gt.meso / 100)) },
+          { amount: Math.round(rand(20, 40) * m.mul.meso * (1 + game.gt.meso / 100)), sourceMob: bossSource },
           m.x + rand(-60, 60),
           m.y - 30,
           rand(-90, 90),
@@ -140,7 +147,7 @@ export class StageSystem {
       const gearN = 1 + (Math.random() < 0.5 ? 1 : 0);
       for (let i = 0; i < gearN; i++) {
         game.spawnDrop(
-          { gear: makeGear(randomGearFor(game.stats.level, game.stats.classId), 1.8, 1) },
+          { gear: makeGear(randomGearFor(game.stats.level, game.stats.classId), 1.8, 1), sourceMob: bossSource },
           m.x + rand(-40, 40),
           m.y - 30,
           rand(-80, 80),
@@ -151,13 +158,13 @@ export class StageSystem {
       const bm = MOB_MAT[m.data.id];
       if (bm) {
         for (let i = 0; i < 3; i++) {
-          game.spawnDrop({ mat: bm }, m.x + rand(-50, 50), m.y - 30, rand(-70, 70), -440);
+          game.spawnDrop({ mat: bm, sourceMob: bossSource }, m.x + rand(-50, 50), m.y - 30, rand(-70, 70), -440);
         }
       }
 
       for (let i = 0; i < 2; i++) {
         game.spawnDrop(
-          { mat: ORES[Math.min(ORES.length - 1, Math.floor(s.n / 3) % ORES.length)] },
+          { mat: ORES[Math.min(ORES.length - 1, Math.floor(s.n / 3) % ORES.length)], sourceMob: bossSource },
           m.x + rand(-50, 50),
           m.y - 30,
           rand(-70, 70),
@@ -166,7 +173,7 @@ export class StageSystem {
       }
 
       // Modern MapleStory: Intense Power Crystal (Boss Crystal) Drop
-      game.spawnDrop({ mat: 4001886 }, m.x, m.y - 30, 0, -500);
+      game.spawnDrop({ mat: 4001886, sourceMob: bossSource }, m.x, m.y - 30, 0, -500);
       game.onChat("notice", `★ [Boss Defeat] ${m.data.name.trim()} dropped a Crystal of Intense Power! Sell it for high mesos in the Auction House or shop!`);
 
       s.n++;
