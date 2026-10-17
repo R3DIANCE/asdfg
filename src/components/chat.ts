@@ -11,7 +11,7 @@ import { PartyClient } from "../party.ts";
 import { DAMAGE_SKIN_PRESETS } from "../systems/damage-skin-system.ts";
 import { setUiMode, type UiMode } from "../systems/ui-mode.ts";
 
-export type ChatFilter = "all" | "say" | "party" | "guild" | "whisper" | "notice";
+export type ChatFilter = "all" | "say" | "party" | "guild" | "whisper";
 
 export interface ChatEntry {
   id: string;
@@ -23,6 +23,7 @@ export interface ChatEntry {
   badge: string;
   badgeClass: string;
   itemLink?: any;
+  timestamp?: number;
 }
 
 let chatTooltipEl: HTMLElement | null = null;
@@ -81,6 +82,17 @@ export class ChatComponent extends ComponentBase {
   // Sent or received item links cache by id
   itemLinkStore: Map<string, any> = new Map();
 
+  // Quick whisper (@charactername) suggestions state
+  suggestPopup!: HTMLElement;
+  suggestListEl!: HTMLElement;
+  suggestOpen = false;
+  suggestions: { name: string; level?: number; job?: string; online?: boolean; recent?: boolean }[] = [];
+  suggestIdx = 0;
+  suggestPrefix = "@";
+  suggestCache: Map<string, { name: string; level?: number; job?: string; online?: boolean }> = new Map();
+  recentWhispers: string[] = [];
+  lastSuggestFetch = 0;
+
   private parentEl!: HTMLElement;
   private game!: Game;
 
@@ -119,6 +131,229 @@ export class ChatComponent extends ComponentBase {
     this.root?.remove();
   }
 
+  public startQuickWhisper(targetName: string) {
+    const clean = targetName.replace(/^(@|To\s+@?|From\s+@?)/i, "").trim();
+    if (!clean) return;
+    if (this.minimized) this.toggleMinimize();
+    this.expand();
+    this.input.value = `@${clean} `;
+    this.input.focus();
+    const len = this.input.value.length;
+    this.input.setSelectionRange(len, len);
+    this.hideSuggestions();
+  }
+
+  public rememberWhisperPeer(name: string) {
+    const clean = name.replace(/^@/, "").trim();
+    if (!clean) return;
+    this.recentWhispers = [clean, ...this.recentWhispers.filter((n) => n.toLowerCase() !== clean.toLowerCase())].slice(0, 10);
+  }
+
+  private async fetchSuggestDirectory() {
+    const now = Date.now();
+    if (now - this.lastSuggestFetch < 4000) return;
+    this.lastSuggestFetch = now;
+    try {
+      const res = await fetch("/api/players/suggest", { signal: AbortSignal.timeout(1500) });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.players)) {
+          for (const p of data.players) {
+            if (!p?.name) continue;
+            this.suggestCache.set(p.name.toLowerCase(), {
+              name: p.name,
+              level: p.level || 1,
+              job: p.job || "Beginner",
+              online: Boolean(p.online),
+            });
+          }
+          if (this.isFocused) {
+            this.updateSuggestions();
+          }
+        }
+      }
+    } catch {}
+  }
+
+  private collectWhisperCandidates(query: string) {
+    const byName = new Map<string, { name: string; level?: number; job?: string; online?: boolean; recent?: boolean }>();
+    const selfName = (this.game?.stats?.name || "").trim();
+
+    const upsert = (name: string, info?: { level?: number; job?: string; online?: boolean; recent?: boolean }) => {
+      const clean = (name || "").trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      const prev = byName.get(key);
+      byName.set(key, {
+        name: prev?.name || clean,
+        level: info?.level ?? prev?.level,
+        job: info?.job ?? prev?.job,
+        online: Boolean(info?.online || prev?.online),
+        recent: Boolean(info?.recent || prev?.recent),
+      });
+    };
+
+    for (const rName of this.recentWhispers) {
+      upsert(rName, { recent: true });
+    }
+    for (const entry of this.history) {
+      if (entry.name) {
+        const cleanSpeaker = entry.name.replace(/^(To\s+@?|From\s+@?|@)/i, "").trim();
+        if (cleanSpeaker && cleanSpeaker.toLowerCase() !== "system") {
+          upsert(cleanSpeaker, { recent: entry.kind === "whisper" });
+        }
+      }
+    }
+    for (const [_, cached] of this.suggestCache) {
+      upsert(cached.name, cached);
+    }
+    if (this.game?.remotePlayers) {
+      for (const [_, rp] of this.game.remotePlayers) {
+        if (rp.name) {
+          upsert(rp.name, { level: rp.level || 1, job: rp.job || "Beginner", online: true });
+        }
+      }
+    }
+    if (this.game?.party?.members) {
+      for (const m of this.game.party.members) {
+        if (m.name) {
+          upsert(m.name, { level: m.level, job: m.job, online: m.online });
+        }
+      }
+    }
+    if (this.game?.guild?.members) {
+      for (const m of this.game.guild.members) {
+        if (m.name) {
+          upsert(m.name, { level: m.level, job: m.job, online: m.online });
+        }
+      }
+    }
+    if (selfName) {
+      upsert(selfName, {
+        level: this.game?.stats?.level || 1,
+        job: this.game?.stats?.job || "Beginner",
+        online: true,
+      });
+    }
+
+    const q = query.toLowerCase();
+    const selfKey = selfName.toLowerCase();
+    const allMatches = Array.from(byName.values()).filter((c) => !q || c.name.toLowerCase().includes(q));
+    // Exclude self unless it's the only match or explicitly typed
+    const filtered = allMatches.length > 1 ? allMatches.filter((c) => c.name.toLowerCase() !== selfKey || (q && selfKey.startsWith(q))) : allMatches;
+
+    filtered.sort((a, b) => {
+      const aSelf = a.name.toLowerCase() === selfKey ? 1 : 0;
+      const bSelf = b.name.toLowerCase() === selfKey ? 1 : 0;
+      if (aSelf !== bSelf) return aSelf - bSelf;
+      if (Boolean(a.recent) !== Boolean(b.recent)) return a.recent ? -1 : 1;
+      if (Boolean(a.online) !== Boolean(b.online)) return a.online ? -1 : 1;
+      const aStarts = q ? a.name.toLowerCase().startsWith(q) : true;
+      const bStarts = q ? b.name.toLowerCase().startsWith(q) : true;
+      if (aStarts !== bStarts) return aStarts ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return filtered.slice(0, 6);
+  }
+
+  private updateSuggestions() {
+    const val = this.input.value;
+    const atMatch = val.match(/^(@)([A-Za-z0-9_]*)$/);
+    const slashMatch = val.match(/^(\/(?:w|whisper|f|friend)\s+)([A-Za-z0-9_]*)$/i);
+    const match = atMatch || slashMatch;
+
+    if (!match) {
+      this.hideSuggestions();
+      return;
+    }
+
+    this.suggestPrefix = match[1];
+    const query = match[2] || "";
+    this.fetchSuggestDirectory();
+
+    const list = this.collectWhisperCandidates(query);
+    this.suggestions = list;
+    if (list.length === 0) {
+      this.hideSuggestions();
+      return;
+    }
+
+    if (this.suggestIdx >= list.length || this.suggestIdx < 0) {
+      this.suggestIdx = 0;
+    }
+    this.suggestOpen = true;
+    this.renderSuggestions(query);
+  }
+
+  private renderSuggestions(query: string) {
+    if (!this.suggestPopup || !this.suggestListEl) return;
+    this.suggestPopup.classList.remove("hidden");
+    this.suggestListEl.innerHTML = "";
+
+    const qLower = query.toLowerCase();
+    this.suggestions.forEach((item, idx) => {
+      const row = el("div", `chat-suggest-item ${idx === this.suggestIdx ? "active" : ""}`, this.suggestListEl);
+      const nameLower = item.name.toLowerCase();
+      const matchPos = qLower ? nameLower.indexOf(qLower) : -1;
+      let formattedName = esc(item.name);
+      if (matchPos >= 0 && query.length > 0) {
+        const before = esc(item.name.slice(0, matchPos));
+        const mid = esc(item.name.slice(matchPos, matchPos + query.length));
+        const after = esc(item.name.slice(matchPos + query.length));
+        formattedName = `${before}<span class="chat-suggest-match">${mid}</span>${after}`;
+      }
+
+      const metaParts: string[] = [];
+      if (item.level) metaParts.push(`Lv.${item.level}`);
+      if (item.job) metaParts.push(esc(item.job));
+      const metaText = metaParts.join(" · ");
+
+      row.innerHTML = `
+        <div class="chat-suggest-left">
+          <span class="chat-suggest-dot ${item.online ? "online" : "offline"}" title="${item.online ? "Online" : "Offline"}"></span>
+          <span class="chat-suggest-at">@</span><span class="chat-suggest-name">${formattedName}</span>
+          ${item.recent ? `<span class="chat-suggest-tag">Recent</span>` : ""}
+        </div>
+        <div class="chat-suggest-right">
+          ${metaText ? `<span class="chat-suggest-meta">${metaText}</span>` : ""}
+          <span class="chat-suggest-status ${item.online ? "online" : "offline"}">${item.online ? "Online" : "Saved"}</span>
+        </div>
+      `;
+
+      row.addEventListener("pointerenter", () => {
+        this.suggestIdx = idx;
+        this.suggestListEl.querySelectorAll(".chat-suggest-item").forEach((elItem, i) => {
+          elItem.classList.toggle("active", i === idx);
+        });
+      });
+
+      row.addEventListener("pointerdown", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.applySuggestion(item);
+      });
+    });
+  }
+
+  private applySuggestion(item: { name: string }) {
+    if (!item?.name) return;
+    this.input.value = `${this.suggestPrefix}${item.name} `;
+    this.hideSuggestions();
+    this.input.focus();
+    const len = this.input.value.length;
+    this.input.setSelectionRange(len, len);
+  }
+
+  private hideSuggestions() {
+    this.suggestOpen = false;
+    this.suggestions = [];
+    this.suggestIdx = 0;
+    if (this.suggestPopup) {
+      this.suggestPopup.classList.add("hidden");
+    }
+  }
+
   public insertItemLink(link: { name: string; kind: "gear" | "use" | "mat"; gear?: any; itemId?: number; count?: number }) {
     if (!link || !link.name) return;
     const tag = `[${link.name}]`;
@@ -150,7 +385,6 @@ export class ChatComponent extends ComponentBase {
       { id: "whisper", label: "Friends" },
       { id: "guild", label: "Guild" },
       { id: "party", label: "Party" },
-      { id: "notice", label: "Notice" },
     ];
     for (const t of tabList) {
       const tabBtn = el("button", `chat-tab ${t.id === this.filter ? "active" : ""}`, this.tabs) as HTMLButtonElement;
@@ -177,6 +411,15 @@ export class ChatComponent extends ComponentBase {
 
     this.log = el("div", "chat-log", this.root);
 
+    // Quick Whisper (@charactername) Autocomplete Popup
+    this.suggestPopup = el("div", "chat-suggest-popup hidden", this.root);
+    const suggestHeader = el("div", "chat-suggest-header", this.suggestPopup);
+    suggestHeader.innerHTML = `
+      <span class="chat-suggest-title">Quick Whisper</span>
+      <span class="chat-suggest-hint">↑↓ Navigate · Tab/Enter Select · Esc</span>
+    `;
+    this.suggestListEl = el("div", "chat-suggest-list", this.suggestPopup);
+
     // Bottom Input Row
     const inpRow = el("div", "chat-input-row", this.root);
 
@@ -186,13 +429,49 @@ export class ChatComponent extends ComponentBase {
     this.input.addEventListener("focus", () => {
       this.isFocused = true;
       this.expand();
+      this.updateSuggestions();
     });
     this.input.addEventListener("blur", () => {
       this.isFocused = false;
+      this.hideSuggestions();
       this.collapse(2500);
+    });
+    this.input.addEventListener("input", () => {
+      this.updateSuggestions();
     });
     this.input.addEventListener("keydown", async (e) => {
       e.stopPropagation();
+      if (this.suggestOpen && this.suggestions.length > 0) {
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          this.suggestIdx = (this.suggestIdx - 1 + this.suggestions.length) % this.suggestions.length;
+          this.suggestListEl.querySelectorAll(".chat-suggest-item").forEach((elItem, i) => {
+            elItem.classList.toggle("active", i === this.suggestIdx);
+          });
+          return;
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          this.suggestIdx = (this.suggestIdx + 1) % this.suggestions.length;
+          this.suggestListEl.querySelectorAll(".chat-suggest-item").forEach((elItem, i) => {
+            elItem.classList.toggle("active", i === this.suggestIdx);
+          });
+          return;
+        }
+        if (e.key === "Tab" || e.key === "Enter") {
+          const picked = this.suggestions[this.suggestIdx];
+          if (picked) {
+            e.preventDefault();
+            this.applySuggestion(picked);
+            return;
+          }
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this.hideSuggestions();
+          return;
+        }
+      }
       if (e.key === "ArrowUp") {
         e.preventDefault();
         if (this.cmdHistory.length === 0) return;
@@ -288,6 +567,8 @@ export class ChatComponent extends ComponentBase {
           } else if (cmd === "/gmoff" || cmd === "/deop" || cmd === "/gm off") {
             this.game.setGm(false);
             this.game.onChat("system", "[GM] GameMaster privileges relinquished. Operating as regular player.");
+          } else if (cmd === "/gmeffect" || cmd === "/aura" || cmd === "/gmaura" || cmd === "/gm effect" || cmd === "/gm aura" || cmd === "/gmhat" || cmd === "/wizethat") {
+            this.game.toggleGmEffect();
           } else if (cmd === "/uimode" || cmd === "/ui" || cmd === "/switchui") {
             const next = this.game.uiMode === "new" ? "old" : "new";
             setUiMode(next);
@@ -418,14 +699,42 @@ export class ChatComponent extends ComponentBase {
             } else {
               window.dispatchEvent(new CustomEvent("toggle-party-win"));
             }
+          } else if (t.startsWith("@")) {
+            const m = t.match(/^@([A-Za-z0-9_]+)(?:\s*:\s*|\s+)?(.*)$/);
+            const target = m?.[1]?.trim() || "";
+            const msg = m?.[2]?.trim() || "";
+            if (target && msg) {
+              this.rememberWhisperPeer(target);
+              this.game.sendChat(msg, "whisper", matchedItemLink, target);
+            } else if (target) {
+              this.input.value = `@${target} `;
+              const len = this.input.value.length;
+              this.input.setSelectionRange(len, len);
+              this.hideSuggestions();
+              return;
+            } else {
+              this.game.onChat("system", "Usage: @<charactername> <message>");
+            }
           } else if (t.startsWith("/w ") || t.startsWith("/whisper ") || t.startsWith("/f ") || t.startsWith("/friend ")) {
             const parts = t.replace(/^\/(w|whisper|f|friend)\s+/, "").trim().split(/\s+/);
-            const target = parts[0];
+            const target = parts[0]?.replace(/^@/, "");
             const msg = parts.slice(1).join(" ");
             if (target && msg) {
-              this.game.sendChat(`@${target}: ${msg}`, "whisper", matchedItemLink);
+              this.rememberWhisperPeer(target);
+              this.game.sendChat(msg, "whisper", matchedItemLink, target);
             } else {
-              this.game.onChat("system", "Usage: /w <name> <message>");
+              this.game.onChat("system", "Usage: @<name> <message> or /w <name> <message>");
+            }
+          } else if (t.startsWith("/r ") || t.startsWith("/reply ")) {
+            const msg = t.replace(/^\/(r|reply)\s+/, "").trim();
+            const target = this.recentWhispers[0];
+            if (target && msg) {
+              this.rememberWhisperPeer(target);
+              this.game.sendChat(msg, "whisper", matchedItemLink, target);
+            } else if (!target) {
+              this.game.onChat("system", "[Whisper] No recent whisper contact to reply to.");
+            } else {
+              this.game.onChat("system", "Usage: /r <message>");
             }
           } else if (t.startsWith("/skin ") || t === "/skin") {
             const raw = t.replace(/^\/skin\s*/, "").trim();
@@ -433,7 +742,7 @@ export class ChatComponent extends ComponentBase {
               const sid = isNaN(Number(raw)) ? raw : Number(raw);
               this.game.setDamageSkin(sid);
             } else {
-              this.game.onChat("system", "Usage: /skin <id or preset> (e.g., /skin 2, /skin blue, /skin 50). Type /skins to view presets.");
+              this.game.onChat("system", "Usage: /skin <id or preset> (e.g., /skin 1, /skin 2, /skin 50). Type /skins to view presets.");
             }
           } else if (t === "/skins") {
             const list = DAMAGE_SKIN_PRESETS.map((p) => `${p.name} (${p.id})`).join(", ");
@@ -457,22 +766,30 @@ export class ChatComponent extends ComponentBase {
             sessionStorage.setItem("ms_skip_autologin", "1");
             location.reload();
           } else if (t === "/help" || t === "/commands") {
-            const baseHelp = "[Commands] /name <newName> | /skin <id> | /skins | /g <msg> (guild) | /p <msg> (party) | /w <player> <msg> (whisper)";
-            this.game.onChat("system", `${baseHelp} | /gm or /setgm - GM Panel | /sync | /logout`);
+            const baseHelp = "[Commands] @<player> <msg> (quick whisper) | /r <msg> (reply) | /g <msg> | /p <msg> | /name <newName> | /skin <id>";
+            this.game.onChat("system", `${baseHelp} | /gm - GM Panel | /sync | /logout`);
+          } else if (t.startsWith("/")) {
+            const unknownCmd = t.split(" ")[0];
+            this.game.onChat("system", `Unknown command "${unknownCmd}". Type /help for available commands.`);
           } else {
             // Check active channel routing
             if (this.filter === "guild") {
               this.game.sendChat(t, "guild", matchedItemLink);
             } else if (this.filter === "party") {
               this.game.sendChat(t, "party", matchedItemLink);
+            } else if (this.filter === "whisper" && this.recentWhispers[0]) {
+              const target = this.recentWhispers[0];
+              this.game.sendChat(t, "whisper", matchedItemLink, target);
             } else {
               this.game.say(t, matchedItemLink);
             }
           }
         }
+        this.hideSuggestions();
         this.input.value = "";
         this.input.blur();
       } else if (e.key === "Escape") {
+        this.hideSuggestions();
         this.input.blur();
       }
     });
@@ -480,6 +797,15 @@ export class ChatComponent extends ComponentBase {
     // Global listener for linking items into chat
     window.addEventListener("chat-insert-link", ((e: CustomEvent) => {
       if (e.detail) this.insertItemLink(e.detail);
+    }) as EventListener);
+
+    // Global listener for incoming whispers & quick-whisper triggers
+    window.addEventListener("chat-whisper-received", ((e: CustomEvent) => {
+      if (e.detail?.from) this.rememberWhisperPeer(e.detail.from);
+    }) as EventListener);
+
+    window.addEventListener("chat-quick-whisper", ((e: CustomEvent) => {
+      if (e.detail?.name) this.startQuickWhisper(e.detail.name);
     }) as EventListener);
 
     // Global listener for party invite notifications
@@ -491,23 +817,20 @@ export class ChatComponent extends ComponentBase {
   private updatePlaceholder() {
     switch (this.filter) {
       case "guild":
-        this.input.placeholder = "Guild chat (/g message)...";
+        this.input.placeholder = "Guild chat (/g message or @player)...";
         break;
       case "party":
-        this.input.placeholder = "Party chat (/p message)...";
+        this.input.placeholder = "Party chat (/p message or @player)...";
         break;
       case "whisper":
-        this.input.placeholder = "Friends: /w [player] [msg]...";
+        this.input.placeholder = "Whisper: @player message...";
         break;
       case "say":
-        this.input.placeholder = "Chat: message or /w [player]...";
-        break;
-      case "notice":
-        this.input.placeholder = "System announcements";
+        this.input.placeholder = "Chat: message or @player to whisper...";
         break;
       case "all":
       default:
-        this.input.placeholder = "Press Enter to chat · ↑/↓ for history";
+        this.input.placeholder = "Press Enter to chat · @player to whisper · ↑/↓ history";
         break;
     }
   }
@@ -574,10 +897,8 @@ export class ChatComponent extends ComponentBase {
     const lines = this.log.querySelectorAll<HTMLElement>(".chat-line");
     for (const line of lines) {
       const k = line.dataset.kind as ChatKind;
-      const isGm = line.dataset.isGm === "1";
       let show = true;
-      if (f === "say") show = k === "say" && !isGm;
-      else if (f === "notice") show = k === "notice" || k === "system" || isGm;
+      if (f === "say") show = k === "say";
       else if (f === "whisper") show = k === "whisper";
       else if (f === "party") show = k === "party";
       else if (f === "guild") show = k === "guild";
@@ -589,11 +910,41 @@ export class ChatComponent extends ComponentBase {
   }
 
   addMessage(kind: ChatKind, text: string, itemLink?: any) {
-    // Only accept chat-related messages: player conversation, whisper, party, guild, GM announcements
-    if (kind === "exp" || kind === "meso" || kind === "item" || kind === "level") {
+    // Only accept chat-related messages: player conversation, whisper, party, guild
+    if (kind !== "say" && kind !== "whisper" && kind !== "party" && kind !== "guild") {
+      return;
+    }
+    // Filter out all GM notices, system notices, map welcomes, and game broadcasts
+    if (
+      text.includes("[GM]") ||
+      text.includes("★ [GM") ||
+      text.includes("★ [") ||
+      text.includes("GameMaster") ||
+      text.includes("[Notice]") ||
+      text.includes("[System]") ||
+      text.includes("[GM Action]") ||
+      text.includes("[Damage Skins]") ||
+      text.includes("[UI Mode]") ||
+      text.includes("[Secret Access]") ||
+      text.includes("[Party] Invited") ||
+      text.includes("[Party] You left") ||
+      text.includes("[Party] Joined") ||
+      text.includes("[Guild]") ||
+      text.startsWith("★ ")
+    ) {
       return;
     }
     if (text.includes("experience") || text.includes("Party EXP") || text.includes("gained exp")) {
+      return;
+    }
+    if (text.includes("Cash Shop") || text.includes("[Cash Shop]")) {
+      return;
+    }
+
+    // Deduplicate duplicate messages and identical consecutive messages
+    const now = Date.now();
+    const last = this.history[this.history.length - 1];
+    if (last && last.text === text && (now - (last.timestamp ?? 0) < 4000)) {
       return;
     }
 
@@ -611,27 +962,20 @@ export class ChatComponent extends ComponentBase {
         speaker = m[1];
         content = m[2];
       }
-    } else if (kind === "notice") {
-      badgeLabel = "Notice";
-      badgeClass = "badge-notice";
-      content = text.replace(/^\[Notice\]\s*/, "");
     } else if (kind === "whisper") {
       badgeLabel = "Whisper";
       badgeClass = "badge-whisper";
+      const m = text.match(/^(To @[A-Za-z0-9_]+|From @[A-Za-z0-9_]+|@[A-Za-z0-9_]+)\s*:\s*(.*)$/i);
+      if (m) {
+        speaker = m[1];
+        content = m[2];
+      }
     } else if (kind === "party") {
       badgeLabel = "Party";
       badgeClass = "badge-party";
     } else if (kind === "guild") {
       badgeLabel = "Guild";
       badgeClass = "badge-guild";
-    } else if (kind === "system") {
-      badgeLabel = "System";
-      badgeClass = "badge-sys";
-    }
-
-    if (text.includes("[GM]") || text.includes("★ [GM") || text.includes("GameMaster")) {
-      badgeLabel = "GM";
-      badgeClass = "badge-gm";
     }
 
     const entryId = "c_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -645,6 +989,7 @@ export class ChatComponent extends ComponentBase {
       badge: badgeLabel,
       badgeClass,
       itemLink,
+      timestamp: now,
     };
     this.history.push(entry);
     if (this.history.length > 500) this.history.shift();
@@ -655,7 +1000,6 @@ export class ChatComponent extends ComponentBase {
 
     const line = el("div", `chat-line ${kind} ${badgeClass}`, this.log);
     line.dataset.kind = kind;
-    if (badgeLabel === "GM") line.dataset.isGm = "1";
 
     const timeSpan = el("span", "chat-time font-mono select-none", line);
     timeSpan.textContent = time;
@@ -664,8 +1008,13 @@ export class ChatComponent extends ComponentBase {
     badgeSpan.textContent = badgeLabel;
 
     if (speaker) {
-      const nameEl = el("span", "chat-name font-semibold", line);
+      const nameEl = el("span", "chat-name font-semibold cursor-pointer hover:underline", line);
       nameEl.textContent = ` ${speaker} : `;
+      nameEl.title = "Click to quick whisper";
+      nameEl.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this.startQuickWhisper(speaker);
+      });
     }
 
     const contentEl = el("span", "chat-text", line);
@@ -711,8 +1060,7 @@ export class ChatComponent extends ComponentBase {
     // Apply active filter
     if (this.filter !== "all") {
       let show = true;
-      if (this.filter === "say") show = kind === "say" && badgeLabel !== "GM";
-      else if (this.filter === "notice") show = kind === "notice" || kind === "system" || badgeLabel === "GM";
+      if (this.filter === "say") show = kind === "say";
       else if (this.filter === "whisper") show = kind === "whisper";
       else if (this.filter === "party") show = kind === "party";
       else if (this.filter === "guild") show = kind === "guild";

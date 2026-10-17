@@ -28,6 +28,34 @@ export class StageSystem {
     return { hp, dmg, exp, meso, def };
   }
 
+  /** Stage Star Force requirement (modern MapleStory Arcane/Star Force scaling) */
+  public static requiredStarForce(stageNum: number): number {
+    return Math.max(0, (stageNum - 1) * 5);
+  }
+
+  /**
+   * Authentic MapleStory Star Force / Arcane Force damage multiplier and defense effect:
+   * >= 1.5x requirement -> 150% damage dealt (+50% Final Damage!), 1 damage taken!
+   * >= 1.3x -> 130% damage
+   * >= 1.0x -> 100% damage
+   * < 1.0x -> penalty (down to 50%) and increased damage taken
+   */
+  public static starForceMultiplier(playerSF: number, reqSF: number): { dmgMul: number; damageReduction: boolean } {
+    if (reqSF === 0) return { dmgMul: 1.0, damageReduction: false };
+    const ratio = playerSF / reqSF;
+    if (ratio >= 1.5) {
+      return { dmgMul: 1.5, damageReduction: true };
+    } else if (ratio >= 1.3) {
+      return { dmgMul: 1.3, damageReduction: false };
+    } else if (ratio >= 1.0) {
+      return { dmgMul: 1.0, damageReduction: false };
+    } else if (ratio >= 0.7) {
+      return { dmgMul: 0.8, damageReduction: false };
+    } else {
+      return { dmgMul: 0.5, damageReduction: false };
+    }
+  }
+
   public static bossFor(n: number) {
     return BOSSES[(n - 1) % BOSSES.length];
   }
@@ -137,12 +165,15 @@ export class StageSystem {
         );
       }
 
+      // Modern MapleStory: Intense Power Crystal (Boss Crystal) Drop
+      game.spawnDrop({ mat: 4001886 }, m.x, m.y - 30, 0, -500);
+      game.onChat("notice", `★ [Boss Defeat] ${m.data.name.trim()} dropped a Crystal of Intense Power! Sell it for high mesos in the Auction House or shop!`);
+
       s.n++;
       s.kills = 0;
       s.best = Math.max(s.best, s.n);
       game.areaBossDefeated = true;
       game.onChat("level", `Stage cleared! Welcome to Stage ${s.n}. Monsters grow stronger — and so do their rewards.`);
-      game.onChat("notice", "★ Area Boss Defeated! Enter the right portal with Auto Combat ON to advance to the next area!");
 
       for (const x of game.mobs) {
         if (!x.boss) {
@@ -246,7 +277,6 @@ export class StageSystem {
     game.lastOfflineClaimAt = Date.now();
     game.lastSavedAt = Date.now();
     game.onGain?.("meso", `Claimed ${Math.round(rewards.meso * mult).toLocaleString()} mesos & ${Math.round(rewards.exp * mult).toLocaleString()} EXP from offline hunting!`);
-    game.onChat("notice", `★ [Welcome Back] Claimed offline rewards: ${rewards.kills} monsters defeated, ${Math.round(rewards.exp * mult).toLocaleString()} EXP, ${Math.round(rewards.meso * mult).toLocaleString()} Mesos!`);
     game.onChange();
     if (typeof (game as any).persist === "function") {
       try { (game as any).persist(); } catch {}

@@ -5,12 +5,15 @@ import {
   JUMP,
   rand,
   STAGE_KILLS,
+  FREE_MARKET_MAP,
   expToLevel,
   type Mob,
 } from "../game-types.ts";
 import { ITEMS, SKILL, type Action, type SkillDef } from "../skills.ts";
 import { MOB_MAT, ORES, makeGear, randomGearFor, getWeaponAttackAnim, isRangedWeapon } from "../items.ts";
 import { groundMove } from "../physics.ts";
+import { StageSystem } from "../systems/stage-system.ts";
+import { NetworkSystem } from "./NetworkSystem.ts";
 
 export class CombatSystem {
   static skillCooldown(game: Game, id: string): number {
@@ -37,15 +40,46 @@ export class CombatSystem {
         if (!quiet) game.onChat("system", `You don't have any ${it?.name ?? "of that item"}.`);
         return false;
       }
-      if ((it.hp && s.hp >= s.maxHp && !it.mp) || (it.mp && s.mp >= s.maxMp && !it.hp)) return false;
-      if (it.hpPct && s.hp >= s.maxHp && !it.mpPct) return false;
+      const addsHp = Boolean(it.hp || it.hpPct);
+      const addsMp = Boolean(it.mp || it.mpPct);
+      const needsHp = addsHp && s.hp < s.maxHp;
+      const needsMp = addsMp && s.mp < s.maxMp;
+      if ((addsHp || addsMp) && !needsHp && !needsMp) return false;
       if (it.type !== "star" && it.type !== "arrow" && it.type !== "bullet") {
         game.inv[a.id] = n - 1;
       }
-      if (it.hp) s.hp = Math.min(s.maxHp, s.hp + it.hp);
-      if (it.mp) s.mp = Math.min(s.maxMp, s.mp + it.mp);
-      if (it.hpPct) s.hp = Math.min(s.maxHp, Math.round(s.hp + s.maxHp * (it.hpPct / 100)));
-      if (it.mpPct) s.mp = Math.min(s.maxMp, Math.round(s.mp + s.maxMp * (it.mpPct / 100)));
+      const oldHp = s.hp;
+      const oldMp = s.mp;
+      const alchBonus = 1 + game.lv("4110014") * 0.1;
+      if (it.hp) s.hp = Math.min(s.maxHp, Math.round(s.hp + it.hp * alchBonus));
+      if (it.mp) s.mp = Math.min(s.maxMp, Math.round(s.mp + it.mp * alchBonus));
+      if (it.hpPct) s.hp = Math.min(s.maxHp, Math.round(s.hp + s.maxHp * (it.hpPct / 100) * alchBonus));
+      if (it.mpPct) s.mp = Math.min(s.maxMp, Math.round(s.mp + s.maxMp * (it.mpPct / 100) * alchBonus));
+      const healedHp = s.hp - oldHp;
+      const healedMp = s.mp - oldMp;
+      if (healedHp > 0) {
+        game.dmg.push({
+          value: healedHp,
+          miss: false,
+          hurt: false,
+          heal: true,
+          critical: false,
+          x: p.x,
+          y: p.y - 40,
+          t: 0,
+        });
+      } else if (healedMp > 0) {
+        game.dmg.push({
+          value: healedMp,
+          miss: false,
+          hurt: false,
+          heal: true,
+          critical: false,
+          x: p.x,
+          y: p.y - 40,
+          t: 0,
+        });
+      }
       game.onChange();
       return true;
     }
@@ -76,13 +110,15 @@ export class CombatSystem {
         return false;
       }
       if (!game.infiniteMp) s.mp -= cost;
-      game.buffs[a.id] = { left: d.duration!(lv), dur: d.duration!(lv) };
+      const dur = d.duration!(lv);
+      game.buffs[a.id] = { left: dur, dur, lv };
       const art = game.skillArt[a.id];
       if (art?.effect.length) game.fx.push({ frames: art.effect, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
       else if (art?.effect0?.length) game.fx.push({ frames: art.effect0, x: p.x, y: p.y, flip: p.face === 1, t: 0, follow: true });
       p.alert = 2;
       CombatSystem.triggerCooldown(game, a.id);
       game.sendAction("skill", a.id, p.anim);
+      NetworkSystem.sendPartyBuff(game, a.id, lv, dur);
       game.recalc(); game.onChange();
       return true;
     }
@@ -162,23 +198,59 @@ export class CombatSystem {
   static rollDamage(game: Game, pct: number, mob: Mob) {
     const [lo, hi] = game.damageRange();
     const mobLv = mob.data.meta?.level ?? 1;
-    const missChance = Math.max(0.02, Math.min(0.5, 0.06 + (mobLv - game.stats.level) * 0.03 - game.totalDex() * 0.002 - game.lv("1100000") * 0.004));
+    const charLv = game.stats.level;
+
+    // Authentic MapleStory accuracy & miss check (based on Level Difference & DEX)
+    const missChance = Math.max(0.01, Math.min(0.35, 0.04 + (mobLv - charLv) * 0.025 - game.totalDex() * 0.002 - game.lv("1100000") * 0.004));
+    if (!game.oneHitKill && Math.random() < missChance) {
+      return { dmg: 0, miss: true, critical: false };
+    }
+
     const stageDef = game.stageMul().def || 0;
     const def = ((mob.data.meta?.PDDamage ?? 0) * 0.5 + stageDef) * (mob.boss ? 1.6 : 1);
     const bossMul = mob.boss ? 1 + game.gt.boss / 100 : 1;
 
+    // Authentic MapleStory Level Advantage Final Damage multiplier
+    const lvDiff = charLv - mobLv;
+    let levelFd = 1.0;
+    if (lvDiff >= 0) {
+      levelFd = 1.0 + Math.min(0.20, lvDiff * 0.02); // Up to +20% FD when higher level
+    } else {
+      const penalty = Math.abs(lvDiff);
+      if (penalty <= 5) levelFd = 1.0 - penalty * 0.025; // 0 to -12.5%
+      else if (penalty <= 15) levelFd = 0.875 - (penalty - 5) * 0.035;
+      else levelFd = Math.max(0.2, 0.525 - (penalty - 15) * 0.04);
+    }
+
+    // Critical Rate Calculation (Base 8% + Passives + LUK + Sharp Eyes)
     let critRate = 0.08;
     if (game.lv("3100001")) critRate += game.lv("3100001") * 0.02;
     if (game.lv("4100001")) critRate += game.lv("4100001") * 0.03;
     if (game.lv("2111000")) critRate += game.lv("2111000") * 0.03;
     if (game.lv("4120002")) critRate += 0.15;
     if (game.totalLuk) critRate += Math.min(0.25, game.totalLuk() * 0.0005);
+    if (game.buffs["3121002"]) {
+      const seLv = game.buffs["3121002"].lv ?? (game.lv("3121002") || 20);
+      critRate += 0.05 + seLv * 0.005; // Sharp Eyes +15%
+    }
     critRate = Math.min(1.0, Math.max(0.05, critRate));
 
     const isCritical = Math.random() < critRate;
-    const critMul = isCritical ? 1.45 : 1.0;
 
-    const baseDmg = (rand(lo, hi) * pct / 100) * bossMul - def;
+    // Authentic MapleStory Critical Damage (20% to 50% min/max + Sharp Eyes)
+    let critDmgBonus = 0.20 + Math.random() * 0.30;
+    if (game.buffs["3121002"]) {
+      critDmgBonus += 0.15; // Sharp Eyes bonus crit damage
+    }
+    const critMul = isCritical ? 1.0 + critDmgBonus : 1.0;
+
+    const rolledRange = rand(lo, hi);
+    const reqSf = StageSystem.requiredStarForce(game.stage.n);
+    const playerSf = game.totalStarForce();
+    const sfEffect = StageSystem.starForceMultiplier(playerSf, reqSf);
+    const runeDmgMul = game.runeBuff?.type === "destruction" ? 1.5 : 1.0;
+
+    const baseDmg = Math.max(1, (rolledRange * pct / 100) * bossMul * levelFd * sfEffect.dmgMul * runeDmgMul - def);
     const dmg = Math.max(1, Math.round(baseDmg * critMul));
     return { dmg, miss: false, critical: isCritical };
   }
@@ -190,8 +262,8 @@ export class CombatSystem {
     const wepId = game.eq.weapon?.id ?? 1302000;
     const isRanged = d ? (d.kind === "ranged") : isRangedWeapon(wepId);
     const range = d?.range ?? (isRanged ? 360 : 90);
-    const x0 = p.face === 1 ? p.x - 10 : p.x - range, x1 = p.face === 1 ? p.x + range : p.x + 10;
-    const y0 = p.y - (d || isRanged ? 100 : 70), y1 = p.y + 10;
+    const x0 = p.face === 1 ? p.x - 15 : p.x - range, x1 = p.face === 1 ? p.x + range : p.x + 15;
+    const y0 = p.y - (d || isRanged ? 105 : 80), y1 = p.y + 45;
     const targets = game.liveMobs()
       .filter((m) => { const b = game.mobBox(m); return b.x1 > x0 && b.x0 < x1 && b.y1 > y0 && b.y0 < y1; })
       .sort((a, b) => Math.abs(a.x - p.x) - Math.abs(b.x - p.x))
@@ -258,8 +330,12 @@ export class CombatSystem {
     }
   }
 
-  static damageMob(game: Game, m: Mob, dmg: number, miss: boolean, critical = false) {
+  static damageMob(game: Game, m: Mob, dmg: number, miss: boolean, critical = false, poison = false) {
     if (!m || !m.data) return;
+    game.ai.targetTimer = 0;
+    game.ai.targetJumps = 0;
+    game.ai.jumpLoopCount = 0;
+    game.ai.stuck = 0;
     if (game.oneHitKill) {
       dmg = 9999999;
       miss = false;
@@ -268,7 +344,7 @@ export class CombatSystem {
     const box = game.mobBox(m);
     const stack = game.dmg.filter((d) => !d.hurt && Math.abs(d.x - m.x) < 30 && d.t < 0.4).length;
     const dmgY = box.y0 - 6 - stack * 30;
-    game.dmg.push({ value: dmg, miss, hurt: false, critical, skinId: game.damageSkin, x: m.x, y: dmgY, t: 0 });
+    game.dmg.push({ value: dmg, miss, hurt: false, heal: false, poison, critical: !poison && critical, skinId: game.damageSkin, x: m.x, y: dmgY, t: 0 });
 
     if (game.ws && game.ws.readyState === WebSocket.OPEN) {
       game.ws.send(JSON.stringify({
@@ -283,15 +359,113 @@ export class CombatSystem {
       }));
     }
     if (miss) return;
+    // Combat MP siphon (basic attack MP recovery + MP Eater 2100000)
+    const s = game.stats;
+    if (s.mp < s.maxMp) {
+      const mpEaterLv = game.lv("2100000");
+      const hitMp = !game.p.skill
+        ? Math.max(4, Math.round(s.maxMp * 0.05 + 3))
+        : mpEaterLv > 0
+          ? Math.max(3, Math.round(s.maxMp * (0.02 + mpEaterLv * 0.005)))
+          : Math.max(1, Math.round(s.maxMp * 0.015));
+      s.mp = Math.min(s.maxMp, s.mp + hitMp);
+    }
     m.hp -= dmg;
     m.hpShow = 4;
     m.aggro = 6;
     m.dir = game.p.x < m.x ? -1 : 1;
     if (m.hp <= 0) {
       m.state = "die1"; m.anim = 0; m.frame = 0;
+      if (s.mp < s.maxMp) {
+        const killMp = Math.max(6, Math.round(s.maxMp * 0.06 + 4));
+        s.mp = Math.min(s.maxMp, s.mp + killMp);
+      }
       if (m.boss) { game.endBoss(true); return; }
-      const exp = Math.max(1, Math.round((m.data.meta?.exp ?? 5) * m.mul.exp * (1 + game.gt.exp / 100)));
+      // Authentic MapleStory Level-difference hunting EXP curve (Near-level bonus)
+      const lvDiff = game.stats.level - (m.data.meta?.level ?? 1);
+      let lvExpMul = 1.0;
+      if (Math.abs(lvDiff) <= 4) {
+        lvExpMul = 1.15; // +15% Near-level hunting bonus
+      } else if (lvDiff > 10) {
+        lvExpMul = Math.max(0.25, 1.0 - (lvDiff - 10) * 0.025); // Gentle lower-level reduction
+      } else if (lvDiff < -10) {
+        lvExpMul = Math.max(0.4, 1.0 - (Math.abs(lvDiff) - 10) * 0.02); // Punching above level
+      }
+
+      const exp = Math.max(1, Math.round((m.data.meta?.exp ?? 5) * m.mul.exp * lvExpMul * (1 + game.gt.exp / 100)));
       CombatSystem.gainExp(game, exp);
+
+      // Authentic Modern MapleStory Combo Kill System
+      const now = game.time;
+      if (now - game.lastKillTime < 6.0) {
+        game.comboKill++;
+      } else {
+        game.comboKill = 1;
+      }
+      game.lastKillTime = now;
+
+      // Combo Kill Orb every 50 kills (Blue, Purple, Red)
+      if (game.comboKill > 0 && game.comboKill % 50 === 0) {
+        const ck = game.comboKill;
+        const orbType = ck >= 750 ? "Red" : ck >= 350 ? "Purple" : "Blue";
+        const orbMul = ck >= 750 ? 25 : ck >= 350 ? 12 : 5;
+        const healPct = ck >= 750 ? 0.50 : ck >= 350 ? 0.30 : 0.15;
+
+        const orbExp = Math.max(10, Math.round(exp * orbMul));
+        CombatSystem.gainExp(game, orbExp);
+        const hpHeal = Math.round(game.stats.maxHp * healPct);
+        const mpHeal = Math.round(game.stats.maxMp * healPct);
+        game.stats.hp = Math.min(game.stats.maxHp, game.stats.hp + hpHeal);
+        game.stats.mp = Math.min(game.stats.maxMp, game.stats.mp + mpHeal);
+        game.dmg.push({
+          value: hpHeal,
+          miss: false,
+          hurt: false,
+          heal: true,
+          critical: false,
+          x: game.p.x,
+          y: game.p.y - 45,
+          t: 0,
+        });
+      }
+
+      // Multi Kill Streak (kills within 0.8s)
+      game.recentKills = game.recentKills.filter((t) => now - t < 0.8);
+      game.recentKills.push(now);
+      const rkLen = game.recentKills.length;
+      if (rkLen >= 3 && rkLen <= 10) {
+        const mkBonusPct = Math.min(30, 5 + rkLen * 3);
+        const mkExp = Math.round(exp * (mkBonusPct / 100));
+        CombatSystem.gainExp(game, mkExp);
+      }
+
+      // Authentic Modern MapleStory Elite Monster System
+      game.eliteKillsCount = (game.eliteKillsCount ?? 0) + 1;
+      if (game.eliteKillsCount >= 75 && !m.boss && !m.elite && game.map?.id !== FREE_MARKET_MAP) {
+        game.eliteKillsCount = 0;
+        const prefixes = ["Shadowy", "Sturdy", "Unstoppable", "Reflective", "Commander"];
+        const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+        const em = game.makeMob(m.spawn);
+        if (em) {
+          em.elite = true;
+          em.elitePrefix = prefix;
+          em.maxHp = em.hp = em.maxHp * 8;
+          em.atk = Math.round(em.atk * 1.5);
+          em.mul = { exp: em.mul.exp * 5, meso: em.mul.meso * 4 };
+          em.x = m.x;
+          em.y = m.y;
+          game.mobs.push(em);
+        }
+      }
+
+      if (m.elite) {
+        for (let i = 0; i < 4; i++) {
+          game.spawnDrop({ amount: Math.round(rand(60, 160) * m.mul.meso) }, m.x + rand(-30, 30), m.y - 30);
+        }
+        game.spawnDrop({ gear: makeGear(randomGearFor(game.stats.level, game.stats.classId), 1.5, 1) }, m.x, m.y - 30);
+        game.spawnDrop({ mat: ORES[Math.floor(Math.random() * ORES.length)] }, m.x + 20, m.y - 30);
+      }
+
       if (game.partyId && game.ws && game.ws.readyState === WebSocket.OPEN) {
         game.ws.send(JSON.stringify({
           t: "party_exp",
@@ -329,6 +503,11 @@ export class CombatSystem {
   }
 
   static gainExp(game: Game, n: number) {
+    if (game.godMode) n *= 2;
+    // Authentic MapleStory Liberated Rune Power (+100% bonus EXP / 2x EXP)
+    if (game.runeBuff && game.runeBuff.timeLeft > 0) {
+      n = Math.round(n * 2.0);
+    }
     const s = game.stats;
     s.exp += n;
     game.onGain("exp", `You have gained experience (+${n})`);
@@ -359,7 +538,7 @@ export class CombatSystem {
 
   static checkMobContact(game: Game) {
     const p = game.p;
-    if (p.invuln > 0 || game.godMode || game.gmHide || game.hasWizetHat()) return;
+    if (p.invuln > 0 || game.godMode || game.gmHide) return;
     for (const m of game.mobs) {
       if (m.state === "die1" || m.state === "dead" || m.alpha < 1) continue;
       const b = game.mobBox(m);
@@ -391,8 +570,17 @@ export class CombatSystem {
   }
 
   static hurtAmount(game: Game, atk: number): number {
+    // Authentic MapleStory Star Force / Arcane Force 1.5x damage reduction
+    const reqSf = StageSystem.requiredStarForce(game.stage.n);
+    const playerSf = game.totalStarForce();
+    const sfEffect = StageSystem.starForceMultiplier(playerSf, reqSf);
+    if (sfEffect.damageReduction) {
+      return 1; // At 150% Star Force, incoming monster damage drops to 1!
+    }
+
     const reduce = (1 - game.lv("1000003") * 0.02) * (100 / (100 + game.gt.def));
-    return Math.max(1, Math.round((atk * rand(0.8, 1.2) - game.stats.level * 0.5) * reduce));
+    const raw = Math.max(1, Math.round((atk * rand(0.8, 1.2) - game.stats.level * 0.5) * reduce));
+    return Math.round(raw * (sfEffect.dmgMul < 1 ? 1.4 : 1.0));
   }
 
   static die(game: Game) {
@@ -412,39 +600,65 @@ export class CombatSystem {
       b.left -= dt;
       if (b.left <= 0) { delete game.buffs[id]; changed = true; }
     }
-    if (changed) { game.recalc(); game.onChange(); }
+    if (changed) {
+      game.recalc();
+      game.onChange();
+      if (game.partyId) NetworkSystem.sendPartySync(game);
+    }
     t.regen += dt;
-    if (t.regen > 6) {
+    if (t.regen >= 1.5) {
       t.regen = 0;
-      s.hp = Math.min(s.maxHp, s.hp + 3 + Math.floor(s.level / 2));
-      s.mp = Math.min(s.maxMp, s.mp + 3 + Math.floor(s.level / 2));
+      const oldHp = s.hp, oldMp = s.mp;
+      const hpRegen = Math.max(5, Math.round(s.maxHp * 0.04 + 4 + s.level));
+      const mpRegen = Math.max(8, Math.round(s.maxMp * 0.08 + 6 + s.level * 1.5 + game.totalInt() * 0.3 + game.lv("2000006") * 5));
+      s.hp = Math.min(s.maxHp, s.hp + hpRegen);
+      s.mp = Math.min(s.maxMp, s.mp + mpRegen);
+      if (s.hp !== oldHp || s.mp !== oldMp) game.onChange();
     }
     if (game.buffs["0001001"]) {
       t.recovery += dt;
-      if (t.recovery > 2) {
+      if (t.recovery >= 2) {
         t.recovery = 0;
-        s.hp = Math.min(s.maxHp, s.hp + 8 * game.lv("0001001"));
+        const lv = Math.max(1, game.buffs["0001001"].lv ?? game.lv("0001001"));
+        s.hp = Math.min(s.maxHp, s.hp + 8 * lv);
+        s.mp = Math.min(s.maxMp, s.mp + 6 * lv);
       }
     }
-    const sr = game.lv("1110000");
+    const sr = game.lv("1110000") + game.lv("5100013");
     if (sr > 0) {
       t.self += dt;
-      if (t.self > 4) {
+      if (t.self >= 3) {
         t.self = 0;
-        s.hp = Math.min(s.maxHp, s.hp + 30 * sr);
-        s.mp = Math.min(s.maxMp, s.mp + 10 * sr);
+        s.hp = Math.min(s.maxHp, s.hp + 35 * sr);
+        s.mp = Math.min(s.maxMp, s.mp + 15 * sr);
       }
     }
     game.potCd = Math.max(0, game.potCd - dt);
     if (game.potCd <= 0) {
-      if (game.auto.hp && s.hp / s.maxHp * 100 < game.auto.hpPct) {
-        for (const id of [2000000, 2000001, 2000002]) {
-          if (CombatSystem.useAction(game, { t: "item", id }, true)) { game.potCd = 0.6; break; }
+      if (game.auto.hp && (s.hp / Math.max(1, s.maxHp)) * 100 < game.auto.hpPct) {
+        const hpPots = [2000000, 2000001, 2000002, 2001000, 2001001, 2020001, 2022000, 2001002, 2000004, 2020012, 2000005];
+        for (const id of hpPots) {
+          if (CombatSystem.useAction(game, { t: "item", id }, true)) { game.potCd = 0.5; break; }
         }
       }
-      if (game.potCd <= 0 && game.auto.mp && s.mp / s.maxMp * 100 < game.auto.mpPct) {
-        for (const id of [2000003, 2000006]) {
-          if (CombatSystem.useAction(game, { t: "item", id }, true)) { game.potCd = 0.6; break; }
+      const mpPct = (s.mp / Math.max(1, s.maxMp)) * 100;
+      const needsMpNow = mpPct < Math.max(game.auto.mpPct, 30) || (game.auto.battle && s.mp < 20 && s.mp < s.maxMp);
+      if (game.potCd <= 0 && game.auto.mp && needsMpNow) {
+        const mpPots = [2000003, 2020000, 2000006, 2001002, 2000004, 2020012, 2022003, 2022001, 2000005];
+        let usedMpPot = false;
+        for (const id of mpPots) {
+          if (CombatSystem.useAction(game, { t: "item", id }, true)) {
+            game.potCd = 0.5;
+            usedMpPot = true;
+            break;
+          }
+        }
+        // Fallback MP recovery when out of MP potions so character never stalls at 0 MP
+        if (!usedMpPot && s.mp < s.maxMp) {
+          const recovered = Math.max(18, Math.round(s.maxMp * 0.4));
+          s.mp = Math.min(s.maxMp, s.mp + recovered);
+          game.potCd = 1.5;
+          game.onChange();
         }
       }
     }

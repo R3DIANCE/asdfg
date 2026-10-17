@@ -86,11 +86,16 @@ export class QuickBarComponent extends ComponentBase {
     ];
 
     const createSlot = (key: string, cluster: HTMLElement) => {
-      const slot = el("div", "slot relative w-[27px] h-[27px] bg-[#3a4454]/75 hover:bg-[#4f5e77]/90 border border-[#9ca8b8]/35 hover:border-[#9ca8b8]/70 rounded-[3px] cursor-default select-none backdrop-blur-[2px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)] transition-colors", cluster);
+      const slot = el(
+        "div",
+        "slot relative w-[29px] h-[29px] bg-zinc-900/80 hover:bg-zinc-800 border border-white/10 hover:border-sky-400/50 rounded-md cursor-default select-none backdrop-blur-sm shadow-[0_2px_6px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all",
+        cluster
+      );
       slot.dataset.key = key;
+      el("div", "slot-beam pointer-events-none", slot);
       el("div", "slot-icon absolute inset-[2px] bg-center bg-no-repeat bg-contain [image-rendering:pixelated] z-[2]", slot);
       el("span", "slot-count absolute right-[2px] bottom-[1px] font-bold text-[8.5px] leading-[10px] text-white drop-shadow-[0_1px_2px_#000] pointer-events-none z-[4]", slot);
-      const k = el("span", "slot-key absolute left-[2px] top-[1px] font-bold text-[8px] leading-[9px] text-[#d2d8e1] drop-shadow-[0_1px_2px_#000] pointer-events-none z-[3]", slot);
+      const k = el("span", "slot-key absolute left-[2px] top-[1.5px] font-mono font-bold text-[7.5px] leading-none text-zinc-300 drop-shadow-[0_1px_2px_#000] pointer-events-none z-[3]", slot);
       k.textContent = KEY_LABEL[key] ?? key;
 
       el("div", "slot-cd absolute inset-0 bg-black/60 z-[5] hidden flex items-center justify-center font-bold text-[9px] text-[#ffdd55] drop-shadow-[0_1px_2px_#000] pointer-events-none rounded-[3px]", slot);
@@ -105,7 +110,12 @@ export class QuickBarComponent extends ComponentBase {
       this.makeDraggable(slot, () => this.game.quick[key] ?? null, key, () => this.game.useAction(this.game.quick[key]));
       slot.addEventListener("contextmenu", (e) => {
         e.preventDefault();
-        if (this.game.quick[key]) {
+        const a = this.game.quick[key];
+        if (!a) return;
+        if (this.game.toggleActionAuto(a)) {
+          this.lastSig = "";
+          this.render();
+        } else {
           this.game.quick[key] = null;
           this.lastSig = "";
           this.game.onChange();
@@ -113,7 +123,14 @@ export class QuickBarComponent extends ComponentBase {
       });
       this.bindTip(slot, () => {
         const a = this.game.quick[key];
-        return a ? this.getActionTip(a) + `<p class="tip-dim">Drag to move · drag off or right-click to remove</p>` : null;
+        if (!a) return null;
+        if (a.t === "skill" || a.t === "attack") {
+          const isAuto = this.game.isActionAuto(a);
+          const isBuff = a.t === "skill" && SKILL[a.id]?.kind === "buff";
+          const autoTag = `<p style="margin-top:4px;font-weight:700;color:${isAuto ? "#fbbf24" : "#94a3b8"}">Auto ${isBuff ? "Buff" : "Skill"}: ${isAuto ? "ON" : "OFF"}</p>`;
+          return this.getActionTip(a) + autoTag + `<p class="tip-dim">Right-click to toggle Auto · Drag off to remove</p>`;
+        }
+        return this.getActionTip(a) + `<p class="tip-dim">Drag to move · drag off or right-click to remove</p>`;
       });
     };
 
@@ -143,12 +160,13 @@ export class QuickBarComponent extends ComponentBase {
     const sig = QUICK_KEYS.map((k) => {
       const a = g.quick[k];
       if (!a) return "-";
+      const autoFlag = g.isActionAuto(a) ? 1 : 0;
       if (a.t === "item") return `i${a.id}:${g.inv[a.id] ?? 0}`;
       if (a.t === "skill") {
         const d = SKILL[a.id], lv = g.lv(a.id);
-        return `s${a.id}:${lv > 0 && (d.kind === "passive" || g.stats.mp >= d.mp(lv)) ? 1 : 0}`;
+        return `s${a.id}:${lv > 0 && (d.kind === "passive" || g.stats.mp >= d.mp(lv)) ? 1 : 0}:${autoFlag}`;
       }
-      return "a";
+      return `a:${autoFlag}`;
     }).join("|");
 
     if (sig === this.lastSig) return;
@@ -165,7 +183,7 @@ export class QuickBarComponent extends ComponentBase {
       if (!a) {
         icon.style.backgroundImage = "";
         count.textContent = "";
-        slot.classList.remove("off");
+        slot.classList.remove("off", "auto-active", "auto-buff");
         continue;
       }
 
@@ -178,7 +196,11 @@ export class QuickBarComponent extends ComponentBase {
         off = (g.inv[a.id] ?? 0) <= 0;
       }
 
+      const isAuto = g.isActionAuto(a);
+      const isBuff = a.t === "skill" && SKILL[a.id]?.kind === "buff";
       slot.classList.toggle("off", off);
+      slot.classList.toggle("auto-active", isAuto);
+      slot.classList.toggle("auto-buff", isAuto && isBuff);
       bg(icon, this.getActionIcon(a, off));
       count.textContent = a.t === "item" ? String(g.inv[a.id] ?? 0) : "";
     }

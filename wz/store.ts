@@ -182,18 +182,54 @@ export class SpriteStore {
 
   /** PNG for one canvas at a path like "stand/0/0". */
   spritePng(category: string, id: string, path: string): Buffer | null {
-    const found = this.image(category, id);
-    if (!found) return null;
-    let node: WzProperty | null = found.image.parse();
-    for (const part of path.split("/").filter(Boolean)) {
-      if (!node) return null;
-      node = node.get(part);
+    const resolvePath = (p: string): { canvas: WzCanvasProperty; found: any } | null => {
+      const foundImg = this.image(category, id);
+      if (!foundImg) return null;
+      let node: WzProperty | null = foundImg.image.parse();
+      for (const part of p.split("/").filter(Boolean)) {
+        if (!node) return null;
+        node = node.get(part);
+      }
+      const c = resolveCanvas(node, (cat, img) => this.image(cat, img));
+      return c ? { canvas: c, found: foundImg } : null;
+    };
+
+    let res = resolvePath(path);
+
+    // Automatic fallback for dummy 1x1 canvases (especially DamageSkin and NoKite)
+    if (!res || (res.canvas.width <= 1 && res.canvas.height <= 1)) {
+      if (category === "Effect" && id === "BasicEff" && path.includes("NoKite1")) {
+        const alt = resolvePath(path.replace("NoKite1", "NoKite0"));
+        if (alt && (alt.canvas.width > 1 || alt.canvas.height > 1)) res = alt;
+      } else if (category === "Effect" && id === "DamageSkin") {
+        if (path.includes("NoRed1")) {
+          const alt = resolvePath(path.replace("NoRed1", "NoRed0"));
+          if (alt && (alt.canvas.width > 1 || alt.canvas.height > 1)) res = alt;
+        } else if (path.includes("NoRed0")) {
+          const alt = resolvePath(path.replace("NoRed0", "NoRed1"));
+          if (alt && (alt.canvas.width > 1 || alt.canvas.height > 1)) res = alt;
+        } else if (path.includes("NoCri1")) {
+          const alt = resolvePath(path.replace("NoCri1", "NoCri0"));
+          if (alt && (alt.canvas.width > 1 || alt.canvas.height > 1)) res = alt;
+        } else if (path.includes("NoCri0")) {
+          const alt = resolvePath(path.replace("NoCri0", "NoCri1"));
+          if (alt && (alt.canvas.width > 1 || alt.canvas.height > 1)) res = alt;
+        } else if (path.includes("effect3")) {
+          for (const eff of ["effect", "effect0", "effect1", "effect2"]) {
+            const alt = resolvePath(path.replace("effect3", eff));
+            if (alt && (alt.canvas.width > 1 || alt.canvas.height > 1)) {
+              res = alt;
+              break;
+            }
+          }
+        }
+      }
     }
-    const canvas = resolveCanvas(node, (cat, img) => this.image(cat, img));
-    if (!canvas) return null;
+
+    if (!res) return null;
     this.stats.sprites++;
-    const key = canvas.image?.file?.reader?.key ?? found.file.reader.key;
-    return canvasToPng(canvas, key);
+    const key = res.canvas.image?.file?.reader?.key ?? res.found.file.reader.key;
+    return canvasToPng(res.canvas, key);
   }
 
   /**

@@ -132,7 +132,6 @@ export class GmSystem {
     if (game.ws && game.ws.readyState === WebSocket.OPEN) {
       game.ws.send(JSON.stringify({ t: "chat", text: notice, kind: "notice", broadcast: true }));
     }
-    window.dispatchEvent(new CustomEvent("gm-broadcast-notice", { detail: { text: clean } }));
   }
 
   static setFame(game: Game, amt: number) {
@@ -142,8 +141,21 @@ export class GmSystem {
   }
 
   static fullHeal(game: Game) {
+    const healAmt = game.stats.maxHp - game.stats.hp;
     game.stats.hp = game.stats.maxHp;
     game.stats.mp = game.stats.maxMp;
+    if (healAmt > 0) {
+      game.dmg.push({
+        value: healAmt,
+        miss: false,
+        hurt: false,
+        heal: true,
+        critical: false,
+        x: game.p.x,
+        y: game.p.y - 45,
+        t: 0,
+      });
+    }
     game.onChat("notice", "[DEBUG] Fully restored HP and MP.");
     game.onChange();
   }

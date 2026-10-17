@@ -13,10 +13,13 @@ import { spacetime, type SpacetimeCharacter } from "./spacetimedb";
 import { StatsManager } from "./systems/stats-manager.ts";
 import { GmDatGui } from "./components/GmDatGui.ts";
 import { setUiMode, getUiMode, type UiMode } from "./systems/ui-mode.ts";
+import { setupTouchScroll } from "./components/touch-scroll.ts";
 
 let root: HTMLElement | null = null;
 let statsMgr: StatsManager = new StatsManager();
 let gmGui: GmDatGui | null = null;
+
+setupTouchScroll();
 
 
 
@@ -163,6 +166,7 @@ addEventListener("keydown", (e: KeyboardEvent) => {
     else if (k === "e") w.ext.open("equip");
     else if (k === "j") w.ext.open("craft");
     else if (k === "h") w.ext.open("ah");
+    else if (k === "x" || (e.shiftKey && (k === "C" || k === "c"))) w.ext.openCashShop();
     else if (k === "g") w.toggle(w.guildWin);
     else if (k === "p") {
       w.toggle(w.partyWin);
@@ -172,7 +176,6 @@ addEventListener("keydown", (e: KeyboardEvent) => {
     else if (k === "l" || k === "`" || k === "~") {
       if (game.isGm()) w.ext.items.open();
     }
-    else if (k === "b") w.toggleAutoBattle();
     else if (k === "m") hud.toggleMinimap();
     else if (k === "'") hud.toggleChatMinimize();
     else if (k === "]") hud.toggleQuickSlots();
@@ -183,6 +186,11 @@ addEventListener("keydown", (e: KeyboardEvent) => {
       const nextMode = game.uiMode === "new" ? "old" : "new";
       setUiMode(nextMode);
       game.onChat("notice", `★ [UI Mode] Switched to ${nextMode.toUpperCase()} UI (${nextMode === "new" ? "WebGPU Canvas WZ HUD" : "Classic Modern DOM HUD"}).`);
+    }
+    else if (k === " ") {
+      if (game.rune && Math.hypot(game.p.x - game.rune.x, game.p.y - game.rune.y) < 100) {
+        game.liberateRune();
+      }
     }
   }
   if (!game.keys.has(k)) game.pressed.add(k);
@@ -235,6 +243,13 @@ async function boot() {
     return;
   }
 
+  // Non-blocking background prefetch for instant loading
+  json("/wz/data/ui").catch(() => null);
+  json("/wz/data/windows").catch(() => null);
+  json("/wz/data/items").catch(() => null);
+  json("/wz/data/fx").catch(() => null);
+  json("/wz/data/skills").catch(() => null);
+
   // Initialize MapleStory Auth & Character Selection
   setLoading(null);
   new AuthUI({
@@ -270,9 +285,10 @@ async function start(char?: SpacetimeCharacter) {
     const transient = new Set(["exp", "meso", "level", "item"]);
     if (transient.has(k)) {
       hud?.wins.pushLog(k, t);
+    } else if (k === "notice" || k === "system") {
+      hud?.wins.pushLog(k, t);
     } else {
       hud?.addChat(k, t, itemLink);
-      if (k === "notice" || k === "system") hud?.wins.pushLog(k, t);
     }
   };
   game.onGain = (k, t) => { hud?.showGain(k, t); hud?.wins.pushLog(k as ChatKind, t); };
@@ -281,15 +297,20 @@ async function start(char?: SpacetimeCharacter) {
   let localSaved: any = null;
   const charName = char?.name || (localStorage.getItem("ms_current_character") || "Wayfarer").slice(0, 12);
   try {
-    localSaved = JSON.parse(localStorage.getItem(`maple-wayfarer-save-${charName}`) ?? "null")
-      ?? JSON.parse(localStorage.getItem(SAVE_KEY) ?? "null");
+    const rawSpecific = localStorage.getItem(`maple-wayfarer-save-${charName}`)
+      ?? localStorage.getItem(`maple-wayfarer-save-${charName.toLowerCase()}`);
+    const parsed = JSON.parse(rawSpecific ?? "null");
+    if (parsed && (!parsed.stats?.name || parsed.stats.name.toLowerCase() === charName.toLowerCase())) {
+      localSaved = parsed;
+    }
   } catch {}
 
   let targetMap = FREE_MARKET_MAP;
   let targetSpawnPos: { x: number; y: number } | undefined = undefined;
 
   if (char) {
-    const fullSave = char.stats?.fullSave || (localSaved?.stats?.name === char.name ? localSaved : null);
+    const matchesLocal = localSaved?.stats?.name && localSaved.stats.name.toLowerCase() === char.name.toLowerCase();
+    const fullSave = char.stats?.fullSave || (matchesLocal ? localSaved : null);
     if (fullSave) {
       game.restore(fullSave);
     } else {
@@ -304,15 +325,14 @@ async function start(char?: SpacetimeCharacter) {
       if (Array.isArray(char.look) && char.look.length) {
         game.look = [...char.look];
       }
-      if (localSaved && localSaved.stats?.name === char.name) {
-        game.restore(localSaved);
-      }
     }
-    // Strictly enforce character name from database
+    // Strictly enforce character name and gender from database
     game.stats.name = char.name;
+    if (char.gender) game.stats.gender = char.gender;
     try {
       localStorage.setItem("ms_player_name", char.name);
       localStorage.setItem("ms_current_character", char.name);
+      if (char.gender) localStorage.setItem("ms_player_gender", char.gender);
     } catch {}
 
     // Resolve last map and coordinates from SpacetimeDB or fullSave
@@ -331,7 +351,7 @@ async function start(char?: SpacetimeCharacter) {
     }
   } else {
     game.stats.name = charName;
-    if (localSaved?.stats?.name === charName || localSaved) {
+    if (localSaved) {
       game.restore(localSaved);
     } else {
       game.applyClassDefaults("beginner");
@@ -352,8 +372,15 @@ async function start(char?: SpacetimeCharacter) {
     } catch {}
   }
 
-  // Ensure default fallback if not in saved state
-  if (typeof game.auto.battle !== "boolean") game.auto.battle = true;
+  // Restore auto combat state if previously enabled
+  const savedAutoCombat = localStorage.getItem("ms_auto_combat");
+  if (savedAutoCombat !== null) {
+    game.auto.battle = savedAutoCombat === "true";
+  } else if (typeof localSaved?.auto?.battle === "boolean") {
+    game.auto.battle = localSaved.auto.battle;
+  } else if (typeof char?.stats?.fullSave?.auto?.battle === "boolean") {
+    game.auto.battle = char.stats.fullSave.auto.battle;
+  }
   if (typeof game.auto.boss !== "boolean") game.auto.boss = true;
 
   setLoading("Loading Map & Footholds…", 72, "Loading map background, tiles & platforms");
@@ -393,24 +420,27 @@ async function start(char?: SpacetimeCharacter) {
   gmGui = new GmDatGui(game);
   (window as any).__gmGui = gmGui;
 
-  hud.addChat("system", "Arrows / WASD move · Alt/C/Space jump · Ctrl/X attack · Shift, Ins, Home, PgUp skills · Del/End potions · Z loot · Up/W at a portal");
-  hud.addChat("system", "U stats · K skills · E equipment · I inventory · J crafting · H auction house · B auto battle. Drag icons onto quick slots.");
-  if (game.isGm()) {
-    hud.addChat("notice", "★ [GM Privileges Active] Press F1 for GM Control Panel · L for All-Items Catalog · Type /gm for commands.");
-  }
-  hud.addChat("notice", `Welcome back, [${game.stats.name}]! Character ready.`);
-  if (game.map.id === FREE_MARKET_MAP) {
-    hud.addChat("notice", "Welcome to Free Market! This is a peaceful social hub. Enter portals to visit hunting zones.");
-  } else {
-    hud.addChat("notice", `${game.auto.battle ? "Auto Combat is ON" : "Auto Combat is OFF"}. Hunting monsters in ${game.map.name}. Stage boss ready every 25 kills.`);
-  }
 
   // Accumulate offline hunting progress across logout/login and prompt Welcome Back
   const savedTimestamp = localSaved?.lastLogoutAt || localSaved?.savedAt || (char?.stats?.fullSave?.lastLogoutAt as number) || (char?.stats?.fullSave?.savedAt as number) || 0;
   game.offlineRewards(savedTimestamp);
 
   game.ah.refresh(Date.now());
+  let lastPersistTime = 0;
+  let persistPending = false;
   const persist = async () => {
+    const now = Date.now();
+    if (now - lastPersistTime < 3000) {
+      if (!persistPending) {
+        persistPending = true;
+        setTimeout(() => {
+          persistPending = false;
+          persist();
+        }, 3000 - (now - lastPersistTime));
+      }
+      return;
+    }
+    lastPersistTime = now;
     try {
       const full = game.save();
       const charSaveKey = game.stats.name ? `maple-wayfarer-save-${game.stats.name}` : SAVE_KEY;
@@ -460,14 +490,6 @@ async function start(char?: SpacetimeCharacter) {
   bgm.src = game.map.bgmUrl;
   bgm.play().catch(() => {});
 
-  setLoading(
-    "Welcome to the Maple World!",
-    100,
-    game.map.id === FREE_MARKET_MAP
-      ? "Social Hub active. Meet players and trade in the Free Market!"
-      : "Auto Battle active. Ready to explore."
-  );
-  await new Promise((resolve) => setTimeout(resolve, 250));
   setLoading(null);
   game.fullyLoaded = true;
   game.initWs();
@@ -484,6 +506,7 @@ function frame(now: number) {
     statsMgr.begin();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
+    document.documentElement.style.setProperty("--item-beam-angle", `${((now % 2400) / 2400 * 360).toFixed(1)}deg`);
     if (running && !manual && game) game.update(dt);
     if (running && game) {
       game.draw();

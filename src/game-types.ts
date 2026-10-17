@@ -125,6 +125,8 @@ export const MAP_LINKS: Record<number, { left: number; right: number }> = {
 export interface RemotePlayer {
   id: string;
   name: string;
+  level?: number;
+  job?: string;
   mapId: number;
   x: number;
   y: number;
@@ -146,6 +148,12 @@ export interface RemotePlayer {
   damageSkin?: number | string;
   magnetActive?: boolean;
   magnetTimer?: number;
+  gmEffect?: boolean;
+  hp?: number;
+  maxHp?: number;
+  mp?: number;
+  maxMp?: number;
+  charComp?: any;
 }
 
 export const BODY = [2000, 12000, 20000, 30030];
@@ -184,19 +192,50 @@ export const EXP_TABLE = [
   11040, 13716, 16680, 20216, 24402, 28980, 34320, 40512, 47216, 54900, 63666, 73080, 83720, 95700,
 ];
 
-export const expToLevel = (lv: number) => {
+export const expToLevel = (lv: number): number => {
   const safeLv = Math.max(1, Math.floor(lv));
   if (safeLv <= EXP_TABLE.length) {
     return EXP_TABLE[safeLv - 1];
   }
-  // Infinite exponential progression beyond Lv. 30 with scaling exponent
-  const base = EXP_TABLE[EXP_TABLE.length - 1]; // 95,700 at Lv. 30
-  const diff = safeLv - EXP_TABLE.length;
-  return Math.round(base * Math.pow(1.085, diff) * (1 + Math.pow(diff / 8, 1.8)));
+  // Balanced progressive curve calibrated to MapleStory progression:
+  // Lv. 30: 95.7K
+  // Lv. 70: ~2.1M
+  // Lv. 120: ~28M
+  // Lv. 200: ~2.2B
+  // Lv. 250: ~45B
+  // Lv. 276: ~385B (avoids the previous 23 quadrillion overflow and stays safely within JavaScript integers)
+  // Lv. 300: ~2.8T
+  if (safeLv <= 70) {
+    const diff = safeLv - 30;
+    return Math.round(95700 * Math.pow(1.075, diff) * (1 + diff * 0.04));
+  }
+  if (safeLv <= 120) {
+    const diff = safeLv - 70;
+    return Math.round(2100000 * Math.pow(1.045, diff) * (1 + diff * 0.02));
+  }
+  if (safeLv <= 200) {
+    const diff = safeLv - 120;
+    return Math.round(28000000 * Math.pow(1.055, diff) * (1 + diff * 0.01));
+  }
+  if (safeLv <= 250) {
+    const diff = safeLv - 200;
+    return Math.round(2200000000 * Math.pow(1.062, diff));
+  }
+  const diff = safeLv - 250;
+  return Math.round(45000000000 * Math.pow(1.085, diff));
 };
 
 export const WALK = 135, JUMP = 560, CLIMB = 150;
 export const rand = (a: number, b: number) => a + Math.random() * (b - a);
+
+export type RuneType = "swiftness" | "might" | "thunder" | "destruction";
+
+export interface ActiveRune {
+  x: number;
+  y: number;
+  type: RuneType;
+  t: number;
+}
 
 export interface Mob {
   data: MobData;
@@ -221,6 +260,8 @@ export interface Mob {
   mul: { exp: number; meso: number };
   atk: number;
   boss?: boolean;
+  elite?: boolean;
+  elitePrefix?: string;
   skillT?: number;
   attacking?: string;
   lastTex?: Tex | null;
@@ -272,6 +313,8 @@ export interface DmgText {
   value: number;
   miss: boolean;
   hurt: boolean;
+  heal?: boolean;
+  poison?: boolean;
   critical?: boolean;
   skinId?: number | string;
   x: number;
@@ -318,6 +361,7 @@ export interface Stats {
   mp: number;
   maxMp: number;
   meso: number;
+  nx: number;
   job: string;
   classId: ClassId;
   str: number;
@@ -329,6 +373,7 @@ export interface Stats {
   baseHp: number;
   baseMp: number;
   fame: number;
+  gender?: "male" | "female" | string;
 }
 
 export interface AutoSettings {
@@ -342,6 +387,7 @@ export interface AutoSettings {
   ap: boolean;
   boss: boolean;
   magnet: boolean;
+  disabledSkills?: Record<string, boolean>;
 }
 
 export type ChatKind = "system" | "exp" | "meso" | "level" | "notice" | "say" | "item" | "whisper" | "party" | "guild";

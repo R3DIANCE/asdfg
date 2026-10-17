@@ -32,17 +32,64 @@ export class EconomySystem {
     return msg;
   }
 
-  static ahBuy(game: Game, lid: string): boolean {
+  static ahBuy(game: Game, lid: string, payWith?: "meso" | "nx"): boolean {
     const L = game.ah.listings.find((l) => l.lid === lid);
     if (!L) return false;
-    if (game.stats.meso < L.price) {
-      game.onChat("system", "You don't have enough mesos.");
+    if (L.seller && game.stats.name && L.seller.toLowerCase() === game.stats.name.toLowerCase()) {
+      game.onChat("system", "You cannot buy your own listing. Cancel it in MY LISTINGS.");
       return false;
     }
-    game.stats.meso -= L.price;
-    EconomySystem.receive(game, L.goods);
-    game.ah.listings = game.ah.listings.filter((l) => l !== L);
-    game.onChat("item", `Bought ${goodsName(L.goods)} from ${L.seller} for ${L.price.toLocaleString()} mesos.`);
+
+    let useCurrency: "meso" | "nx" = "meso";
+    if (L.currency === "nx") {
+      useCurrency = "nx";
+    } else if (L.currency === "both") {
+      if (payWith === "nx" || (game.stats.meso < L.price && (game.stats.nx ?? 0) >= (L.priceNx ?? 0))) {
+        useCurrency = "nx";
+      } else {
+        useCurrency = "meso";
+      }
+    }
+
+    if (useCurrency === "nx") {
+      const costNx = L.priceNx ?? L.price;
+      if ((game.stats.nx ?? 0) < costNx) {
+        game.onChat("system", "You don't have enough NX.");
+        return false;
+      }
+      game.stats.nx = (game.stats.nx ?? 0) - costNx;
+      EconomySystem.receive(game, L.goods);
+      game.ah.listings = game.ah.listings.filter((l) => l !== L);
+      game.onChat("item", `Bought ${goodsName(L.goods)} from ${L.seller} for ${costNx.toLocaleString()} NX.`);
+    } else {
+      if (game.stats.meso < L.price) {
+        game.onChat("system", "You don't have enough mesos.");
+        return false;
+      }
+      game.stats.meso -= L.price;
+      EconomySystem.receive(game, L.goods);
+      game.ah.listings = game.ah.listings.filter((l) => l !== L);
+      game.onChat("item", `Bought ${goodsName(L.goods)} from ${L.seller} for ${L.price.toLocaleString()} mesos.`);
+    }
+
+    fetch("/api/auction/buy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lid,
+        buyer: game.stats.name,
+        payWith: useCurrency,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.ok) {
+          if (Array.isArray(data.listings)) game.ah.listings = data.listings;
+          game.onChange();
+        }
+      })
+      .catch(() => {});
+
     game.onChange();
     return true;
   }
@@ -53,7 +100,14 @@ export class EconomySystem {
     else game.inv[g.id] = (game.inv[g.id] ?? 0) + g.n;
   }
 
-  static ahList(game: Game, goods: Goods, price: number): boolean {
+  static ahList(
+    game: Game,
+    goods: Goods,
+    priceMeso: number,
+    priceNx?: number,
+    currency: "meso" | "nx" | "both" = "meso",
+    durationHours: 12 | 24 = 24
+  ): boolean {
     if (goods.t === "gear") {
       const i = game.bag.findIndex((x) => x.uid === goods.gear.uid);
       if (i < 0) return false;
@@ -65,16 +119,76 @@ export class EconomySystem {
       if ((game.inv[goods.id] ?? 0) < goods.n) return false;
       game.inv[goods.id] -= goods.n;
     }
-    const fee = Math.ceil(price * 0.01);
-    game.stats.meso = Math.max(0, game.stats.meso - fee);
-    game.ah.mine.push({
-      lid: `M${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+
+    const fee = currency === "nx" ? 100 : Math.ceil(priceMeso * 0.01);
+    if (currency === "nx") {
+      game.stats.nx = Math.max(0, (game.stats.nx ?? 0) - fee);
+    } else {
+      game.stats.meso = Math.max(0, game.stats.meso - fee);
+    }
+
+    const now = Date.now();
+    const lid = `M${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const cleanPrice = Math.max(1, Math.round(priceMeso || 1));
+    const cleanPriceNx = priceNx ? Math.max(1, Math.round(priceNx)) : undefined;
+    const until = now + durationHours * 3600_000;
+
+    const myEntry = {
+      lid,
       goods,
-      price: Math.max(1, Math.round(price)),
-      listedAt: Date.now(),
+      price: cleanPrice,
+      priceNx: cleanPriceNx,
+      currency,
+      durationHours,
+      listedAt: now,
+      until,
       sold: false,
+    };
+    game.ah.mine.unshift(myEntry);
+    game.ah.listings.push({
+      lid,
+      goods,
+      price: cleanPrice,
+      priceNx: cleanPriceNx,
+      currency,
+      durationHours,
+      seller: game.stats.name,
+      until,
     });
-    game.onChat("system", `Listed ${goodsName(goods)} for ${price.toLocaleString()} mesos (fee ${fee}).`);
+    game.ah.listings.sort((a, b) => a.price - b.price);
+
+    fetch("/api/auction/list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lid,
+        seller: game.stats.name,
+        goods,
+        price: cleanPrice,
+        priceNx: cleanPriceNx,
+        currency,
+        durationHours,
+        listedAt: now,
+        until,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.ok) {
+          if (Array.isArray(data.listings)) game.ah.listings = data.listings;
+          if (Array.isArray(data.mine)) game.ah.mine = data.mine;
+          game.onChange();
+        }
+      })
+      .catch(() => {});
+
+    const priceLabel = currency === "both"
+      ? `${priceMeso.toLocaleString()} mesos / ${(priceNx ?? 0).toLocaleString()} NX`
+      : currency === "nx"
+      ? `${(priceNx ?? priceMeso).toLocaleString()} NX`
+      : `${priceMeso.toLocaleString()} mesos`;
+
+    game.onChat("system", `Listed ${goodsName(goods)} for ${priceLabel} (${durationHours}h duration).`);
     game.onChange();
     return true;
   }
@@ -84,14 +198,41 @@ export class EconomySystem {
     if (i < 0) return;
     const m = game.ah.mine[i];
     if (m.sold) {
-      const net = Math.floor(m.price * (1 - AH_TAX));
-      game.stats.meso += net;
-      game.onGain("meso", `Collected ${net.toLocaleString()} mesos from the Auction House.`);
+      if (m.soldCurrency === "nx" || (!m.soldCurrency && m.currency === "nx")) {
+        const netNx = Math.floor((m.priceNx ?? m.price) * (1 - AH_TAX));
+        game.stats.nx = (game.stats.nx ?? 0) + netNx;
+        game.onChat("notice", `★ [Auction House] Collected ${netNx.toLocaleString()} NX!`);
+      } else {
+        const netMeso = Math.floor(m.price * (1 - AH_TAX));
+        game.stats.meso += netMeso;
+        game.onGain("meso", `Collected ${netMeso.toLocaleString()} mesos from the Auction House.`);
+      }
     } else {
       EconomySystem.receive(game, m.goods);
-      game.onChat("system", `Cancelled your listing for ${goodsName(m.goods)}.`);
+      const isExpired = m.until && Date.now() > m.until;
+      game.onChat("system", isExpired ? `Retrieved expired listing for ${goodsName(m.goods)}.` : `Cancelled listing for ${goodsName(m.goods)}.`);
     }
     game.ah.mine.splice(i, 1);
+    game.ah.listings = game.ah.listings.filter((l) => l.lid !== lid);
+
+    fetch("/api/auction/collect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lid,
+        seller: game.stats.name,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.ok) {
+          if (Array.isArray(data.listings)) game.ah.listings = data.listings;
+          if (Array.isArray(data.mine)) game.ah.mine = data.mine;
+          game.onChange();
+        }
+      })
+      .catch(() => {});
+
     game.onChange();
   }
 }

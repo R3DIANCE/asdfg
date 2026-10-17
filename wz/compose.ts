@@ -195,6 +195,7 @@ export function composeCharacter(
   flip = false,
   expr = "default",
   ef = 0,
+  portrait = false,
 ): Buffer | null {
   const zIndex = makeZIndex(store);
   const placements: Placement[] = [];
@@ -351,6 +352,62 @@ export function composeCharacter(
   }
 
   if (!placements.length) return null;
+
+  // Portrait mode: extract head-focused close-up portrait (Head, Face, Hair, Cap)
+  if (portrait) {
+    const headPlacements = placements.filter(
+      (p) =>
+        p.category === "Head" ||
+        p.category === "Face" ||
+        p.category === "Hair" ||
+        p.category === "Cap" ||
+        (p.id >= 10000 && p.id < 40000)
+    );
+    const active = headPlacements.length > 0 ? headPlacements : placements;
+    let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
+    for (const p of active) {
+      if (!p.pixels) continue;
+      const x0 = Math.round(p.px - p.origin[0]);
+      const x1 = x0 + p.canvas.width;
+      const y0 = Math.round(p.py - p.origin[1]);
+      const y1 = y0 + p.canvas.height;
+      if (x0 < bMinX) bMinX = x0;
+      if (x1 > bMaxX) bMaxX = x1;
+      if (y0 < bMinY) bMinY = y0;
+      if (y1 > bMaxY) bMaxY = y1;
+    }
+    if (Number.isFinite(bMinX)) {
+      // Add generous 4px padding and form a clean square
+      bMinX -= 4;
+      bMaxX += 4;
+      bMinY -= 4;
+      bMaxY += 4;
+      const bw = bMaxX - bMinX;
+      const bh = bMaxY - bMinY;
+      const side = Math.max(bw, bh, 46);
+      const px = Math.floor((side - bw) / 2);
+      const py = Math.floor((side - bh) / 2);
+      const w = side;
+      const h = side;
+      const ox = -(bMinX - px);
+      const oy = -(bMinY - py);
+
+      active.sort((a, b) => a.z - b.z);
+      return canvasFramePng(w, h, (fb) => {
+        for (const p of active) {
+          if (!p.pixels) continue;
+          fb.blend(
+            p.pixels,
+            p.canvas.width,
+            p.canvas.height,
+            Math.round(p.px - p.origin[0] + ox),
+            Math.round(p.py - p.origin[1] + oy),
+            flip,
+          );
+        }
+      });
+    }
+  }
 
   // Generous standard canvas size (384x384) to fit full weapon reaching, dark auras, and special effects (e.g. Black Sword).
   // Origin is positioned at (192, 256), anchoring character feet solidly at y = 256 with horizontal center at 192.

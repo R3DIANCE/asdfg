@@ -6,11 +6,15 @@ import type { Windows } from "../windows.ts";
 import { el } from "../util.ts";
 import { lucideIcon } from "../lucide.ts";
 import { PartyClient } from "../party.ts";
+import { getMapDisplayName } from "../mapNames.ts";
 
 export interface OnlinePlayerInfo {
   id: string;
   name: string;
+  level?: number;
+  job?: string;
   mapId: number;
+  mapName?: string;
   x: number;
   y: number;
   anim?: string;
@@ -18,15 +22,11 @@ export interface OnlinePlayerInfo {
   face?: number;
   look: number[];
   isLocal?: boolean;
+  online?: boolean;
+  autoCombat?: boolean;
+  godMode?: boolean;
+  gmEffect?: boolean;
 }
-
-const MAP_NAMES: Record<number, string> = {
-  910000000: "Free Market",
-  100010000: "Henesys Hunting",
-  100020000: "Henesys Market",
-  101010000: "Ellinia Outskirts",
-  100000000: "Henesys Town",
-};
 
 export class GmOnlinePanel extends ComponentBase {
   root!: HTMLElement;
@@ -82,7 +82,7 @@ export class GmOnlinePanel extends ComponentBase {
     // Collapsed Trigger Tab (Compact translucent pill on right edge)
     this.tabBtn = el(
       "button",
-      "gm-collapse-tab flex items-center gap-1.5 px-2.5 py-1.5 cursor-pointer bg-slate-950/65 hover:bg-slate-900/80 border-l border-t border-b border-white/10 rounded-l-md backdrop-blur-[14px] shadow-lg text-slate-300 transition-all active:translate-x-[-1px]",
+      "gm-collapse-tab flex items-center gap-1.5 px-2.5 py-1.5 cursor-pointer bg-zinc-950/65 hover:bg-zinc-900/80 border-l border-t border-b border-white/10 rounded-l-md backdrop-blur-[14px] shadow-lg text-zinc-300 transition-all active:translate-x-[-1px]",
       this.root
     ) as HTMLButtonElement;
     this.tabBtn.type = "button";
@@ -90,35 +90,35 @@ export class GmOnlinePanel extends ComponentBase {
     this.tabBtn.innerHTML = `
       ${lucideIcon("users", 13, "text-sky-400")}
       <span class="gm-tab-count font-mono font-bold text-[10px] text-white">1</span>
-      ${lucideIcon("chevron-left", 12, "text-slate-400")}
+      ${lucideIcon("chevron-left", 12, "text-zinc-400")}
     `;
     this.tabCountBadge = this.tabBtn.querySelector(".gm-tab-count") as HTMLElement;
     this.tabBtn.addEventListener("click", () => {
       this.toggleCollapse(false);
     });
 
-    // Expanded Translucent Panel Box
+    // Expanded Translucent Panel Box (Shadcn Glass Card)
     this.panelBox = el(
       "div",
-      "gm-panel-box flex flex-col w-[250px] max-h-[calc(100vh-130px)] bg-slate-950/70 border-l border-t border-b border-white/10 rounded-l-lg backdrop-blur-[16px] shadow-[0_12px_40px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.08)] overflow-hidden hidden",
+      "gm-panel-box flex flex-col w-[290px] max-h-[calc(100vh-130px)] bg-zinc-950/85 border-l border-t border-b border-white/10 rounded-l-xl backdrop-blur-md shadow-[0_16px_48px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.08)] overflow-hidden hidden",
       this.root
     );
 
-    // Compact Header (No "GM Panel" text)
-    const header = el("div", "flex items-center justify-between px-2.5 py-2 bg-white/[0.03] border-b border-white/10", this.panelBox);
+    // Compact Header (Shadcn style with subtle glass)
+    const header = el("div", "flex items-center justify-between px-3 py-2 bg-white/[0.03] border-b border-white/10", this.panelBox);
     header.innerHTML = `
       <div class="flex items-center gap-1.5 min-w-0">
         ${lucideIcon("users", 13, "text-sky-400 flex-shrink-0")}
         <span class="gm-panel-count font-mono font-bold text-[11px] text-white truncate">1 Online</span>
       </div>
       <div class="flex items-center gap-1 flex-shrink-0">
-        <button type="button" class="gm-btn-broadcast p-1 rounded hover:bg-white/10 text-slate-300 hover:text-amber-300 transition-colors" title="Broadcast Notice">
+        <button type="button" class="gm-btn-broadcast p-1 rounded hover:bg-white/10 text-zinc-300 hover:text-amber-300 transition-colors" title="Broadcast Notice">
           ${lucideIcon("megaphone", 12)}
         </button>
-        <button type="button" class="gm-btn-refresh p-1 rounded hover:bg-white/10 text-slate-300 hover:text-white transition-colors" title="Refresh">
+        <button type="button" class="gm-btn-refresh p-1 rounded hover:bg-white/10 text-zinc-300 hover:text-white transition-colors" title="Refresh">
           ${lucideIcon("refresh", 12)}
         </button>
-        <button type="button" class="gm-btn-collapse p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="Collapse">
+        <button type="button" class="gm-btn-collapse p-1 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition-colors" title="Collapse">
           ${lucideIcon("chevron-right", 13)}
         </button>
       </div>
@@ -129,19 +129,28 @@ export class GmOnlinePanel extends ComponentBase {
     header.querySelector(".gm-btn-refresh")?.addEventListener("click", () => this.fetchPlayers());
     header.querySelector(".gm-btn-broadcast")?.addEventListener("click", () => this.promptBroadcast());
 
-    // Minimal Search bar
-    const searchRow = el("div", "relative px-2 py-1.5 bg-black/20 border-b border-white/5 flex items-center", this.panelBox);
-    const searchIcon = el("span", "absolute left-3.5 pointer-events-none text-slate-400 flex items-center", searchRow);
-    searchIcon.innerHTML = lucideIcon("search", 11);
-    this.searchInput = el("input", "w-full pl-6 pr-2 py-1 bg-white/5 hover:bg-white/10 focus:bg-white/10 border border-white/10 focus:border-sky-400/50 rounded text-[10.5px] text-white placeholder-slate-500 outline-none transition-colors font-sans", searchRow) as HTMLInputElement;
-    this.searchInput.placeholder = "Filter players or maps...";
+    // Clean Shadcn Search Bar with high-visibility aligned Lucide Search Icon
+    const searchRow = el("div", "p-2 bg-zinc-950/40 border-b border-white/10", this.panelBox);
+    const searchWrap = el("div", "relative flex items-center w-full", searchRow);
+    const searchIcon = el(
+      "span",
+      "absolute left-2.5 inset-y-0 flex items-center justify-center pointer-events-none text-zinc-400 z-10",
+      searchWrap
+    );
+    searchIcon.innerHTML = lucideIcon("search", 12.5, "text-zinc-400");
+    this.searchInput = el(
+      "input",
+      "flex h-7 w-full rounded-md border border-white/15 bg-zinc-950/60 pl-8 pr-2.5 text-[11px] text-white shadow-sm placeholder:text-zinc-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-400 focus-visible:border-sky-400 transition-colors block box-border",
+      searchWrap
+    ) as HTMLInputElement;
+    this.searchInput.placeholder = "Filter operatives or maps...";
     this.searchInput.addEventListener("input", (e) => {
       this.searchQuery = (e.target as HTMLInputElement).value.trim().toLowerCase();
       this.renderPlayers();
     });
 
     // Player List scroll area
-    this.playerListEl = el("div", "gm-player-list flex-1 overflow-y-auto p-1.5 flex flex-col gap-1.5 max-h-[50vh]", this.panelBox);
+    this.playerListEl = el("div", "gm-player-list flex-1 overflow-y-auto p-2 flex flex-col gap-2 max-h-[50vh]", this.panelBox);
 
     this.updateCollapseUI();
     this.syncVisibility();
@@ -196,7 +205,10 @@ export class GmOnlinePanel extends ComponentBase {
     const localPlayer: OnlinePlayerInfo = {
       id: this.game.wsId || "LOCAL",
       name: this.game.stats.name || "Adventurer",
+      level: this.game.stats.level || 1,
+      job: this.game.stats.job || "Beginner",
       mapId: this.game.map?.id || 910000000,
+      mapName: this.game.map?.name,
       x: Math.round(this.game.p.x),
       y: Math.round(this.game.p.y),
       anim: this.game.p.anim,
@@ -204,6 +216,10 @@ export class GmOnlinePanel extends ComponentBase {
       face: this.game.p.face,
       look: this.game.look,
       isLocal: true,
+      online: true,
+      autoCombat: Boolean(this.game.auto?.battle),
+      godMode: Boolean(this.game.godMode),
+      gmEffect: Boolean(this.game.gmEffect),
     };
 
     const playerMap = new Map<string, OnlinePlayerInfo>();
@@ -216,7 +232,10 @@ export class GmOnlinePanel extends ComponentBase {
       playerMap.set(name.toLowerCase(), {
         id,
         name,
+        level: rp.level || 1,
+        job: rp.job || "Beginner",
         mapId: this.game.map?.id || 910000000,
+        mapName: this.game.map?.name,
         x: Math.round(rp.x),
         y: Math.round(rp.y),
         anim: rp.anim,
@@ -224,6 +243,7 @@ export class GmOnlinePanel extends ComponentBase {
         face: rp.face,
         look: rp.look,
         isLocal: false,
+        online: true,
       });
     }
 
@@ -234,12 +254,16 @@ export class GmOnlinePanel extends ComponentBase {
         const data = await res.json();
         if (Array.isArray(data.players)) {
           for (const sp of data.players) {
+            if (sp.online === false) continue;
             const name = sp.name || sp.id;
             if (name.toLowerCase() === localPlayer.name.toLowerCase()) continue;
             playerMap.set(name.toLowerCase(), {
               id: sp.id,
               name,
+              level: sp.level || 1,
+              job: sp.job || "Beginner",
               mapId: sp.mapId,
+              mapName: sp.mapName,
               x: sp.x,
               y: sp.y,
               anim: sp.anim,
@@ -247,37 +271,42 @@ export class GmOnlinePanel extends ComponentBase {
               face: sp.face,
               look: sp.look || [2000, 12000, 20000, 30030],
               isLocal: false,
+              online: true,
+              autoCombat: Boolean(sp.autoCombat),
+              godMode: Boolean(sp.godMode),
+              gmEffect: Boolean(sp.gmEffect),
             });
           }
         }
       }
     } catch {}
 
-    this.players = [...playerMap.values()];
+    this.players = [...playerMap.values()].filter((p) => p.online !== false);
     this.renderPlayers();
   }
 
   private renderPlayers() {
     if (!this.playerListEl) return;
-    const totalCount = this.players.length;
+    const count = this.players.filter((p) => p.online !== false).length;
 
     if (this.countBadge) {
-      this.countBadge.textContent = `${totalCount} Online`;
+      this.countBadge.textContent = `${count} Online`;
     }
     if (this.tabCountBadge) {
-      this.tabCountBadge.textContent = String(totalCount);
+      this.tabCountBadge.textContent = String(count);
     }
 
     const q = this.searchQuery;
     const filtered = this.players.filter((p) => {
+      if (p.online === false) return false;
       if (!q) return true;
-      const mapName = (MAP_NAMES[p.mapId] || `Map ${p.mapId}`).toLowerCase();
+      const mapName = getMapDisplayName(p.mapId, p.mapName, this.game.map).toLowerCase();
       return p.name.toLowerCase().includes(q) || mapName.includes(q) || String(p.mapId).includes(q);
     });
 
     if (filtered.length === 0) {
       this.playerListEl.innerHTML = `
-        <div class="p-3 text-center text-slate-500 text-[10.5px] bg-white/[0.02] rounded border border-white/5">
+        <div class="p-3 text-center text-zinc-500 text-[10.5px] bg-white/[0.02] rounded border border-white/5">
           No players found.
         </div>
       `;
@@ -287,53 +316,82 @@ export class GmOnlinePanel extends ComponentBase {
     this.playerListEl.innerHTML = "";
 
     for (const p of filtered) {
-      const card = el("div", "gm-player-card bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 rounded p-1.5 transition-colors flex flex-col gap-1", this.playerListEl);
+      const card = el(
+        "div",
+        `gm-player-card bg-zinc-900/60 hover:bg-zinc-900/85 border border-white/10 rounded-lg p-2 transition-all flex flex-col gap-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.35)]`,
+        this.playerListEl
+      );
 
-      const mapName = MAP_NAMES[p.mapId] || `Map ${p.mapId}`;
-      const avatarUrl = `/wz/char?eq=${(p.look || [2000, 12000, 20000, 30030]).join(",")}&action=stand1&frame=0`;
+      const mapName = getMapDisplayName(p.mapId, p.mapName, this.game.map, () => this.renderPlayers());
+      const avatarUrl = `/wz/char?eq=${(p.look || [2000, 12000, 20000, 30030]).join(",")}&action=stand1&frame=0&portrait=1`;
+      const isAutoOn = p.isLocal ? Boolean(this.game.auto?.battle) : Boolean(p.autoCombat);
+      const isGodOn = p.isLocal ? Boolean(this.game.godMode) : Boolean(p.godMode);
 
-      const topRow = el("div", "flex items-center gap-1.5", card);
+      const avatarIndicator = p.isLocal
+        ? `<span class="absolute bottom-0.5 right-0.5 w-2 h-2 rounded-full ${isGodOn ? "bg-amber-400 animate-pulse" : "bg-emerald-400"} border border-zinc-950"></span>`
+        : `<span class="absolute bottom-0.5 right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-zinc-950" title="Online Player"></span>`;
+
+      const topRow = el("div", "flex items-center gap-2", card);
       topRow.innerHTML = `
-        <div class="relative w-6 h-6 rounded bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+        <div class="relative w-8 h-8 rounded-md bg-zinc-950/90 border border-white/15 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-inner">
           <img src="${avatarUrl}" class="w-full h-full object-contain image-rendering-pixelated" alt="${p.name}" onerror="this.src='/wz/sprite/Mob/0100100/stand/0'" />
-          ${p.isLocal ? `<span class="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full ${this.game.godMode ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}"></span>` : ""}
+          ${avatarIndicator}
         </div>
         <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-1">
-            <span class="font-bold text-[10.5px] text-slate-100 truncate">${p.name}</span>
-            ${p.isLocal ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">YOU</span>` : ""}
-            ${p.isLocal && this.game.godMode ? `<span class="px-1 py-0 rounded bg-yellow-500/20 text-yellow-300 font-mono text-[7px] border border-yellow-500/30">GOD</span>` : ""}
+          <div class="flex items-center gap-1.5 mb-0.5 flex-wrap">
+            <span class="px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/35 font-mono text-[9px] font-bold tracking-tight shadow-sm">Lv. ${p.level ?? 1}</span>
+            <span class="font-bold text-[11px] text-white truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">${p.name}</span>
+            ${p.isLocal ? `<span class="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-300 font-mono text-[7.5px] border border-sky-500/30 font-bold">YOU</span>` : ""}
+            ${isGodOn ? `<span class="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30 font-bold">GOD</span>` : ""}
+            ${isAutoOn ? `<span class="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[7.5px] border border-emerald-500/30 font-bold">AUTO</span>` : ""}
           </div>
-          <div class="text-[8.5px] text-slate-400 flex items-center gap-1 truncate">
-            <span class="text-cyan-300 truncate">${mapName}</span>
-            <span class="text-slate-500 font-mono">(${p.x},${p.y})</span>
+          <div class="text-[9px] text-zinc-400 flex items-center gap-1.5 truncate">
+            <span class="text-sky-300 truncate font-medium">${mapName}</span>
+            <span class="text-zinc-500 font-mono">(${p.x},${p.y})</span>
           </div>
         </div>
       `;
 
-      // Compact Lucide Icon Action Buttons Grid
-      const actionsRow = el("div", "w-full pt-1 border-t border-white/5", card);
+      // Compact Lucide Icon Action Buttons Grid - Equal sized boxes
+      const actionsRow = el("div", "w-full pt-1.5 border-t border-white/10", card);
 
       if (p.isLocal) {
         actionsRow.innerHTML = `
-          <div class="grid grid-cols-4 gap-1">
-            <button type="button" class="gm-act-btn heal h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-emerald-500/25 text-emerald-300 border border-white/10 transition-colors" title="Full Heal">
-              ${lucideIcon("sparkles", 10)}
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button type="button" class="gm-act-btn heal" title="Full Heal">
+              ${lucideIcon("sparkles", 11, "text-emerald-400")}
             </button>
-            <button type="button" class="gm-act-btn meso h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-amber-500/25 text-amber-300 border border-white/10 transition-colors" title="+1M Mesos">
-              ${lucideIcon("coins", 10)}
+            <button type="button" class="gm-act-btn meso" title="+1M Mesos">
+              ${lucideIcon("coins", 11, "text-amber-400")}
             </button>
-            <button type="button" class="gm-act-btn godmode h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-yellow-500/25 ${this.game.godMode ? "text-yellow-300 border-yellow-400/50 bg-yellow-500/20" : "text-slate-400"} border border-white/10 transition-colors" title="Toggle God Mode (Invincible)">
-              ${lucideIcon("shield", 10)}
+            <button type="button" class="gm-act-btn autocombat ${isAutoOn ? "border-emerald-400/60 bg-emerald-500/25 text-emerald-300" : "text-zinc-400"}" title="Force Toggle Auto-Combat (${isAutoOn ? "ON" : "OFF"})">
+              ${lucideIcon("swords", 11, isAutoOn ? "text-emerald-300" : "text-zinc-400")}
             </button>
-            <button type="button" class="gm-act-btn switch-char h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10 transition-colors" title="Switch Character">
-              ${lucideIcon("logout", 10)}
+            <button type="button" class="gm-act-btn gmeffect ${this.game.gmEffect ? "border-amber-400/60 bg-amber-500/25 text-amber-300" : "text-zinc-400"}" title="Toggle Wizet GM Overhead Effect">
+              ${lucideIcon("crown", 11, this.game.gmEffect ? "text-amber-300" : "text-zinc-400")}
+            </button>
+            <button type="button" class="gm-act-btn godmode ${this.game.godMode ? "border-yellow-400/60 bg-yellow-500/25 text-yellow-300" : "text-zinc-400"}" title="Toggle God Mode (Invincible)">
+              ${lucideIcon("shield", 11, this.game.godMode ? "text-yellow-300" : "text-zinc-400")}
+            </button>
+            <button type="button" class="gm-act-btn switch-char" title="Switch Character">
+              ${lucideIcon("logout", 11, "text-zinc-300")}
             </button>
           </div>
         `;
 
+        actionsRow.querySelector(".autocombat")?.addEventListener("click", () => {
+          const next = !Boolean(this.game.auto?.battle);
+          this.game.setAutoBattle(next);
+          this.game.onChat("notice", `★ [GM] Auto-Combat: ${next ? "ON" : "OFF"}`);
+          this.renderPlayers();
+        });
+        actionsRow.querySelector(".gmeffect")?.addEventListener("click", () => {
+          this.game.toggleGmEffect();
+          this.renderPlayers();
+        });
         actionsRow.querySelector(".godmode")?.addEventListener("click", () => {
           this.game.godMode = !this.game.godMode;
+          this.game.syncAll();
           this.game.onChat("notice", `[GM] God Mode (Invincible): ${this.game.godMode ? "ON" : "OFF"}`);
           this.renderPlayers();
         });
@@ -357,30 +415,41 @@ export class GmOnlinePanel extends ComponentBase {
         });
       } else {
         actionsRow.innerHTML = `
-          <div class="grid grid-cols-7 gap-0.5">
-            <button type="button" class="gm-act-btn warp h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-sky-500/25 text-sky-300 border border-white/10 transition-colors" title="Warp to player">
-              ${lucideIcon("zap", 10)}
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button type="button" class="gm-act-btn warp" title="Warp to player">
+              ${lucideIcon("zap", 11, "text-sky-400")}
             </button>
-            <button type="button" class="gm-act-btn summon h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-purple-500/25 text-purple-300 border border-white/10 transition-colors" title="Summon to GM">
-              ${lucideIcon("map-pin", 10)}
+            <button type="button" class="gm-act-btn summon" title="Summon to GM">
+              ${lucideIcon("map-pin", 11, "text-purple-400")}
             </button>
-            <button type="button" class="gm-act-btn dm h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10 transition-colors" title="Whisper">
-              ${lucideIcon("message", 10)}
+            <button type="button" class="gm-act-btn autocombat ${isAutoOn ? "border-emerald-400/60 bg-emerald-500/25 text-emerald-300" : "text-zinc-400"}" title="Force Toggle Auto-Combat (${isAutoOn ? "ON" : "OFF"})">
+              ${lucideIcon("swords", 11, isAutoOn ? "text-emerald-300" : "text-zinc-400")}
             </button>
-            <button type="button" class="gm-act-btn heal h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-emerald-500/25 text-emerald-300 border border-white/10 transition-colors" title="Divine Heal">
-              ${lucideIcon("sparkles", 10)}
+            <button type="button" class="gm-act-btn dm" title="Quick Whisper (@${p.name})">
+              ${lucideIcon("message", 11, "text-zinc-300")}
             </button>
-            <button type="button" class="gm-act-btn meso h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-amber-500/25 text-amber-300 border border-white/10 transition-colors" title="+1M Mesos">
-              ${lucideIcon("coins", 10)}
+            <button type="button" class="gm-act-btn heal" title="Divine Heal">
+              ${lucideIcon("sparkles", 11, "text-emerald-400")}
             </button>
-            <button type="button" class="gm-act-btn force-party h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-indigo-500/25 text-indigo-300 border border-white/10 transition-colors" title="Force into Party">
-              ${lucideIcon("user-plus", 10)}
+            <button type="button" class="gm-act-btn meso" title="+1M Mesos">
+              ${lucideIcon("coins", 11, "text-amber-400")}
             </button>
-            <button type="button" class="gm-act-btn kick h-5.5 flex items-center justify-center rounded bg-white/5 hover:bg-rose-500/25 text-rose-400 border border-white/10 transition-colors" title="Kick from server">
-              ${lucideIcon("kick", 10)}
+            <button type="button" class="gm-act-btn force-party" title="Force into Party">
+              ${lucideIcon("user-plus", 11, "text-indigo-400")}
+            </button>
+            <button type="button" class="gm-act-btn kick" title="Kick from server">
+              ${lucideIcon("kick", 11, "text-rose-400")}
             </button>
           </div>
         `;
+
+        actionsRow.querySelector(".autocombat")?.addEventListener("click", async () => {
+          const next = !Boolean(p.autoCombat);
+          p.autoCombat = next;
+          await this.executeGmAction("autocombat", { targetId: p.id, targetName: p.name, enabled: next });
+          this.game.onChat("notice", `★ [GM] Forced Auto-Combat ${next ? "ON" : "OFF"} for ${p.name}.`);
+          this.renderPlayers();
+        });
 
         actionsRow.querySelector(".force-party")?.addEventListener("click", async () => {
           const res = await PartyClient.forceJoin(this.game.stats.name, p.name);
@@ -396,32 +465,61 @@ export class GmOnlinePanel extends ComponentBase {
         });
 
         actionsRow.querySelector(".warp")?.addEventListener("click", async () => {
-          if (this.game.map?.id !== p.mapId) {
-            await this.game.loadMap(p.mapId, "spawn");
+          let targetMapId = p.mapId || 910000000;
+          let targetX = p.x;
+          let targetY = p.y;
+          try {
+            const res = await fetch("/api/gm/players", { signal: AbortSignal.timeout(1200) });
+            if (res.ok) {
+              const data = await res.json();
+              const fresh = Array.isArray(data.players)
+                ? data.players.find((sp: any) => (sp.name || "").toLowerCase() === p.name.toLowerCase() || sp.id === p.id)
+                : null;
+              if (fresh) {
+                targetMapId = Number(fresh.mapId || targetMapId);
+                targetX = Number(fresh.x ?? targetX);
+                targetY = Number(fresh.y ?? targetY);
+              }
+            }
+          } catch {}
+          for (const rp of this.game.remotePlayers.values()) {
+            if ((rp.name || "").toLowerCase() === p.name.toLowerCase()) {
+              targetMapId = this.game.map?.id || targetMapId;
+              targetX = Math.round(rp.x);
+              targetY = Math.round(rp.y);
+              break;
+            }
           }
-          this.game.p.x = p.x;
-          this.game.p.y = p.y;
-          this.game.snapCamera();
-          this.game.onChat("notice", `[GM] Warped to ${p.name}.`);
+          await this.game.warpToLocation(targetMapId, targetX, targetY);
+          this.game.onChat("notice", `[GM] Warped to ${p.name} at (${Math.round(this.game.p.x)}, ${Math.round(this.game.p.y)}).`);
+          this.fetchPlayers();
         });
 
         actionsRow.querySelector(".summon")?.addEventListener("click", async () => {
+          const gmMapId = this.game.map?.id || 910000000;
+          const gmX = Math.round(this.game.p.x);
+          const gmY = Math.round(this.game.p.y);
           await this.executeGmAction("summon", {
             targetId: p.id,
             targetName: p.name,
-            mapId: this.game.map?.id || 910000000,
-            x: Math.round(this.game.p.x),
-            y: Math.round(this.game.p.y),
+            mapId: gmMapId,
+            x: gmX,
+            y: gmY,
           });
-          this.game.onChat("notice", `[GM] Summoned ${p.name} to you.`);
+          for (const rp of this.game.remotePlayers.values()) {
+            if ((rp.name || "").toLowerCase() === p.name.toLowerCase() || rp.id === p.id) {
+              rp.x = gmX;
+              rp.y = gmY;
+              rp.targetX = gmX;
+              rp.targetY = gmY;
+            }
+          }
+          this.game.onChat("notice", `[GM] Summoned ${p.name} to your location (${gmX}, ${gmY}).`);
+          this.fetchPlayers();
         });
 
         actionsRow.querySelector(".dm")?.addEventListener("click", () => {
-          const chatField = document.querySelector(".chat-field") as HTMLInputElement;
-          if (chatField) {
-            chatField.focus();
-            chatField.value = `/w ${p.name} `;
-          }
+          window.dispatchEvent(new CustomEvent("chat-quick-whisper", { detail: { name: p.name } }));
         });
 
         actionsRow.querySelector(".heal")?.addEventListener("click", async () => {

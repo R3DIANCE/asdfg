@@ -2,7 +2,8 @@
 import type { Game } from "../game.ts";
 import { WALK } from "../game-types.ts";
 import { classFor, SKILL, type ClassId, type Action } from "../skills.ts";
-import { gearStats, makeGear, type Slot } from "../items.ts";
+import { gearStats, makeGear, GEAR, canClassEquipWeapon, isOverallItem, getItemGender, canGenderEquip, type Slot, type Gear } from "../items.ts";
+import { InventorySystem } from "./InventorySystem.ts";
 
 export const SECONDARY_WEAPONS: Partial<Record<ClassId, number>> = {
   warrior: 1402001, // Wooden Sword (2H)
@@ -35,6 +36,10 @@ export const emptyGt = () => ({
   lukP: 0,
   hpP: 0,
   boss: 0,
+  dmg: 0,
+  finalDmg: 0,
+  critDmg: 0,
+  ied: 0,
   meso: 0,
   drop: 0,
   exp: 0,
@@ -56,8 +61,9 @@ export class StatsSystem {
   }
 
   static watk(game: Game): number {
+    const rageLv = game.buffs["1101006"] ? Math.max(1, game.buffs["1101006"].lv ?? game.lv("1101006")) : 0;
     return Math.round(
-      ((game.eq.weapon ? game.gt.watk : 5 + game.gt.watk) + (game.buffs["1101006"] ? game.lv("1101006") * 2 : 0)) *
+      ((game.eq.weapon ? game.gt.watk : 5 + game.gt.watk) + rageLv * 2) *
       (1 + game.gt.att / 100)
     );
   }
@@ -67,11 +73,15 @@ export class StatsSystem {
   }
 
   static combatPower(game: Game): number {
-    return Math.round(
-      StatsSystem.maxDamage(game) * 12 * (1 + game.gt.boss / 200) +
-      game.stats.maxHp / 4 +
-      game.gt.def * 4
-    );
+    const pStat = StatsSystem.primaryStat(game);
+    const sStat = StatsSystem.secondaryStat(game);
+    const statFactor = (4 * pStat + sStat) / 100;
+    const att = StatsSystem.watk(game);
+    const dmgBossFactor = 1 + (game.gt.dmg + game.gt.boss) / 100;
+    const critDmgFactor = 1.35 + (game.gt.critDmg || 35) / 100;
+    const fdFactor = 1 + (game.gt.finalDmg || 20) / 100;
+
+    return Math.max(10, Math.round(statFactor * att * dmgBossFactor * critDmgFactor * fdFactor * 25));
   }
 
   static mastery(game: Game): number {
@@ -85,11 +95,15 @@ export class StatsSystem {
 
   static speed(game: Game): number {
     let mult = 1 + game.lv("1000009") * 0.01;
-    for (const [id] of Object.entries(game.buffs)) {
+    for (const [id, b] of Object.entries(game.buffs)) {
       const d = SKILL[id];
-      if (d?.buff?.speed) mult += (d.buff.speed + game.lv(id)) * 0.01;
+      const bLv = Math.max(1, b?.lv ?? game.lv(id));
+      if (d?.buff?.speed) mult += (d.buff.speed + bLv) * 0.01;
     }
-    if (game.buffs["0001002"]) mult += game.lv("0001002") * 0.1;
+    if (game.buffs["0001002"]) {
+      const nfLv = Math.max(1, game.buffs["0001002"].lv ?? game.lv("0001002"));
+      mult += nfLv * 0.1;
+    }
     return WALK * mult * (game.speedMultiplier || 1);
   }
 
@@ -104,16 +118,51 @@ export class StatsSystem {
 
   static recalc(game: Game) {
     const s = game.stats, gt = emptyGt();
-    for (const [id] of Object.entries(game.buffs)) {
+    for (const [id, b] of Object.entries(game.buffs)) {
       const d = SKILL[id];
       if (!d?.buff) continue;
-      const l = Math.max(1, game.lv(id));
+      const l = Math.max(1, b?.lv ?? game.lv(id));
       for (const k of ["att", "str", "dex", "int", "luk", "def"] as const) {
         if (d.buff[k]) gt[k] += d.buff[k]! * l;
       }
     }
+
+    // Ensure equipped weapon is legal for current class; unequip illegal weapon back to bag
+    if (game.eq.weapon && !game.eq.weapon.cosmetic && !game.eq.weapon.cash) {
+      const bWep = GEAR.get(game.eq.weapon.id);
+      if (bWep && !bWep.cosmetic && !bWep.cash && !canClassEquipWeapon(game.stats.classId, game.eq.weapon.id)) {
+        const illegal = game.eq.weapon;
+        delete game.eq.weapon;
+        InventorySystem.addGear(game, illegal);
+        game.onChat("notice", `Unequipped ${bWep.name}: cannot be equipped by ${game.stats.classId.toUpperCase()}.`);
+      }
+    }
+
+    // Ensure overall covers both top and bottom (cannot wear pants with overall)
+    if (game.eq.top && isOverallItem(game.eq.top.id) && game.eq.bottom) {
+      const illegalBot = game.eq.bottom;
+      delete game.eq.bottom;
+      InventorySystem.addGear(game, illegalBot);
+      game.onChat("notice", "Unequipped pants: overalls cover both top and bottom.");
+    }
+
+    // Ensure gender match on equipped gear
+    for (const [slot, g] of Object.entries(game.eq) as [Slot, Gear][]) {
+      if (!g || g.cosmetic || g.cash) continue;
+      const b = GEAR.get(g.id);
+      if (!b) continue;
+      const itemG = b.gender ?? getItemGender(b.id, b.name);
+      if (!canGenderEquip(game.stats.gender, itemG)) {
+        delete game.eq[slot];
+        InventorySystem.addGear(game, g);
+        game.onChat("notice", `Unequipped ${b.name}: cannot be worn by ${game.stats.gender ?? "male"}.`);
+      }
+    }
+
     for (const g of Object.values(game.eq)) {
-      if (!g) continue;
+      if (!g || g.cosmetic || g.cash) continue;
+      const b = GEAR.get(g.id);
+      if (b?.cosmetic || b?.cash) continue;
       const st = gearStats(g);
       gt.watk += st.watk;
       gt.str += st.str;
@@ -130,8 +179,8 @@ export class StatsSystem {
       }
     }
     game.gt = gt;
-    s.maxHp = Math.round((s.baseHp * (1 + game.lv("1000009") * 0.03) + gt.hp) * (1 + gt.hpP / 100));
-    s.maxMp = Math.round(s.baseMp + s.int);
+    s.maxHp = Math.round((s.baseHp * (1 + (game.lv("1000009") + game.lv("4110008") + game.lv("5100009")) * 0.03) + gt.hp) * (1 + gt.hpP / 100));
+    s.maxMp = Math.round((s.baseMp + StatsSystem.totalStat(game, "int") * 2 + s.level * 5) * (1 + game.lv("2000006") * 0.05));
     s.hp = Math.min(s.hp, s.maxHp);
     s.mp = Math.min(s.mp, s.maxMp);
     s.job = StatsSystem.jobFor(game, s.level);

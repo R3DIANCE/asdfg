@@ -1,4 +1,5 @@
 // Gear (rarity, potential, star force), materials, crafting recipes and market prices.
+import type { ClassId } from "./skills.ts";
 
 export type Slot =
   | "weapon" | "hat" | "top" | "bottom" | "shoes" | "gloves" | "shield" | "cape" | "earrings"
@@ -25,10 +26,30 @@ export const SLOT_CATEGORY: Partial<Record<Slot, "ring">> = {
 };
 export const slotCategory = (s: Slot) => SLOT_CATEGORY[s] ?? (s as string);
 
-export interface GearBase { id: number; name: string; slot: string; req: number; watk: number; str: number; dex: number; int: number; luk: number; hp: number; def: number; price: number; cosmetic?: boolean; cash?: boolean }
+export type ItemGender = "male" | "female" | "both";
+
+export interface GearBase {
+  id: number;
+  name: string;
+  slot: string;
+  req: number;
+  reqJob?: number;
+  watk: number;
+  str: number;
+  dex: number;
+  int: number;
+  luk: number;
+  hp: number;
+  def: number;
+  price: number;
+  cosmetic?: boolean;
+  cash?: boolean;
+  gender?: ItemGender;
+  overall?: boolean;
+}
 
 export interface Potential { stat: "att" | "str" | "dex" | "int" | "luk" | "hp" | "boss" | "meso" | "drop" | "exp"; pct: number }
-export interface Gear { uid: string; id: number; rarity: number; star: number; pot: Potential[]; slot?: number }
+export interface Gear { uid: string; id: number; rarity: number; star: number; pot: Potential[]; slot?: number; cosmetic?: boolean; cash?: boolean }
 
 export const RARITY = ["Normal", "Rare", "Epic", "Unique", "Legendary"];
 export const RARITY_COLOR = ["#ffffff", "#66d9ff", "#c77dff", "#ffcc33", "#5cff7a"];
@@ -164,17 +185,26 @@ export const ICONIC_GEAR: GearBase[] = [
 ];
 
 export type WeaponType =
-  | "1h_sword" | "1h_axe" | "1h_blunt" | "dagger" | "wand" | "staff"
+  | "1h_sword" | "1h_axe" | "1h_blunt" | "dagger" | "katara" | "cane" | "wand" | "staff"
   | "2h_sword" | "2h_axe" | "2h_blunt" | "spear" | "polearm"
-  | "bow" | "crossbow" | "claw" | "knuckle" | "gun" | "cash";
+  | "bow" | "crossbow" | "dual_bowgun" | "ancient_bow"
+  | "claw"
+  | "knuckle" | "gun" | "cannon" | "soul_shooter"
+  | "desperado" | "energy_sword" | "arm_cannon" | "scepter" | "cash";
 
 export function getWeaponType(id: number): WeaponType {
   const p = Math.floor(id / 10000);
   switch (p) {
+    case 121: return "scepter";
+    case 122: return "soul_shooter";
+    case 123: return "desperado";
+    case 124: return "energy_sword";
     case 130: return "1h_sword";
     case 131: return "1h_axe";
     case 132: return "1h_blunt";
     case 133: return "dagger";
+    case 134: return "katara";
+    case 136: return "cane";
     case 137: return "wand";
     case 138: return "staff";
     case 140: return "2h_sword";
@@ -187,47 +217,286 @@ export function getWeaponType(id: number): WeaponType {
     case 147: return "claw";
     case 148: return "knuckle";
     case 149: return "gun";
+    case 152: return "dual_bowgun";
+    case 153: return "cannon";
+    case 158: return "arm_cannon";
+    case 159: return "ancient_bow";
     default: return "cash";
   }
 }
 
+/** Human-readable weapon type display names */
+export const WEAPON_TYPE_NAME: Record<WeaponType, string> = {
+  "1h_sword": "One-Handed Sword",
+  "1h_axe": "One-Handed Axe",
+  "1h_blunt": "One-Handed Blunt Weapon",
+  "dagger": "Dagger",
+  "katara": "Katara",
+  "cane": "Cane",
+  "wand": "Wand",
+  "staff": "Staff",
+  "2h_sword": "Two-Handed Sword",
+  "2h_axe": "Two-Handed Axe",
+  "2h_blunt": "Two-Handed Blunt Weapon",
+  "spear": "Spear",
+  "polearm": "Polearm",
+  "bow": "Bow",
+  "crossbow": "Crossbow",
+  "dual_bowgun": "Dual Bowgun",
+  "ancient_bow": "Ancient Bow",
+  "claw": "Claw",
+  "knuckle": "Knuckle",
+  "gun": "Gun",
+  "cannon": "Hand Cannon",
+  "soul_shooter": "Soul Shooter",
+  "desperado": "Desperado",
+  "energy_sword": "Energy Sword",
+  "arm_cannon": "Arm Cannon",
+  "scepter": "Scepter",
+  "cash": "Cosmetic Weapon",
+};
+
+/** Authentic MapleStory weapon types allowed for each class */
+export const CLASS_ALLOWED_WEAPONS: Record<ClassId, WeaponType[]> = {
+  beginner: ["1h_sword", "1h_blunt", "dagger", "cash"],
+  warrior: ["1h_sword", "1h_axe", "1h_blunt", "2h_sword", "2h_axe", "2h_blunt", "spear", "polearm", "desperado", "arm_cannon", "cash"],
+  magician: ["wand", "staff", "scepter", "cash"],
+  bowman: ["bow", "crossbow", "dual_bowgun", "ancient_bow", "cash"],
+  thief: ["claw", "dagger", "katara", "cane", "energy_sword", "cash"],
+  pirate: ["knuckle", "gun", "cannon", "soul_shooter", "energy_sword", "cash"],
+};
+
+/** Reverse lookup: classes eligible to equip a given weapon type */
+export const WEAPON_CLASS_MAP: Partial<Record<WeaponType, ClassId[]>> = {
+  "1h_sword": ["warrior", "beginner"],
+  "1h_axe": ["warrior"],
+  "1h_blunt": ["warrior", "beginner"],
+  "dagger": ["thief", "beginner"],
+  "katara": ["thief"],
+  "cane": ["thief"],
+  "wand": ["magician"],
+  "staff": ["magician"],
+  "scepter": ["magician"],
+  "2h_sword": ["warrior"],
+  "2h_axe": ["warrior"],
+  "2h_blunt": ["warrior"],
+  "spear": ["warrior"],
+  "polearm": ["warrior"],
+  "desperado": ["warrior"],
+  "arm_cannon": ["warrior"],
+  "bow": ["bowman"],
+  "crossbow": ["bowman"],
+  "dual_bowgun": ["bowman"],
+  "ancient_bow": ["bowman"],
+  "claw": ["thief"],
+  "knuckle": ["pirate"],
+  "gun": ["pirate"],
+  "cannon": ["pirate"],
+  "soul_shooter": ["pirate"],
+  "energy_sword": ["thief", "pirate"],
+  "cash": ["beginner", "warrior", "magician", "bowman", "thief", "pirate"],
+};
+
+/** Returns true if the given class can equip this weapon */
+export function canClassEquipWeapon(classId: ClassId, weaponId: number): boolean {
+  const wType = getWeaponType(weaponId);
+  if (wType === "cash") return true;
+  const allowed = CLASS_ALLOWED_WEAPONS[classId];
+  return allowed ? allowed.includes(wType) : true;
+}
+
+/** Returns the list of classes that can equip a given weapon */
+export function getWeaponAllowedClasses(weaponId: number): ClassId[] {
+  const wType = getWeaponType(weaponId);
+  return WEAPON_CLASS_MAP[wType] ?? ["beginner", "warrior", "magician", "bowman", "thief", "pirate"];
+}
+
+/** Formatted string of allowed classes for tooltips and alerts (e.g. "Bowman", "Thief", etc.) */
+export function getWeaponAllowedClassesDesc(weaponId: number): string {
+  const classes = getWeaponAllowedClasses(weaponId);
+  if (classes.length >= 6) return "All Classes";
+  return classes.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join(" / ");
+}
+
+/** Resolves eligible classes from MapleStory's reqJob bitmask (1=Warrior, 2=Magician, 4=Bowman, 8=Thief, 16=Pirate) */
+export function getClassesForReqJob(reqJob?: number): ClassId[] {
+  if (reqJob === undefined || reqJob === 0 || reqJob === -1) {
+    return ["beginner", "warrior", "magician", "bowman", "thief", "pirate"];
+  }
+  const classes: ClassId[] = [];
+  if (reqJob & 1) classes.push("warrior");
+  if (reqJob & 2) classes.push("magician");
+  if (reqJob & 4) classes.push("bowman");
+  if (reqJob & 8) classes.push("thief");
+  if (reqJob & 16) classes.push("pirate");
+  return classes.length > 0 ? classes : ["beginner", "warrior", "magician", "bowman", "thief", "pirate"];
+}
+
+/** Returns the list of classes that can equip any item (weapon or armor/accessory) */
+export function getItemAllowedClasses(b: GearBase): ClassId[] {
+  if (b.cosmetic || b.cash) return ["beginner", "warrior", "magician", "bowman", "thief", "pirate"];
+  if (b.slot === "weapon") {
+    const wClasses = getWeaponAllowedClasses(b.id);
+    if (b.reqJob && b.reqJob > 0) {
+      const jobClasses = getClassesForReqJob(b.reqJob);
+      const intersection = wClasses.filter((c) => jobClasses.includes(c));
+      return intersection.length > 0 ? intersection : wClasses;
+    }
+    return wClasses;
+  }
+  if (b.reqJob && b.reqJob > 0) {
+    return getClassesForReqJob(b.reqJob);
+  }
+  return ["beginner", "warrior", "magician", "bowman", "thief", "pirate"];
+}
+
+/** Returns true if the class can equip this item */
+export function canClassEquipItem(classId: ClassId, b: GearBase): boolean {
+  if (b.cosmetic || b.cash) return true;
+  const allowed = getItemAllowedClasses(b);
+  return allowed.includes(classId);
+}
+
+/** Returns formatted string description of allowed classes for tooltips */
+export function getItemAllowedClassesDesc(b: GearBase): string {
+  if (b.cosmetic || b.cash) return "Shared";
+  const classes = getItemAllowedClasses(b);
+  if (classes.length >= 6) return "Shared";
+  return classes.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join(" / ");
+}
+
+/** Returns true if an item is an Overall (Longcoat: covers both Top and Bottom) */
+export function isOverallItem(id: number): boolean {
+  return Math.floor(id / 10000) === 105;
+}
+
+/** Determines gender requirement for an equipment item based on MapleStory conventions */
+export function getItemGender(id: number, name?: string): ItemGender {
+  // 1. Explicit name flags (e.g. "Sauna Robe (M)", "Bath Towel (F)")
+  if (name) {
+    if (/\(M\)|\b\(Male\)\b/i.test(name)) return "male";
+    if (/\(F\)|\b\(Female\)\b/i.test(name)) return "female";
+  }
+
+  // 2. Authentic MapleStory ID standard for Character equips:
+  // Item ID: 1XXGYZZ, where G is gender digit: 0 = Male, 1 = Female, 2 = Both (Unisex)
+  // Weapons (130-149) and accessories are always shared/unisex.
+  const prefix = Math.floor(id / 10000);
+  if (prefix >= 100 && prefix <= 119) {
+    const genderDigit = Math.floor(id / 1000) % 10;
+    if (genderDigit === 0) return "male";
+    if (genderDigit === 1) return "female";
+    return "both";
+  }
+
+  return "both";
+}
+
+/** Returns true if the character's gender can equip this item */
+export function canGenderEquip(characterGender: string | undefined, itemGender: ItemGender): boolean {
+  if (itemGender === "both") return true;
+  const charG = (characterGender ?? "male").toLowerCase();
+  return charG === itemGender;
+}
+
 export function isRangedWeapon(id: number): boolean {
   const t = getWeaponType(id);
-  return t === "bow" || t === "crossbow" || t === "claw" || t === "gun";
+  return (
+    t === "bow" ||
+    t === "crossbow" ||
+    t === "dual_bowgun" ||
+    t === "ancient_bow" ||
+    t === "claw" ||
+    t === "gun" ||
+    t === "cannon" ||
+    t === "soul_shooter"
+  );
 }
 
 export function isMagicWeapon(id: number): boolean {
   const t = getWeaponType(id);
-  return t === "wand" || t === "staff";
+  return t === "wand" || t === "staff" || t === "scepter";
 }
 
 export function getWeaponAttackAnim(id: number): string {
   const t = getWeaponType(id);
   switch (t) {
-    case "bow": return "shoot1";
-    case "crossbow": return "shoot2";
-    case "claw": return Math.random() < 0.5 ? "swingO1" : "swingO2";
-    case "gun": return "shoot1";
-    case "spear": return Math.random() < 0.5 ? "stabT1" : "swingP1";
-    case "polearm": return Math.random() < 0.5 ? "swingP1" : "swingP2";
+    case "bow":
+    case "crossbow":
+    case "dual_bowgun":
+    case "ancient_bow":
+      return "shoot1";
+    case "claw":
+      return Math.random() < 0.5 ? "swingO1" : "swingO2";
+    case "gun":
+    case "cannon":
+    case "soul_shooter":
+      return "shoot1";
+    case "spear":
+      return Math.random() < 0.5 ? "stabT1" : "swingP1";
+    case "polearm":
+      return Math.random() < 0.5 ? "swingP1" : "swingP2";
     case "2h_sword":
     case "2h_axe":
-    case "2h_blunt": return Math.random() < 0.5 ? "swingT1" : "swingT2";
-    case "dagger": return Math.random() < 0.5 ? "stabO1" : "swingO1";
-    default: return Math.random() < 0.5 ? "swingO1" : "swingO2";
+    case "2h_blunt":
+    case "desperado":
+    case "arm_cannon":
+      return Math.random() < 0.5 ? "swingT1" : "swingT2";
+    case "dagger":
+    case "katara":
+    case "cane":
+      return Math.random() < 0.5 ? "stabO1" : "swingO1";
+    default:
+      return Math.random() < 0.5 ? "swingO1" : "swingO2";
   }
 }
 
 export function getWeaponStandAnim(id: number): string {
   const t = getWeaponType(id);
-  if (t === "spear" || t === "crossbow") return "stand2";
-  return "stand1";
+  switch (t) {
+    case "2h_sword":
+    case "2h_axe":
+    case "2h_blunt":
+    case "spear":
+    case "polearm":
+    case "bow":
+    case "crossbow":
+    case "dual_bowgun":
+    case "ancient_bow":
+    case "knuckle":
+    case "gun":
+    case "cannon":
+    case "soul_shooter":
+    case "desperado":
+    case "arm_cannon":
+      return "stand2";
+    default:
+      return "stand1";
+  }
 }
 
 export function getWeaponWalkAnim(id: number): string {
   const t = getWeaponType(id);
-  if (t === "spear" || t === "crossbow") return "walk2";
-  return "walk1";
+  switch (t) {
+    case "2h_sword":
+    case "2h_axe":
+    case "2h_blunt":
+    case "spear":
+    case "polearm":
+    case "bow":
+    case "crossbow":
+    case "dual_bowgun":
+    case "ancient_bow":
+    case "knuckle":
+    case "gun":
+    case "cannon":
+    case "soul_shooter":
+    case "desperado":
+    case "arm_cannon":
+      return "walk2";
+    default:
+      return "walk1";
+  }
 }
 
 export const GEAR = new Map<number, GearBase>([...STARTER, ...ICONIC_GEAR, ...COSMETICS].map((g) => [g.id, { ...g }]));
@@ -238,6 +507,7 @@ export function loadItemData(d: { gear: (GearBase & { slot: string })[]; mats: {
     const isCash = Boolean((g as any).cash);
     const isCosmetic = Boolean((g as any).cosmetic || isCash);
     const b = { ...g, cash: isCash, cosmetic: isCosmetic } as GearBase;
+    b.reqJob = (g as any).reqJob ?? 0;
     if (isCash || isCosmetic) {
       b.watk = 0; b.str = 0; b.dex = 0; b.int = 0; b.luk = 0; b.hp = 0; b.def = 0;
     } else {
@@ -245,13 +515,16 @@ export function loadItemData(d: { gear: (GearBase & { slot: string })[]; mats: {
       if (!b.watk && !b.str && !b.dex && !b.hp && !b.def) { b.def = 2 + Math.round(b.req / 4); b.hp = b.req * 2; if (b.slot === "earrings") b.str = Math.round(b.req / 10); }
       if (b.slot === "weapon" && !b.watk) b.watk = 17 + b.req;
     }
+    b.overall = isOverallItem(b.id);
+    b.gender = getItemGender(b.id, b.name);
     b.price = Math.max(b.price, 40 + b.req * 60);
     GEAR.set(b.id, b);
   }
   for (const m of d.mats) MATS.set(m.id, m.name);
+  MATS.set(4001886, "Crystal of Intense Power");
 }
 
-export const gearIcon = (id: number) => `/wz/item/${id}/icon`;
+export const gearIcon = (id: number) => `/wz/item/${id}/iconRaw`;
 let uidN = Date.now() % 100000;
 export const newUid = () => `g${(uidN++).toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
 
@@ -284,12 +557,12 @@ export function rollPotential(slot: string, rarity: number): Potential[] {
 }
 
 export function makeGear(id: number, luck = 0, minRarity = 0): Gear {
-  const b = GEAR.get(id)!;
+  const b = GEAR.get(id);
   if (b?.cash || b?.cosmetic) {
-    return { uid: newUid(), id, rarity: 0, star: 0, pot: [] };
+    return { uid: newUid(), id, rarity: 0, star: 0, pot: [], cosmetic: true, cash: true };
   }
   const rarity = Math.max(minRarity, rollRarity(luck));
-  return { uid: newUid(), id, rarity, star: 0, pot: rollPotential(b.slot, rarity) };
+  return { uid: newUid(), id, rarity, star: 0, pot: rollPotential(b?.slot ?? "hat", rarity) };
 }
 
 /** Picks a random gear base in player's level range up to player level + 10 for exciting progression upgrades */
@@ -297,14 +570,18 @@ export function randomGearFor(level: number, classId?: string) {
   const minReq = Math.max(0, level - 10);
   const maxReq = level + 10;
   
-  // Filter gear in the range [level - 10, level + 10], ignoring basic starter weapon (1302000) and cosmetics
+  // Filter gear in the range [level - 10, level + 10], ignoring basic starter weapon (1302000) and cosmetics, respecting class rules
   let list = [...GEAR.values()].filter(
-    (g) => g.req <= maxReq && g.req >= minReq && g.id !== 1302000 && !g.cosmetic
+    (g) => g.req <= maxReq && g.req >= minReq && g.id !== 1302000 && !g.cosmetic &&
+      (!classId || canClassEquipItem(classId as ClassId, g))
   );
   
   // If list is small, widen lower bound
   if (list.length < 5) {
-    list = [...GEAR.values()].filter((g) => g.req <= maxReq && g.id !== 1302000 && !g.cosmetic);
+    list = [...GEAR.values()].filter(
+      (g) => g.req <= maxReq && g.id !== 1302000 && !g.cosmetic &&
+        (!classId || canClassEquipItem(classId as ClassId, g))
+    );
   }
 
   // Weight items closer to or ahead of current level (upcoming upgrades level..level+10)
@@ -328,7 +605,7 @@ export function randomGearFor(level: number, classId?: string) {
 export interface GearStats { watk: number; str: number; dex: number; int: number; luk: number; hp: number; def: number }
 export function gearStats(g: Gear): GearStats {
   const b = GEAR.get(g.id);
-  if (!b || b.cash || b.cosmetic) return { watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0 };
+  if (!b || b.cash || b.cosmetic || g.cash || g.cosmetic) return { watk: 0, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0 };
   const rb = 1 + g.rarity * 0.08; // higher rarity also rolls slightly better base stats
   const s = g.star;
   return {
@@ -341,6 +618,73 @@ export function gearStats(g: Gear): GearStats {
     def: Math.round(b.def * rb + s * 2),
   };
 }
+
+/** Canonical MapleStory Equipment Type Order for sorting */
+export const GEAR_TYPE_ORDER: Record<string, number> = {
+  weapon: 1,
+  hat: 2,
+  top: 3,
+  bottom: 4,
+  shoes: 5,
+  gloves: 6,
+  cape: 7,
+  shield: 8,
+  shoulder: 9,
+  belt: 10,
+  ring: 11,
+  ring1: 11,
+  ring2: 11,
+  ring3: 11,
+  ring4: 11,
+  pendant: 12,
+  earrings: 13,
+  face: 14,
+  eye: 15,
+  pocket: 16,
+  emblem: 17,
+  badge: 18,
+};
+
+/** Evaluates an individual gear instance's Combat Power (CP) contribution */
+export function gearCombatPower(g: Gear): number {
+  const b = GEAR.get(g.id);
+  if (!b || b.cash || b.cosmetic || g.cash || g.cosmetic) return 0;
+
+  const st = gearStats(g);
+  // Main stat weight: prioritize highest primary stat, plus secondary contributions
+  const maxStat = Math.max(st.str, st.dex, st.int, st.luk);
+  const totalStats = st.str + st.dex + st.int + st.luk;
+  // In MapleStory, 1 ATT is roughly equivalent to 4-5 main stat
+  const attWeight = st.watk * 5;
+  const statWeight = maxStat * 2 + totalStats;
+  const hpWeight = Math.round(st.hp * 0.1);
+  const defWeight = Math.round(st.def * 0.4);
+
+  let potBonus = 0;
+  if (g.pot && g.pot.length > 0) {
+    for (const p of g.pot) {
+      if (p.stat === "att") potBonus += p.pct * 40;
+      else if (p.stat === "boss") potBonus += p.pct * 35;
+      else if (["str", "dex", "int", "luk"].includes(p.stat)) potBonus += p.pct * 12;
+      else if (p.stat === "hp") potBonus += p.pct * 4;
+      else potBonus += p.pct * 8; // utility
+    }
+  }
+
+  // Base raw combat score
+  const baseScore = attWeight + statWeight + hpWeight + defWeight + potBonus;
+
+  // Star Force scaling: exponential-like growth matching MapleStory Star Force power
+  const sfMultiplier = 1 + g.star * 0.08 + (g.star >= 10 ? (g.star - 9) * 0.05 : 0);
+  const rarityBonus = g.rarity * 40;
+
+  // Required level tier multiplier (higher tier gear scales higher)
+  const tierMultiplier = 1 + Math.floor((b.req ?? 0) / 20) * 0.15;
+
+  const cp = Math.round((baseScore * sfMultiplier + rarityBonus + g.star * 20) * tierMultiplier);
+  return Math.max(1, cp);
+}
+
 export const POT_LABEL: Record<Potential["stat"], string> = {
   att: "ATT", str: "STR", dex: "DEX", int: "INT", luk: "LUK", hp: "Max HP", boss: "Boss Damage", meso: "Meso Obtained", drop: "Item Drop Rate", exp: "EXP Obtained",
 };
@@ -384,6 +728,7 @@ export const MAT_PRICE: Record<number, number> = {
   4000001: 12, 4000010: 14, 4000012: 18, 4000019: 30, 4000003: 25, 4000013: 40, 4000040: 220,
   4010000: 60, 4010001: 110, 4010002: 180, 4011000: 700, 4011001: 1300, 4011002: 2100,
   4020000: 260, 4020007: 900, 4021000: 2800, 4021007: 9500, 4001126: 50,
+  4001886: 2500000,
 };
 export const matIcon = (id: number) => `/wz/item/${id}/icon`;
 

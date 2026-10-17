@@ -1,16 +1,33 @@
-// Single-player Auction House: simulated sellers list goods, simulated buyers purchase your listings.
-import { GEAR, MAT_PRICE, MATS, USE_PRICE, gearValue, makeGear, pick, rand, randomGearFor, type Gear } from "./items.ts";
+// Player-to-Player Auction House: displays only real player listings synchronized with the server.
+import { GEAR, MAT_PRICE, MATS, USE_PRICE, gearValue, type Gear } from "./items.ts";
 import { ITEMS } from "./skills.ts";
 
+export type CurrencyType = "meso" | "nx" | "both";
 export type Goods = { t: "gear"; gear: Gear } | { t: "mat"; id: number; n: number } | { t: "use"; id: number; n: number };
-export interface Listing { lid: string; goods: Goods; price: number; seller: string; until: number }
-export interface MyListing { lid: string; goods: Goods; price: number; listedAt: number; sold: boolean }
 
-const SELLERS = ["MapleMomo", "xXSlayerXx", "PinkBeanFan", "Henesys4Life", "SnailHunter", "Lumi", "BigBadMushmom", "Ellinia", "ZakumSlayer", "KerningKid",
-  "Sugar", "Arwen", "NoobWarrior", "PerionPride", "BlueSnail", "DrakeTamer", "AmoriaBride", "Nautilus", "MesoMarket", "Elnath"];
+export interface Listing {
+  lid: string;
+  goods: Goods;
+  price: number; // Price in Mesos (when currency is "meso" or "both")
+  priceNx?: number; // Price in NX (when currency is "nx" or "both")
+  currency: CurrencyType;
+  durationHours: 12 | 24;
+  seller: string;
+  until: number;
+}
 
-let n = 0;
-const lid = () => `L${Date.now().toString(36)}${(n++).toString(36)}`;
+export interface MyListing {
+  lid: string;
+  goods: Goods;
+  price: number;
+  priceNx?: number;
+  currency: CurrencyType;
+  durationHours: 12 | 24;
+  listedAt: number;
+  until: number;
+  sold: boolean;
+  soldCurrency?: "meso" | "nx";
+}
 
 export function goodsValue(g: Goods) {
   if (g.t === "gear") return gearValue(g.gear);
@@ -27,46 +44,51 @@ export class AuctionHouse {
   listings: Listing[] = [];
   mine: MyListing[] = [];
   nextRefresh = 0;
-  history: number[] = []; // recent sale ratios (price / value) to show market mood
+  history: number[] = [];
 
   constructor(public level: () => number) {}
 
-  refresh(now: number) {
+  refresh(now: number, sellerName?: string) {
     this.listings = this.listings.filter((l) => l.until > now);
-    while (this.listings.length < 28) this.listings.push(this.makeListing(now));
-    this.listings.sort((a, b) => a.price - b.price);
-    this.nextRefresh = now + 120_000;
+    this.nextRefresh = now + 30_000;
+    const seller = sellerName || (typeof localStorage !== "undefined" ? localStorage.getItem("ms_player_name") || "" : "");
+    fetch(`/api/auction/listings?seller=${encodeURIComponent(seller)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seller, mine: this.mine }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.ok) {
+          if (Array.isArray(data.listings)) {
+            this.listings = data.listings;
+          }
+          if (Array.isArray(data.mine) && seller) {
+            this.mine = data.mine;
+          }
+        }
+      })
+      .catch(() => {});
   }
 
-  makeListing(now: number): Listing {
-    const r = Math.random();
-    let goods: Goods;
-    if (r < 0.5) goods = { t: "gear", gear: makeGear(randomGearFor(this.level() + Math.round(rand(-5, 15))), 0.6) };
-    else if (r < 0.82) {
-      const mats = Object.keys(MAT_PRICE).map(Number).filter((id) => MATS.has(id));
-      const id = pick(mats);
-      goods = { t: "mat", id, n: id >= 4011000 ? Math.ceil(rand(1, 4)) : Math.ceil(rand(5, 40)) };
-    } else {
-      const id = pick(Object.keys(USE_PRICE).map(Number));
-      goods = { t: "use", id, n: Math.ceil(rand(10, 100)) };
-    }
-    const price = Math.max(1, Math.round(goodsValue(goods) * rand(0.75, 1.45)));
-    return { lid: lid(), goods, price, seller: pick(SELLERS), until: now + rand(5, 30) * 60_000 };
-  }
-
-  /** Simulated buyers check your listings; cheaper-than-market listings sell faster. */
-  tick(now: number, dtSec: number) {
-    if (now > this.nextRefresh) this.refresh(now);
-    for (const m of this.mine) {
-      if (m.sold) continue;
-      const ratio = m.price / Math.max(1, goodsValue(m.goods));
-      const perMinute = Math.max(0.01, Math.min(0.9, 1.5 - ratio)) * 0.6;
-      if (Math.random() < perMinute * (dtSec / 60)) { m.sold = true; this.history.push(ratio); if (this.history.length > 30) this.history.shift(); return m; }
+  tick(now: number, _dtSec: number): MyListing | null {
+    this.listings = this.listings.filter((l) => l.until > now);
+    if (now > this.nextRefresh) {
+      this.refresh(now);
     }
     return null;
   }
 
   save() { return { mine: this.mine }; }
-  restore(d: any) { if (d?.mine) this.mine = d.mine; }
+  restore(d: any) {
+    if (d?.mine) {
+      this.mine = d.mine.map((m: any) => ({
+        ...m,
+        currency: m.currency || "meso",
+        durationHours: m.durationHours || 24,
+        until: m.until || (m.listedAt + (m.durationHours || 24) * 3600_000),
+      }));
+    }
+  }
 }
 export const AH_TAX = 0.05;

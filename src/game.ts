@@ -12,9 +12,11 @@ import { DEFAULT_QUICK, ITEMS, SKILL, SKILL_DEFS, classFor, type ClassId, itemIc
 import { preloadIcon } from "./util.ts";
 
 import { type Guild, type GuildEmblem, GuildClient } from "./guild.ts";
+import { clearGuildTagCache } from "./systems/render-system.ts";
 import { type Party, PartyClient } from "./party.ts";
 import { DamageSkinSystem, DAMAGE_SKIN_PRESETS } from "./systems/damage-skin-system.ts";
 import { getInitialUiMode, type UiMode } from "./systems/ui-mode.ts";
+import { CharacterRendererComponent } from "./systems/CharacterRendererComponent.ts";
 export * from "./game-types.ts";
 import {
   type Back,
@@ -32,6 +34,8 @@ import {
   type Stats,
   type AutoSettings,
   type ChatKind,
+  type RuneType,
+  type ActiveRune,
   FREE_MARKET_MAP,
   HUNTING_AREAS,
   MAP_LINKS,
@@ -101,7 +105,7 @@ export class Game extends ComponentBase {
     name: (() => {
       try { return localStorage.getItem("ms_player_name") || "Player"; } catch { return "Player"; }
     })(),
-    level: 1, exp: 0, hp: 50, maxHp: 50, mp: 30, maxMp: 30, meso: 0, job: "Warrior", classId: "warrior",
+    level: 1, exp: 0, hp: 50, maxHp: 50, mp: 30, maxMp: 30, meso: 0, nx: 50000, job: "Warrior", classId: "warrior", gender: "male",
     str: 12, dex: 5, int: 4, luk: 4, ap: 0, sp: 2, baseHp: 50, baseMp: 30, fame: 0,
   };
   get class() { return classFor(this.stats.classId); }
@@ -118,6 +122,13 @@ export class Game extends ComponentBase {
   activeItemEffs: ItemEffData[] = [];
   gt = emptyGt();
   uiMode: UiMode = getInitialUiMode();
+  comboKill = 0;
+  lastKillTime = 0;
+  recentKills: number[] = [];
+  rune: ActiveRune | null = null;
+  runeCooldown = 45;
+  runeBuff: { type: RuneType; timeLeft: number } | null = null;
+  eliteKillsCount = 0;
 
   spawnDrop(item: Partial<Drop>, x: number, y = this.p.y - 20, vx = rand(-40, 40), vy = -400) {
     const id = item.item ?? item.mat ?? item.gear?.id;
@@ -161,7 +172,7 @@ export class Game extends ComponentBase {
   skillArt: Record<string, SkillArt> = {};
   snailShell: Sprite | null = null;
   throwingStarFrames: Sprite[] = [];
-  buffs: Record<string, { left: number; dur: number }> = {};
+  buffs: Record<string, { left: number; dur: number; lv?: number; from?: string }> = {};
   skillCd: Record<string, { left: number; total: number }> = {};
   quick: Record<string, Action | null> = { ...DEFAULT_QUICK };
   auto: AutoSettings = { battle: true, hp: true, hpPct: 50, mp: true, mpPct: 30, buff: true, loot: true, ap: true, boss: true, magnet: true };
@@ -204,7 +215,51 @@ export class Game extends ComponentBase {
     this.onChange();
   }
 
+  gmEffect = (() => {
+    try { return localStorage.getItem("ms_gm_effect") === "true"; } catch { return false; }
+  })();
+
+  toggleGmEffect() {
+    this.gmEffect = !this.gmEffect;
+    try {
+      localStorage.setItem("ms_gm_effect", String(this.gmEffect));
+    } catch {}
+    this.updateActiveItemEffs();
+    this.refreshLook();
+    this.syncAll();
+    this.onChat("notice", `★ [GM Status] Wizet GM Effect: ${this.gmEffect ? "ON" : "OFF"}`);
+    this.onChange();
+  }
+
+  setAutoBattle(enabled?: boolean) {
+    const next = enabled !== undefined ? Boolean(enabled) : !this.auto.battle;
+    this.auto.battle = next;
+    try {
+      localStorage.setItem("ms_auto_combat", String(next));
+    } catch {}
+    this.ai.hold = 0;
+    this.ai.stuck = 0;
+    this.ai.retreatTime = 0;
+    if (next) {
+      this.keys.clear();
+      this.pressed.clear();
+    } else {
+      this.ai.keys.clear();
+      this.ai.pressed.clear();
+      this.ai.ladderIntent = null;
+      this.ai.ladderTopStuckTimer = 0;
+      this.ai.target = null;
+      if (this.p.aiAttack && this.p.attack > 0) {
+        this.p.attack = 0;
+        this.p.aiAttack = false;
+      }
+    }
+    this.syncAll();
+    this.onChange();
+  }
+
   hasWizetHat(look?: number[]): boolean {
+    if (this.gmEffect) return true;
     if (look) {
       for (const id of look) {
         if (isWizetHat(id)) return true;
@@ -217,6 +272,7 @@ export class Game extends ComponentBase {
   }
 
   isGm(): boolean {
+    if (typeof window !== "undefined" && (location.hostname === "localhost" || location.hostname === "127.0.0.1" || location.port === "3000")) return true;
     if (this.hasWizetHat()) return true;
     const u = (localStorage.getItem("ms_current_user") || "").toLowerCase().trim();
     const n = (this.stats.name || "").toLowerCase().trim();
@@ -257,6 +313,9 @@ export class Game extends ComponentBase {
     lastJumpX: 0,
     lastJumpY: 0,
     lastJumpTime: 0,
+    lastJumpFhId: 0,
+    targetTimer: 0,
+    targetJumps: 0,
     retreatTime: 0,
     retreatDir: 1 as -1 | 1,
     ladderIntent: null as "up" | "down" | null,
@@ -276,9 +335,11 @@ export class Game extends ComponentBase {
   keys = new Set<string>();
   pressed = new Set<string>();
   savedPosition: { x: number; y: number; face?: number } | null = null;
+  charComp!: CharacterRendererComponent;
 
   constructor(r?: Renderer) {
     super();
+    this.charComp = new CharacterRendererComponent({ game: this });
     if (r) {
       this.r = r;
       this.assets = new Assets(r);
@@ -310,17 +371,18 @@ export class Game extends ComponentBase {
   }
 
   async initGame(startMap = FREE_MARKET_MAP, spawnPos?: { x: number; y: number }) {
-    this.fxData = await json("/wz/data/fx");
-    const sk = await json<Record<string, any>>("/wz/data/skills");
+    const [fx, sk, spData] = await Promise.all([
+      json("/wz/data/fx"),
+      json<Record<string, any>>("/wz/data/skills"),
+      json<Record<string, Sprite[]>>("/wz/data/shadow-partner").catch(() => null),
+    ]);
+    this.fxData = fx;
     this.snailShell = sk.snailShell ?? null;
     const star0: Sprite = { url: "/wz/sprite/Item/0207/02070006/bullet/0", w: 27, h: 27, ox: 13, oy: 13 };
     const star1: Sprite = { url: "/wz/sprite/Item/0207/02070006/bullet/1", w: 27, h: 27, ox: 13, oy: 13 };
     this.throwingStarFrames = [star0, star1];
     for (const d of SKILL_DEFS) if (sk[d.id]) this.skillArt[d.id] = sk[d.id];
-    try {
-      const spData = await json<Record<string, Sprite[]>>("/wz/data/shadow-partner");
-      if (spData) this.shadowPartnerArt = spData;
-    } catch {}
+    if (spData) this.shadowPartnerArt = spData;
     this.recalc();
     // Warm up character frames (rendered server-side, so they can be slow the first time).
     const loads: Promise<unknown>[] = [this.assets.load(star0.url), this.assets.load(star1.url)];
@@ -386,7 +448,7 @@ export class Game extends ComponentBase {
     }
     this.updateActiveItemEffs();
     this.preloadItemIcons();
-    await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 25000))]);
+    await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 200))]);
   }
 
   // ------------------------------------------------------------ websocket networking
@@ -412,11 +474,9 @@ export class Game extends ComponentBase {
       const backFrameLoads = m.backs.flatMap((b) => (b.frames ? b.frames.map((f) => this.assets.load(f.url)) : []));
       const aniObjLoads = (m.aniObjs ?? []).flatMap((o) => o.frames.map((f) => this.assets.load(f.url)));
       const mobLoads = [...this.mobData.values()].flatMap((d) => Object.values(d.books).flat().map((s) => this.assets.load(s.url)));
-      await Promise.race([
-        Promise.all([renderTex, ...backLoads, ...backFrameLoads, ...aniObjLoads, ...mobLoads]),
-        new Promise((r) => setTimeout(r, 20000)),
-      ]);
+      // Wait for essential map render canvas immediately; stream decorative layers and mob frames concurrently in background
       const tex = await renderTex;
+      Promise.all([...backLoads, ...backFrameLoads, ...aniObjLoads, ...mobLoads]).catch(() => null);
 
       this.map = m;
       this.tree = new FootholdTree(m.footholds);
@@ -487,8 +547,15 @@ export class Game extends ComponentBase {
       this.ai.ladderIntent = null;
       this.ai.ladderTopStuckTimer = 0;
       this.ai.stuck = 0;
-      p.fh = this.tree.landing(p.x, p.y - 20, p.y + 60) ?? this.tree.below(p.x, p.y - 20);
-      if (p.fh) p.y = FootholdTree.yAt(p.fh, p.x);
+      p.fh =
+        this.tree.landing(p.x, p.y - 45, p.y + 85) ??
+        this.tree.below(p.x, p.y - 45) ??
+        this.tree.landingNear(p.x, p.y - 60, p.y + 100, 60)?.fh ??
+        null;
+      if (p.fh) {
+        p.x = Math.max(p.fh.x1 + 1, Math.min(p.fh.x2 - 1, p.x));
+        p.y = FootholdTree.yAt(p.fh, p.x);
+      }
 
       // Snap active pets to player on map load
       for (const pet of this.pets) {
@@ -533,6 +600,65 @@ export class Game extends ComponentBase {
     }
   }
 
+  async warpToLocation(mapId: number, x: number, y: number) {
+    const targetMapId = Number(mapId || FREE_MARKET_MAP);
+    const tx = Math.round(Number(x || 0));
+    const ty = Math.round(Number(y || 0));
+
+    if (!this.map || this.map.id !== targetMapId) {
+      await this.loadMap(targetMapId, "spawn", { x: tx, y: ty });
+    }
+
+    const p = this.p;
+    p.x = tx;
+    p.y = ty - 2;
+    p.vx = 0;
+    p.vy = 0;
+    p.ladder = null;
+    p.attack = 0;
+    p.aiAttack = false;
+    p.hitDone = true;
+    p.skill = null;
+
+    this.keys.clear();
+    this.pressed.clear();
+    this.ai.keys.clear();
+    this.ai.pressed.clear();
+    this.ai.hold = 0;
+    this.ai.target = null;
+    this.ai.retreatTime = 0;
+    this.ai.ladderIntent = null;
+    this.ai.ladderTopStuckTimer = 0;
+    this.ai.stuck = 0;
+
+    p.fh =
+      this.tree.landing(p.x, p.y - 45, p.y + 85) ??
+      this.tree.below(p.x, p.y - 45) ??
+      this.tree.landingNear(p.x, p.y - 60, p.y + 100, 60)?.fh ??
+      null;
+    if (p.fh) {
+      p.x = Math.max(p.fh.x1 + 1, Math.min(p.fh.x2 - 1, p.x));
+      p.y = FootholdTree.yAt(p.fh, p.x);
+    }
+
+    for (const pet of this.pets) {
+      pet.x = p.x - p.face * (35 + pet.slotIndex * 32);
+      pet.y = p.y;
+      pet.fh = p.fh;
+      pet.vx = 0;
+      pet.vy = 0;
+      pet.state = "stand0";
+    }
+
+    this.snapCamera();
+    this.lastMoveSync = 0;
+    this.syncMove();
+    if (this.partyId) {
+      NetworkSystem.sendPartySync(this);
+    }
+    this.onChange();
+  }
+
   makeMob(s: MapData["spawns"][number]): Mob | null { return MobSystem.makeMob(this, s); }
 
   snapCamera() {
@@ -568,9 +694,71 @@ export class Game extends ComponentBase {
   watk() { return StatsSystem.watk(this); }
   maxDamage() { return StatsSystem.maxDamage(this); }
   combatPower() { return StatsSystem.combatPower(this); }
+  totalStarForce(): number {
+    return Object.values(this.eq).reduce((acc, g) => acc + (g?.star ?? 0), 0);
+  }
+
+  liberateRune(): boolean {
+    if (!this.rune) return false;
+    const r = this.rune;
+    const dist = Math.hypot(this.p.x - r.x, this.p.y - r.y);
+    if (dist > 90) {
+      this.onChat("system", "You are too far from the Rune to liberate it.");
+      return false;
+    }
+    const type = r.type;
+    this.rune = null;
+    this.runeCooldown = 240; // 4 min cooldown between runes
+    this.runeBuff = { type, timeLeft: 180 };
+
+    const typeNames: Record<RuneType, string> = {
+      swiftness: "Swiftness (Maximum Agility & Attack Speed)",
+      might: "Might (Giant Stomp & Knockout Power)",
+      thunder: "Thunder (Celestial Lightning Barrage)",
+      destruction: "Destruction (+50% Final Damage)",
+    };
+
+    // Authentic MapleStory Etc.wz/RuneStone.img disappear liberation effect
+    const runeIdMap: Record<RuneType, number> = {
+      swiftness: 0,
+      might: 4,
+      thunder: 3,
+      destruction: 2,
+    };
+    const rid = runeIdMap[type] ?? 0;
+    const disappearOffsets = [
+      { w: 181, h: 175, ox: 90, oy: 161 },
+      { w: 169, h: 178, ox: 83, oy: 163 },
+      { w: 164, h: 169, ox: 81, oy: 158 },
+      { w: 154, h: 151, ox: 76, oy: 149 },
+      { w: 125, h: 118, ox: 62, oy: 133 },
+      { w: 123, h: 63, ox: 61, oy: 89 },
+      { w: 74, h: 32, ox: 26, oy: 71 },
+    ];
+    this.fx.push({
+      frames: disappearOffsets.map((o, f) => ({
+        url: `/wz/sprite/Etc/RuneStone/runeStone/0/${rid}/disappear/${f}`,
+        w: o.w,
+        h: o.h,
+        ox: o.ox,
+        oy: o.oy,
+        delay: 100,
+      })),
+      x: r.x,
+      y: r.y,
+      flip: false,
+      t: 0,
+    });
+
+    this.onChat("level", `★ [Rune Liberated] Liberated Rune of ${typeNames[type]}! +100% EXP (2x EXP for 180s) activated!`);
+    this.onChange();
+    return true;
+  }
   computeLook(): number[] {
     const order: Slot[] = ["cape", "shoes", "bottom", "top", "gloves", "hat", "earrings", "face", "eye", "shield", "weapon"];
-    const worn = order.map((k) => this.visualEq[k]?.id ?? this.eq[k]?.id).filter((x): x is number => !!x);
+    const worn = order.map((k) => {
+      return this.visualEq[k]?.id ?? this.eq[k]?.id;
+    }).filter((x): x is number => !!x);
     // Always include the base body parts so the avatar is never headless.
     return [...DEFAULT_LOOK, ...worn];
   }
@@ -642,6 +830,9 @@ export class Game extends ComponentBase {
   async updateActiveItemEffs() {
     const prioritySlots: Slot[] = ["weapon", "hat", "cape", "overall" as any, "top", "bottom", "ring1", "ring2", "ring3", "ring4"];
     const orderedIds: number[] = [];
+    if (this.gmEffect) {
+      orderedIds.push(1002140);
+    }
     for (const slot of prioritySlots) {
       const v = this.visualEq[slot]?.id;
       if (v && v !== 1042003 && v !== 1062007 && !orderedIds.includes(v)) orderedIds.push(v);
@@ -659,9 +850,8 @@ export class Game extends ComponentBase {
     for (const id of orderedIds) {
       if (!this.itemEffCache.has(id)) {
         try {
-          const res = await fetch(`/wz/data/item-eff/${id}`);
-          if (res.ok) {
-            const data: ItemEffData = await res.json();
+          const data = await json<ItemEffData>(`/wz/data/item-eff/${id}`);
+          if (data) {
             this.itemEffCache.set(id, data);
             for (const act of Object.values(data.actions)) {
               for (const fr of act) this.assets.load(fr.url);
@@ -730,6 +920,11 @@ export class Game extends ComponentBase {
       }
       return;
     }
+    if (text.startsWith("/")) {
+      const unknownCmd = text.split(" ")[0];
+      this.onChat("system", `Unknown command "${unknownCmd}". Type /help for available commands.`);
+      return;
+    }
     this.balloon = { text, t: 5 };
     this.onChat("say", `${this.stats.name} : ${text}`, itemLink);
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -737,9 +932,18 @@ export class Game extends ComponentBase {
     }
   }
 
-  sendChat(text: string, kind: ChatKind = "say", itemLink?: any) {
+  sendChat(text: string, kind: ChatKind = "say", itemLink?: any, target?: string) {
+    if (text.startsWith("/")) {
+      this.say(text, itemLink);
+      return;
+    }
     if (kind === "say") {
       this.say(text, itemLink);
+    } else if (kind === "whisper" && target) {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ t: "chat", text, kind: "whisper", target, itemLink }));
+      }
+      this.onChat("whisper", `To @${target} : ${text}`, itemLink);
     } else {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ t: "chat", text, kind, itemLink, guildId: this.guildId, partyId: this.partyId }));
@@ -755,12 +959,17 @@ export class Game extends ComponentBase {
       for (const g of guilds) {
         const full = await GuildClient.getGuild(g.id);
         if (full && full.members.some((m) => m.name.toLowerCase() === charName.toLowerCase())) {
+          clearGuildTagCache();
           this.guild = full;
           this.guildId = full.id;
           this.guildName = full.name;
-          this.guildEmblem = full.emblem;
+          this.guildEmblem = full.emblem ? {
+            ...full.emblem,
+            beamEffect: full.emblem.beamEffect || "gold",
+            beamMotion: full.emblem.beamMotion || "rotate",
+          } : undefined;
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ t: "guild_sync", guildId: full.id, guildName: full.name, guildEmblem: full.emblem }));
+            this.ws.send(JSON.stringify({ t: "guild_sync", guildId: full.id, guildName: full.name, guildEmblem: this.guildEmblem }));
           }
           this.onChange();
           return full;
@@ -819,7 +1028,7 @@ export class Game extends ComponentBase {
       this.fps = Math.round(this.fps * 0.95 + (1 / dt) * 0.05);
     }
     if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
-    if (this.loadingMap || !this.map) { this.pressed.clear(); return; }
+    if (this.sessionReplaced || this.loadingMap || !this.map) { this.pressed.clear(); return; }
     this.fade = Math.max(0, this.fade - dt * 2.5);
     for (const [id, cd] of Object.entries(this.skillCd)) {
       cd.left -= dt;
@@ -830,6 +1039,72 @@ export class Game extends ComponentBase {
     this.updatePlayer(dt);
     this.updateProjectiles(dt);
     this.balloon.t = Math.max(0, this.balloon.t - dt);
+    if (this.time - this.lastKillTime > 6.0 && this.comboKill > 0) {
+      this.comboKill = 0;
+    }
+
+    // Modern MapleStory Rune System
+    if (this.map?.id !== FREE_MARKET_MAP) {
+      if (this.runeBuff) {
+        this.runeBuff.timeLeft -= dt;
+        if (this.runeBuff.type === "thunder" && Math.random() < dt * 0.4) {
+          const live = this.liveMobs();
+          const target = live[Math.floor(Math.random() * live.length)];
+          if (target && target.state !== "dead" && target.state !== "die1") {
+            CombatSystem.damageMob(this, target, 999999, false, true);
+          }
+        }
+        if (this.runeBuff.timeLeft <= 0) {
+          this.runeBuff = null;
+          this.onChat("notice", "★ Liberated Rune Power has expired.");
+        }
+      } else {
+        this.runeCooldown -= dt;
+        if (this.runeCooldown <= 0 && this.mobs.length > 0 && !this.rune) {
+          const types: RuneType[] = ["swiftness", "might", "thunder", "destruction"];
+          const selType = types[Math.floor(Math.random() * types.length)];
+          const refMob = this.mobs[Math.floor(Math.random() * this.mobs.length)];
+          this.rune = {
+            x: refMob ? refMob.x : (this.bounds.l + this.bounds.r) / 2,
+            y: refMob ? refMob.y : this.p.y,
+            type: selType,
+            t: 0,
+          };
+          // Preload authentic MapleStory Etc.wz/RuneStone.img stay & disappear frames
+          const runeId = { swiftness: 0, might: 4, thunder: 3, destruction: 2 }[selType] ?? 0;
+          for (let f = 0; f < 8; f++) {
+            this.assets.load(`/wz/sprite/Etc/RuneStone/runeStone/0/${runeId}/stay/${f}`);
+          }
+          for (let f = 0; f < 7; f++) {
+            this.assets.load(`/wz/sprite/Etc/RuneStone/runeStone/0/${runeId}/disappear/${f}`);
+          }
+          // Spawn authentic Rune appear animation
+          const appearFrames = Array.from({ length: 13 }, (_, f) => ({
+            url: `/wz/sprite/Etc/RuneStone/runeStone/0/${runeId}/appear/${f}`,
+            w: 102,
+            h: 90,
+            ox: 43,
+            oy: 116,
+            delay: 75,
+          }));
+          this.fx.push({
+            frames: appearFrames,
+            x: this.rune.x,
+            y: this.rune.y,
+            flip: false,
+            t: 0,
+          });
+          this.onChat("notice", "★ A mystical Rune has materialized on the field! Approach it and press SPACE to liberate its power!");
+        }
+      }
+      if (this.rune) {
+        this.rune.t += dt;
+        if (this.auto.battle && Math.hypot(this.p.x - this.rune.x, this.p.y - this.rune.y) < 70) {
+          this.liberateRune();
+        }
+      }
+    }
+
     if (this.boss) { this.bossTimer -= dt; if (this.bossTimer <= 0) this.endBoss(false); }
     else if (this.auto.boss && this.bossReady() && !this.p.ladder && this.map?.id !== FREE_MARKET_MAP) this.challengeBoss();
     if (this.auto.battle) { this.idle.autoTime += dt; if (this.idle.autoTime > 120) { this.idle.killRate = this.idle.autoKills / this.idle.autoTime; } if (this.idle.autoTime > 1800) { this.idle.autoTime /= 2; this.idle.autoKills /= 2; } }
@@ -900,6 +1175,47 @@ export class Game extends ComponentBase {
   updateProjectiles(dt: number) { CombatSystem.updateProjectiles(this, dt); }
 
   // ------------------------------------------------------------ auto battle
+  isActionAuto(a: Action | null | undefined): boolean {
+    if (!a) return false;
+    if (a.t === "attack") return !this.auto.disabledSkills?.["__attack"];
+    if (a.t === "skill") {
+      const d = SKILL[a.id];
+      if (!d || d.kind === "passive") return false;
+      return !this.auto.disabledSkills?.[a.id];
+    }
+    return false;
+  }
+
+  toggleActionAuto(a: Action | null | undefined): boolean {
+    if (!a) return false;
+    if (!this.auto.disabledSkills) this.auto.disabledSkills = {};
+    if (a.t === "attack") {
+      const next = Boolean(this.auto.disabledSkills["__attack"]);
+      if (next) delete this.auto.disabledSkills["__attack"];
+      else this.auto.disabledSkills["__attack"] = true;
+      this.onChat("system", `[Auto Skill] Basic Attack: ${next ? "ON" : "OFF"}`);
+      this.onChange();
+      return true;
+    }
+    if (a.t === "skill") {
+      const d = SKILL[a.id];
+      if (!d || d.kind === "passive") return false;
+      const next = Boolean(this.auto.disabledSkills[a.id]);
+      if (next) {
+        delete this.auto.disabledSkills[a.id];
+        if (d.kind === "buff") this.auto.buff = true;
+      } else {
+        this.auto.disabledSkills[a.id] = true;
+      }
+      const name = this.skillArt[a.id]?.name || a.id;
+      const label = d.kind === "buff" ? "Auto Buff" : "Auto Skill";
+      this.onChat("system", `[${label}] ${name}: ${next ? "ON" : "OFF"}`);
+      this.onChange();
+      return true;
+    }
+    return false;
+  }
+
   liveMobs() { return AutoCombatSystem.liveMobs(this); }
   hotbarSkills() { return AutoCombatSystem.hotbarSkills(this); }
   findBestSkillAttack(preferredDir: -1 | 1) { return AutoCombatSystem.findBestSkillAttack(this, preferredDir); }
@@ -1072,10 +1388,6 @@ export class Game extends ComponentBase {
               return;
             }
             if (this.mobs.length > 0) {
-              if (!this.auto.battle) {
-                this.onChat("system", "Auto Combat must be ON to advance to the next area!");
-                return;
-              }
               if (!this.areaBossDefeated) {
                 this.onChat("system", `Defeat the stage boss first before advancing to the next area! (Kills: ${this.stage.kills}/${this.stageNeed})`);
                 return;
@@ -1156,11 +1468,11 @@ export class Game extends ComponentBase {
       p.prone = false;
       // Grab ladder upwards / downwards from ground
       if (up && p.attack <= 0) {
-        const L = nearLadder((L) => p.y >= L.y1 - 15 && p.y <= L.y2 + 20);
+        const L = nearLadder((L) => p.y >= L.y1 - 15 && p.y <= L.y2 + 32);
         if (L) { p.ladder = L; p.fh = null; p.x = L.x; p.y = Math.min(p.y - 4, L.y2); this.animate(dt, L.isLadder ? "ladder" : "rope", false); return; }
       }
       if (downK && p.attack <= 0) {
-        const L = nearLadder((L) => (Math.abs(L.y1 - p.y) < 30) || (p.y >= L.y1 - 5 && p.y <= L.y2));
+        const L = nearLadder((L) => (Math.abs(L.y1 - p.y) < 35) || (p.y >= L.y1 - 5 && p.y <= L.y2));
         if (L) { p.ladder = L; p.fh = null; p.x = L.x; p.y = Math.max(L.y1 + 12, Math.min(p.y + 10, L.y2)); this.animate(dt, L.isLadder ? "ladder" : "rope", false); return; }
       }
       if (downK && jumpHeld && p.attack <= 0) {
@@ -1239,7 +1551,7 @@ export class Game extends ComponentBase {
         if (p.attack <= 0) p.face = dir as -1 | 1;
       }
       if ((up || downK) && p.attack <= 0) {
-        const L = nearLadder((L) => p.y >= L.y1 - 15 && p.y <= L.y2 + 15);
+        const L = nearLadder((L) => p.y >= L.y1 - 15 && p.y <= L.y2 + 25);
         if (L) {
           p.ladder = L;
           p.vx = 0;
@@ -1311,6 +1623,7 @@ export class Game extends ComponentBase {
   addGear(g: Gear) { InventorySystem.addGear(this, g); }
   moveBagSlot(fromSlot: number, toSlot: number, isCash = false) { InventorySystem.moveBagSlot(this, fromSlot, toSlot, isCash); }
   sortBag(isCash = false) { InventorySystem.sortBag(this, isCash); }
+  autoEquipBest() { return InventorySystem.autoEquipBest(this); }
   dropGear(uid: string): boolean { return InventorySystem.dropGear(this, uid); }
   dropUseItem(id: number, count = 1): boolean { return InventorySystem.dropUseItem(this, id, count); }
   dropMat(id: number, count = 1): boolean { return InventorySystem.dropMat(this, id, count); }
@@ -1324,9 +1637,11 @@ export class Game extends ComponentBase {
   cube(uid: string): boolean { return InventorySystem.cube(this, uid); }
 
   // ------------------------------------------------------------ auction house
-  ahBuy(lid: string) { return EconomySystem.ahBuy(this, lid); }
+  ahBuy(lid: string, payWith?: "meso" | "nx") { return EconomySystem.ahBuy(this, lid, payWith); }
   receive(g: Goods) { EconomySystem.receive(this, g); }
-  ahList(goods: Goods, price: number) { return EconomySystem.ahList(this, goods, price); }
+  ahList(goods: Goods, priceMeso: number, priceNx?: number, currency: "meso" | "nx" | "both" = "meso", durationHours: 12 | 24 = 24) {
+    return EconomySystem.ahList(this, goods, priceMeso, priceNx, currency, durationHours);
+  }
   ahCollect(lid: string) { EconomySystem.ahCollect(this, lid); }
 
   // ------------------------------------------------------------ stages & bosses
@@ -1336,6 +1651,10 @@ export class Game extends ComponentBase {
   bossFor(n = this.stage.n) { return StageSystem.bossFor(n); }
   challengeBoss() { return StageSystem.challengeBoss(this); }
   endBoss(won: boolean) { return StageSystem.endBoss(this, won); }
+  requiredStarForce(n = this.stage.n) { return StageSystem.requiredStarForce(n); }
+  starForceMultiplier(playerSF = this.totalStarForce(), reqSF = this.requiredStarForce()) {
+    return StageSystem.starForceMultiplier(playerSF, reqSF);
+  }
   mobAtk(d: MobData) { return Math.max(1, (d.meta?.physicalDamage ?? 10) * 0.4 * this.stageMul().dmg); }
   offlineRewards(savedAt?: number) { return StageSystem.offlineRewards(this, savedAt); }
   claimOffline(r?: { seconds: number; kills: number; exp: number; meso: number; mats: Record<number, number>; gear: Gear[] }, mult = 1) {
@@ -1355,8 +1674,16 @@ export class Game extends ComponentBase {
     };
   }
   restore(d: any) {
-    if (!d || d.v !== 1) return;
     Object.assign(this.stats, d.stats ?? {});
+    if (typeof this.stats.nx !== "number") {
+      this.stats.nx = 50000;
+    }
+    if (typeof this.stats.level === "number" && typeof this.stats.exp === "number") {
+      const maxNeeded = expToLevel(this.stats.level);
+      if (this.stats.exp >= maxNeeded) {
+        this.stats.exp = Math.max(0, maxNeeded - 1);
+      }
+    }
     if (d.p && typeof d.p.x === "number" && typeof d.p.y === "number") {
       this.savedPosition = { x: d.p.x, y: d.p.y, face: d.p.face ?? -1 };
       this.p.x = d.p.x;

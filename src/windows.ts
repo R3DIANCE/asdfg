@@ -2,9 +2,11 @@ import { AH_TAX, goodsName, goodsValue, type Goods } from "./auction.ts";
 import { ItemBrowser } from "./item-browser.ts";
 import {
   GEAR, MATS, MAX_STAR, POT_LABEL, RARITY, RARITY_COLOR, RARITY_INK, SLOTS, SLOT_NAME, cubeCost, gearIcon, gearStats, gearValue, matIcon,
-  npcSellPrice, recipeGearId, recipes, starCost, starMat, starRate, type Gear, type Recipe, type Slot,
+  npcSellPrice, recipeGearId, recipes, starCost, starMat, starRate, getWeaponStandAnim, isOverallItem, type Gear, type Recipe, type Slot,
 } from "./items.ts";
 import { renderGearTooltip, renderUseTooltip, renderMatTooltip } from "./tooltip.ts";
+import { CashShop } from "./components/CashShop.ts";
+import { DamageSkinSystem, DAMAGE_SKIN_PRESETS } from "./systems/damage-skin-system.ts";
 import { icon, stars, dur } from "./util.ts";
 // Quick slots (drag/drop), Stat / Skill / Item / Auto windows, buff bar, tooltips and chat balloon.
 import { expToLevel, charUrlFor } from "./game.ts";
@@ -20,8 +22,9 @@ import { makeGear } from "./items.ts";
 import type { Sprite } from "./assets.ts";
 import {
   type Guild, type GuildMember, type GuildEmblem,
-  EMBLEM_COLORS, EMBLEM_BG_SHAPES, EMBLEM_SYMBOLS, renderEmblemSvg, GuildClient
+  EMBLEM_COLORS, EMBLEM_BG_SHAPES, EMBLEM_SYMBOLS, WZ_EMBLEM_BGS, WZ_EMBLEM_MARKS, renderEmblemSvg, GuildClient
 } from "./guild.ts";
+import { clearGuildTagCache } from "./systems/render-system.ts";
 import { type Party, type PartyMember, PartyClient } from "./party.ts";
 export { el, bg };
 type Btn = Record<"normal" | "mouseOver" | "pressed" | "disabled", Sprite | null>;
@@ -76,7 +79,8 @@ export class Windows {
   guildWin!: HTMLElement;
   guildTab: "members" | "emblem" | "settings" | "create" | "directory" = "members";
   partyWin!: HTMLElement;
-  guildDraftEmblem: GuildEmblem = { bgShape: 0, bgColor: 0, symbolShape: 0, symbolColor: 0 };
+  guildDraftEmblem: GuildEmblem = { bgShape: 0, bgColor: 0, symbolShape: 0, symbolColor: 0, beamEffect: "gold", beamMotion: "rotate" };
+  guildDraftName = "";
   guildDirectorySearch = "";
   guildCachedDirectory: Guild[] = [];
   buffBar: HTMLElement;
@@ -98,7 +102,7 @@ export class Windows {
     this.buffBar = el("div", "buffbar", hudRoot);
     this.autoBtn = el("button", "auto-btn auto-battle-btn", hudRoot);
     this.autoBtn.innerHTML = `<span class="auto-dot"></span>AUTO COMBAT`;
-    this.autoBtn.title = "Toggle Auto Combat (B). Right-click for settings.";
+    this.autoBtn.title = "Toggle Auto Combat. Right-click for settings.";
     this.autoBtn.addEventListener("click", () => this.toggleAutoBattle());
     this.autoBtn.addEventListener("contextmenu", (e) => { e.preventDefault(); this.toggle(this.autoWin); });
 
@@ -108,7 +112,6 @@ export class Windows {
     this.autoBossBtn.addEventListener("click", () => {
       if (!this.game) return;
       this.game.auto.boss = !this.game.auto.boss;
-      this.game.onChat("notice", this.game.auto.boss ? "Auto Boss is ON. Stage boss will be challenged automatically." : "Auto Boss is OFF.");
       this.game.onChange();
       this.autoBossBtn.blur();
       document.getElementById("game")?.focus();
@@ -162,6 +165,9 @@ export class Windows {
   toggleAutoBattle() {
     const a = this.game.auto;
     a.battle = !a.battle;
+    try {
+      localStorage.setItem("ms_auto_combat", String(a.battle));
+    } catch {}
     if (!a.battle) {
       this.game.ai.keys.clear();
       this.game.ai.pressed.clear();
@@ -177,7 +183,6 @@ export class Windows {
     this.autoBtn.classList.toggle("on", a.battle);
     this.autoBtn.blur();
     document.getElementById("game")?.focus();
-    this.game.onChat("notice", a.battle ? "Auto Combat is ON. Your character will hunt, loot and heal on its own. Press B or any arrow key to take over." : "Auto Combat is OFF.");
     this.game.onChange();
   }
 
@@ -195,6 +200,14 @@ export class Windows {
     if (!w.classList.contains("hidden")) {
       w.style.zIndex = String(++this.z);
       this.lastStat = this.lastSkill = this.lastItem = "";
+      if (w === this.guildWin) {
+        this.renderGuild();
+        this.game.loadGuild().then(() => this.renderGuild());
+        GuildClient.getGuildList().then((list) => {
+          this.guildCachedDirectory = list;
+          if (!this.guildWin.classList.contains("hidden")) this.renderGuild();
+        });
+      }
       clampWindow(w);
     }
   }
@@ -203,16 +216,23 @@ export class Windows {
     if (open[0]) { open[0].classList.add("hidden"); return true; }
     return false;
   }
+  openCashShop() {
+    this.ext?.openCashShop();
+  }
 
   // ------------------------------------------------------------- tooltips
+  lastTipHtml = "";
   showTip(html: string, x: number, y: number) {
-    this.tip.innerHTML = html;
-    this.tip.classList.remove("hidden");
-    if (html.includes("ms-tooltip-card")) {
-      this.tip.classList.add("card-mode");
-    } else {
-      this.tip.classList.remove("card-mode");
+    if (this.lastTipHtml !== html) {
+      this.lastTipHtml = html;
+      this.tip.innerHTML = html;
+      if (html.includes("ms-tooltip-card")) {
+        this.tip.classList.add("card-mode");
+      } else {
+        this.tip.classList.remove("card-mode");
+      }
     }
+    this.tip.classList.remove("hidden");
     this.tip.style.zIndex = "100000";
     const r = this.tip.getBoundingClientRect();
     const posX = x + 14 + r.width > innerWidth - 8 ? Math.max(8, x - r.width - 12) : x + 14;
@@ -220,7 +240,10 @@ export class Windows {
     this.tip.style.left = `${posX}px`;
     this.tip.style.top = `${posY}px`;
   }
-  hideTip() { this.tip.classList.add("hidden"); }
+  hideTip() {
+    this.lastTipHtml = "";
+    this.tip.classList.add("hidden");
+  }
   actionTip(a: Action): string {
     const g = this.game;
     if (a.t === "attack") {
@@ -670,9 +693,9 @@ export class Windows {
           <div class="job-adv-title">★ ${tier}${["", "st", "nd", "rd"][tier]} Job Advancement</div>
           <div class="job-adv-subtitle">You have surpassed your limits! Advance your mastery to become a <b>${nextJobName}</b>.</div>
         </div>
-        <div class="p-4 bg-slate-800/80 rounded border border-slate-600/70 text-center flex flex-col items-center gap-3">
+        <div class="p-4 bg-zinc-800/80 rounded border border-zinc-600/70 text-center flex flex-col items-center gap-3">
           <div class="text-xl font-black text-amber-300">${s.job} → ${nextJobName}</div>
-          <p class="text-xs text-slate-300">Unlocks powerful new skills in tier ${tier}, bonus +5 AP, and +5 SP.</p>
+          <p class="text-xs text-zinc-300">Unlocks powerful new skills in tier ${tier}, bonus +5 AP, and +5 SP.</p>
           <button type="button" class="ci-action-btn cyan px-6 py-2.5 font-bold text-sm" data-job="${s.classId}">Advance to ${nextJobName}</button>
         </div>
       `;
@@ -1620,7 +1643,7 @@ export class Windows {
         <div class="guide-pane">
           <div class="guide-hero">
             <h2 class="text-lg font-black text-amber-300">★ Beginner Road Map & Post-Creation Journey</h2>
-            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Follow this step-by-step progression guide immediately after creating your character to reach maximum power, unlock all 4 job advancements, and conquer Victoria Island bosses.</p>
+            <p class="text-xs text-zinc-300 mt-1 leading-relaxed">Follow this step-by-step progression guide immediately after creating your character to reach maximum power, unlock all 4 job advancements, and conquer Victoria Island bosses.</p>
           </div>
 
           <div class="guide-section mt-3">
@@ -1736,7 +1759,7 @@ export class Windows {
 
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Free-Grid Inventory & Ground Dropping Tips</h3>
-            <p class="text-xs text-slate-300 leading-relaxed"><b>Free Inventory Grid:</b> Click and drag any item to any empty or occupied cell (0 to 31) to organize your bag exactly how you want. Placements persist automatically across sessions.<br>
+            <p class="text-xs text-zinc-300 leading-relaxed"><b>Free Inventory Grid:</b> Click and drag any item to any empty or occupied cell (0 to 31) to organize your bag exactly how you want. Placements persist automatically across sessions.<br>
             <b>Ground Dropping & 10m Despawn:</b> Drag an item out to the game screen or right-click an item and choose <b>Drop on Ground (10m)</b>. Dropped items physically toss onto the floor and stay active for <b>10 full minutes</b> before despawning, allowing easy trading or sharing with party members!</p>
           </div>
         </div>
@@ -1746,7 +1769,7 @@ export class Windows {
         <div class="guide-pane">
           <div class="guide-hero">
             <h2 class="text-lg font-black text-amber-400">Welcome to Maple Wayfarer</h2>
-            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Maple Wayfarer is an immersive multiplayer adventure. Venture through Victoria Island, hang out with friends in the Free Market, battle iconic stage bosses, and craft legendary equipment.</p>
+            <p class="text-xs text-zinc-300 mt-1 leading-relaxed">Maple Wayfarer is an immersive multiplayer adventure. Venture through Victoria Island, hang out with friends in the Free Market, battle iconic stage bosses, and craft legendary equipment.</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Keyboard Controls Cheat Sheet</h3>
@@ -1774,7 +1797,7 @@ export class Windows {
         <div class="guide-pane">
           <div class="guide-hero">
             <h2 class="text-lg font-black text-emerald-400">How to Get Stronger</h2>
-            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Power in Maple Wayfarer comes from leveling, optimal AP distribution, mastering class skills, hunting stage bosses, and Star Force enhancements.</p>
+            <p class="text-xs text-zinc-300 mt-1 leading-relaxed">Power in Maple Wayfarer comes from leveling, optimal AP distribution, mastering class skills, hunting stage bosses, and Star Force enhancements.</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">1. Ability Point (AP) Allocation</h3>
@@ -1803,7 +1826,7 @@ export class Windows {
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">2. Stage Bosses & 4th Job Advancement</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">Defeating <b>25 monsters</b> on any hunting map summons the Stage Boss. Bosses grant guaranteed high EXP, rare gear, scrolls, and Potential Cubes. Complete Job Advancements at levels <b>10, 30, 70, and 120</b> to unlock 4th Job skills like Genesis, Hurricane, and Triple Throw.</p>
+            <p class="text-xs text-zinc-300 leading-relaxed">Defeating <b>25 monsters</b> on any hunting map summons the Stage Boss. Bosses grant guaranteed high EXP, rare gear, scrolls, and Potential Cubes. Complete Job Advancements at levels <b>10, 30, 70, and 120</b> to unlock 4th Job skills like Genesis, Hurricane, and Triple Throw.</p>
           </div>
         </div>
       `;
@@ -1812,19 +1835,19 @@ export class Windows {
         <div class="guide-pane">
           <div class="guide-hero">
             <h2 class="text-lg font-black text-sky-400">Social Map & Free Market</h2>
-            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Connect with adventurers across the world, party up for hunts, and trade in Victoria Island's commercial capital.</p>
+            <p class="text-xs text-zinc-300 mt-1 leading-relaxed">Connect with adventurers across the world, party up for hunts, and trade in Victoria Island's commercial capital.</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Free Market (Map 910000000)</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">The Free Market is a peaceful haven with zero monster spawns. Use glowing portals on the left and right to travel directly between the Free Market and hunting grounds in Henesys, Ellinia, Perion, and Kerning City.</p>
+            <p class="text-xs text-zinc-300 leading-relaxed">The Free Market is a peaceful haven with zero monster spawns. Use glowing portals on the left and right to travel directly between the Free Market and hunting grounds in Henesys, Ellinia, Perion, and Kerning City.</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Auction House ('H') & Trading</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">Press <b>H</b> to open the Auction House. List your crafted equipment, ores, and potions for mesos. All active player listings are synchronized with other adventurers in real-time. Sales incur only a 1% listing fee and 5% completion tax.</p>
+            <p class="text-xs text-zinc-300 leading-relaxed">Press <b>H</b> to open the Auction House. List your crafted equipment, ores, and potions for mesos. All active player listings are synchronized with other adventurers in real-time. Sales incur only a 1% listing fee and 5% completion tax.</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Ground Item Dropping & Persistence</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">You can drop equipment, potions, and materials onto the ground from your inventory. Dropped items remain on the ground for <b>10 minutes</b> before automatically despawning. Other players can see and pick up your dropped items!</p>
+            <p class="text-xs text-zinc-300 leading-relaxed">You can drop equipment, potions, and materials onto the ground from your inventory. Dropped items remain on the ground for <b>10 minutes</b> before automatically despawning. Other players can see and pick up your dropped items!</p>
           </div>
         </div>
       `;
@@ -1833,15 +1856,15 @@ export class Windows {
         <div class="guide-pane">
           <div class="guide-hero">
             <h2 class="text-lg font-black text-purple-400">Enchanting & Star Force System</h2>
-            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Upgrade your weapons and armor with Star Force enhancements and reset potential lines with Cubes.</p>
+            <p class="text-xs text-zinc-300 mt-1 leading-relaxed">Upgrade your weapons and armor with Star Force enhancements and reset potential lines with Cubes.</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Star Force Enhancements (Up to 15 Stars)</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">Open the Crafting window ('J') and select the <b>STAR FORCE</b> tab. Each star grants significant Weapon Attack, Magic Attack, and Stat boosts. Stars 1-10 have high success rates, and items <b>never destroy</b> on failure!</p>
+            <p class="text-xs text-zinc-300 leading-relaxed">Open the Crafting window ('J') and select the <b>STAR FORCE</b> tab. Each star grants significant Weapon Attack, Magic Attack, and Stat boosts. Stars 1-10 have high success rates, and items <b>never destroy</b> on failure!</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Potential Reset & Cubing</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">Use the <b>CUBE</b> tab in the Crafting window. Spend mesos and Slime Bubbles to re-roll potential stats. Potential rarity progresses through:</p>
+            <p class="text-xs text-zinc-300 leading-relaxed">Use the <b>CUBE</b> tab in the Crafting window. Spend mesos and Slime Bubbles to re-roll potential stats. Potential rarity progresses through:</p>
             <div class="guide-pot-tiers">
               <span class="pot-tag normal">Normal</span>
               <span class="pot-tag rare">Rare (Cyan)</span>
@@ -1849,7 +1872,7 @@ export class Windows {
               <span class="pot-tag unique">Unique (Gold)</span>
               <span class="pot-tag legendary">Legendary (Emerald)</span>
             </div>
-            <p class="text-xs text-slate-400 mt-2">Legendary potential rolls top-tier modifiers: +12% Total ATT, +12% Primary Stat, and +30% Boss Damage!</p>
+            <p class="text-xs text-zinc-400 mt-2">Legendary potential rolls top-tier modifiers: +12% Total ATT, +12% Primary Stat, and +30% Boss Damage!</p>
           </div>
         </div>
       `;
@@ -1858,16 +1881,16 @@ export class Windows {
         <div class="guide-pane">
           <div class="guide-hero">
             <h2 class="text-lg font-black text-amber-300">Crafting & Alchemy</h2>
-            <p class="text-xs text-slate-300 mt-1 leading-relaxed">Forge custom weapons, refine ores, and brew powerful consumable potions from monster drops.</p>
+            <p class="text-xs text-zinc-300 mt-1 leading-relaxed">Forge custom weapons, refine ores, and brew powerful consumable potions from monster drops.</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Blacksmithing (Equipment Crafting)</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">Collect monster ores and boss drops to craft level-appropriate weapons, hats, tops, bottoms, and boots. All crafted gear is guaranteed to roll <b>Rare or higher potential</b> upon creation!</p>
+            <p class="text-xs text-zinc-300 leading-relaxed">Collect monster ores and boss drops to craft level-appropriate weapons, hats, tops, bottoms, and boots. All crafted gear is guaranteed to roll <b>Rare or higher potential</b> upon creation!</p>
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Alchemy & Potions</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">Use monster materials to brew potions:</p>
-            <ul class="guide-list text-xs text-slate-300">
+            <p class="text-xs text-zinc-300 leading-relaxed">Use monster materials to brew potions:</p>
+            <ul class="guide-list text-xs text-zinc-300">
               <li><b>Red Potion:</b> Restores 50 HP (requires Snail Shells)</li>
               <li><b>Blue Potion:</b> Restores 100 MP (requires Blue Snail Shells)</li>
               <li><b>White Potion:</b> Restores 300 HP (requires Mushroom Spores)</li>
@@ -1876,7 +1899,7 @@ export class Windows {
           </div>
           <div class="guide-section mt-3">
             <h3 class="guide-sec-title">Ore Refining</h3>
-            <p class="text-xs text-slate-300 leading-relaxed">Refine 10 raw monster ores (Iron, Bronze, Silver, Mithril, Steel, Gold) into pure ingots for high-level equipment recipes.</p>
+            <p class="text-xs text-zinc-300 leading-relaxed">Refine 10 raw monster ores (Iron, Bronze, Silver, Mithril, Steel, Gold) into pure ingots for high-level equipment recipes.</p>
           </div>
         </div>
       `;
@@ -1956,7 +1979,7 @@ export class Windows {
 
   // ------------------------------------------------------------- MapleStory Guild Window
   buildGuild() {
-    this.guildWin = this.makeWindow("guild-win", 540, 560, "GUILD (G)", Math.max(20, Math.round(innerWidth / 2 - 270)), 65);
+    this.guildWin = this.makeWindow("guild-win", 610, 580, "GUILD (G)", Math.max(20, Math.round(innerWidth / 2 - 305)), 65);
     el("div", "guild-body", this.guildWin);
     this.guildWin.addEventListener("click", async (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>("[data-guildact]");
@@ -1968,12 +1991,15 @@ export class Windows {
       if (act === "tab-members") {
         this.guildTab = "members";
         this.renderGuild();
-      } else if (act === "tab-emblem") {
-        this.guildTab = "emblem";
-        if (g.guild?.emblem) this.guildDraftEmblem = { ...g.guild.emblem };
-        this.renderGuild();
-      } else if (act === "tab-settings") {
+      } else if (act === "tab-emblem" || act === "tab-settings") {
         this.guildTab = "settings";
+        if (g.guild?.emblem) {
+          this.guildDraftEmblem = {
+            ...g.guild.emblem,
+            beamEffect: g.guild.emblem.beamEffect || "gold",
+            beamMotion: g.guild.emblem.beamMotion || "rotate",
+          };
+        }
         this.renderGuild();
       } else if (act === "tab-create") {
         this.guildTab = "create";
@@ -1985,23 +2011,41 @@ export class Windows {
           this.guildCachedDirectory = list;
           this.renderGuild();
         });
+      } else if (act === "set-bg-shape") {
+        this.guildDraftEmblem.bgShape = Number(t.dataset.shapeIdx || 0);
+        this.renderGuild();
+      } else if (act === "set-sym-shape") {
+        this.guildDraftEmblem.symbolShape = Number(t.dataset.shapeIdx || 0);
+        this.renderGuild();
+      } else if (act === "set-bg-color") {
+        this.guildDraftEmblem.bgColor = Number(t.dataset.colorIdx || 0);
+        this.renderGuild();
+      } else if (act === "set-sym-color") {
+        this.guildDraftEmblem.symbolColor = Number(t.dataset.colorIdx || 0);
+        this.renderGuild();
+      } else if (act === "set-beam-effect") {
+        this.guildDraftEmblem.beamEffect = t.dataset.beam || "gold";
+        this.renderGuild();
+      } else if (act === "set-beam-motion") {
+        this.guildDraftEmblem.beamMotion = t.dataset.motion || "rotate";
+        this.renderGuild();
       } else if (act === "create-guild") {
         const inp = this.guildWin.querySelector(".guild-create-name-input") as HTMLInputElement;
-        const name = (inp?.value || "").trim();
+        const name = (inp?.value || this.guildDraftName || "").trim();
         if (!name) {
-          alert("Please enter a guild name.");
+          g.onChat("notice", "[Guild] Please enter a guild name.");
           return;
         }
         if (name.length < 2 || name.length > 12) {
-          alert("Guild name must be between 2 and 12 characters.");
+          g.onChat("notice", "[Guild] Guild name must be between 2 and 12 characters.");
           return;
         }
         if (g.stats.level < 10) {
-          alert("Character must be at least Level 10 to create a guild.");
+          g.onChat("notice", "[Guild] Character must be at least Level 10 to create a guild.");
           return;
         }
         if ((g.stats.meso || 0) < 5000000) {
-          alert("Guild registration requires 5,000,000 mesos.");
+          g.onChat("notice", "[Guild] Guild registration requires 5,000,000 mesos.");
           return;
         }
         const res = await GuildClient.createGuild(myName, name, this.guildDraftEmblem);
@@ -2011,12 +2055,13 @@ export class Windows {
           g.guildId = res.guild.id;
           g.guildName = res.guild.name;
           g.guildEmblem = res.guild.emblem;
+          this.guildDraftName = "";
           g.onChat("notice", `★ Congratulations! Guild [${res.guild.name}] has been created.`);
           this.guildTab = "members";
           this.renderGuild();
           g.onChange();
         } else {
-          alert(res.error || "Failed to create guild.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to create guild."}`);
         }
       } else if (act === "join-guild") {
         const gid = t.dataset.guildId;
@@ -2032,10 +2077,14 @@ export class Windows {
           this.renderGuild();
           g.onChange();
         } else {
-          alert(res.error || "Failed to join guild.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to join guild."}`);
         }
       } else if (act === "leave-guild") {
         if (!g.guild) return;
+        if (g.guild.master.toLowerCase() === myName.toLowerCase()) {
+          g.onChat("notice", "[Guild] Guild Master cannot leave the guild. Disband or transfer leadership in Settings.");
+          return;
+        }
         if (!confirm(`Are you sure you want to leave guild [${g.guild.name}]?`)) return;
         const res = await GuildClient.leaveGuild(myName, g.guild.id);
         if (res.ok) {
@@ -2048,7 +2097,27 @@ export class Windows {
           this.renderGuild();
           g.onChange();
         } else {
-          alert(res.error || "Failed to leave guild.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to leave guild."}`);
+        }
+      } else if (act === "disband-guild") {
+        if (!g.guild) return;
+        if (g.guild.master.toLowerCase() !== myName.toLowerCase()) {
+          g.onChat("notice", "[Guild] Only the Guild Master can disband the guild.");
+          return;
+        }
+        if (!confirm(`Are you sure you want to DISBAND guild [${g.guild.name}]? All members will be removed and the guild will be permanently deleted.`)) return;
+        const res = await GuildClient.disbandGuild(myName, g.guild.id);
+        if (res.ok) {
+          g.onChat("notice", `Guild [${g.guild.name}] has been disbanded.`);
+          g.guild = null;
+          g.guildId = undefined;
+          g.guildName = undefined;
+          g.guildEmblem = undefined;
+          this.guildTab = "directory";
+          this.renderGuild();
+          g.onChange();
+        } else {
+          g.onChat("notice", `[Guild] ${res.error || "Failed to disband guild."}`);
         }
       } else if (act === "expel-member") {
         if (!g.guild) return;
@@ -2061,7 +2130,7 @@ export class Windows {
           this.renderGuild();
           g.onChat("notice", `[Guild] ${target} has been expelled from the guild.`);
         } else {
-          alert(res.error || "Failed to expel member.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to expel member."}`);
         }
       } else if (act === "change-rank") {
         if (!g.guild) return;
@@ -2074,7 +2143,7 @@ export class Windows {
           this.renderGuild();
           g.onChat("notice", `[Guild] ${target}'s rank changed to ${g.guild?.ranks[rank - 1] ?? "new rank"}.`);
         } else {
-          alert(res.error || "Failed to change rank.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to change rank."}`);
         }
       } else if (act === "edit-notice") {
         if (!g.guild) return;
@@ -2086,23 +2155,29 @@ export class Windows {
           this.renderGuild();
           g.onChat("notice", `[Guild] Notice updated.`);
         } else {
-          alert(res.error || "Failed to update notice.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to update notice."}`);
         }
       } else if (act === "save-emblem") {
         if (!g.guild) return;
         const res = await GuildClient.updateEmblem(myName, g.guild.id, this.guildDraftEmblem);
         if (res.ok) {
+          clearGuildTagCache();
+          g.guild.emblem = { ...this.guildDraftEmblem };
+          g.guildEmblem = { ...this.guildDraftEmblem };
+          if (g.ws && g.ws.readyState === WebSocket.OPEN) {
+            g.ws.send(JSON.stringify({ t: "guild_sync", guildId: g.guild.id, guildName: g.guild.name, guildEmblem: g.guildEmblem }));
+          }
           await g.loadGuild();
           this.renderGuild();
           g.onChat("notice", `[Guild] Guild emblem updated.`);
           g.onChange();
         } else {
-          alert(res.error || "Failed to update emblem.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to update emblem."}`);
         }
       } else if (act === "expand-capacity") {
         if (!g.guild) return;
         if ((g.stats.meso || 0) < 1000000) {
-          alert("Guild capacity expansion requires 1,000,000 mesos.");
+          g.onChat("notice", "[Guild] Guild capacity expansion requires 1,000,000 mesos.");
           return;
         }
         const res = await GuildClient.expandCapacity(myName, g.guild.id);
@@ -2113,7 +2188,7 @@ export class Windows {
           g.onChat("notice", `[Guild] Guild capacity expanded to ${g.guild?.capacity ?? 25} members.`);
           g.onChange();
         } else {
-          alert(res.error || "Failed to expand capacity.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to expand capacity."}`);
         }
       } else if (act === "save-ranks") {
         if (!g.guild) return;
@@ -2129,7 +2204,7 @@ export class Windows {
           this.renderGuild();
           g.onChat("notice", `[Guild] Guild rank titles updated.`);
         } else {
-          alert(res.error || "Failed to update ranks.");
+          g.onChat("notice", `[Guild] ${res.error || "Failed to update ranks."}`);
         }
       } else if (act === "refresh-guild") {
         g.loadGuild().then(() => this.renderGuild());
@@ -2152,6 +2227,33 @@ export class Windows {
     this.renderGuild();
   }
 
+  private renderGuildDirectoryRows(inGuildId?: string): string {
+    const query = this.guildDirectorySearch.toLowerCase().trim();
+    const filtered = (this.guildCachedDirectory || []).filter((gItem) =>
+      !query || (gItem.name || "").toLowerCase().includes(query) || (gItem.master || "").toLowerCase().includes(query)
+    );
+    if (!filtered.length) {
+      return `<tr><td colspan="7" class="text-center text-zinc-400 py-6">No guilds found.</td></tr>`;
+    }
+    return filtered.map((gItem) => {
+      const mCount = Array.isArray(gItem.members) ? gItem.members.length : ((gItem as any).memberCount ?? 1);
+      const actionCell = inGuildId
+        ? (gItem.id === inGuildId ? `<span class="text-emerald-400 font-semibold text-[10px]">Joined</span>` : `<span class="text-zinc-500 text-[10px]">—</span>`)
+        : `<button type="button" class="guild-act-btn primary px-2.5 py-0.5 text-[10px]" data-guildact="join-guild" data-guild-id="${gItem.id}">Join</button>`;
+      return `
+        <tr>
+          <td class="w-8 text-center">${renderEmblemSvg(gItem.emblem, 18)}</td>
+          <td class="text-white">${esc(gItem.name)}</td>
+          <td><span class="guild-level-badge">Lv. ${gItem.level ?? 1}</span></td>
+          <td class="text-zinc-300">${esc(gItem.master)}</td>
+          <td class="font-mono text-amber-300">${(gItem.gp ?? 0).toLocaleString()} GP</td>
+          <td>${mCount} / ${gItem.capacity ?? 20}</td>
+          <td class="text-right">${actionCell}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
   renderGuild() {
     const body = this.guildWin.querySelector(".guild-body") as HTMLElement;
     if (!body) return;
@@ -2170,8 +2272,7 @@ export class Windows {
       const canManage = isMaster || isJrMaster;
 
       const tabs = [
-        { id: "members", label: "Members" },
-        { id: "emblem", label: "Emblem Editor" },
+        { id: "members", label: `Members (${membersList.length}/${guild.capacity ?? 20})` },
         { id: "settings", label: "Settings" },
         { id: "directory", label: "Guild Directory" },
       ];
@@ -2209,12 +2310,12 @@ export class Windows {
           return `
             <tr>
               <td><span class="guild-rank-tag guild-rank-${m.rank}">${esc(rankTitle)}</span></td>
-              <td class="font-bold ${isSelf ? "text-amber-300" : "text-white"}">${esc(m.name)}${isSelf ? " (You)" : ""}</td>
-              <td>Lv. ${m.level} ${esc(m.job)}</td>
+              <td class="${isSelf ? "text-amber-300" : "text-white"}">${esc(m.name)}${isSelf ? " (You)" : ""}</td>
+              <td class="text-zinc-300">Lv. ${m.level} ${esc(m.job)}</td>
               <td class="text-amber-300 font-mono">${m.contribution.toLocaleString()} GP</td>
               <td>
                 <span class="guild-online-dot ${isOnline ? "online" : "offline"}"></span>
-                <span class="${isOnline ? "text-emerald-400 font-bold" : "text-slate-400"}">${isOnline ? "Online" : "Offline"}</span>
+                <span class="${isOnline ? "text-emerald-400" : "text-zinc-500"}">${isOnline ? "Online" : "Offline"}</span>
               </td>
               <td>${actBtns}</td>
             </tr>
@@ -2230,7 +2331,7 @@ export class Windows {
                     <th>Rank</th>
                     <th>Name</th>
                     <th>Level & Job</th>
-                    <th>GP Contribution</th>
+                    <th>GP</th>
                     <th>Status</th>
                     <th class="text-right">Manage</th>
                   </tr>
@@ -2243,18 +2344,12 @@ export class Windows {
             <div class="guild-btn-row">
               <button type="button" class="guild-act-btn secondary" data-guildact="refresh-guild">↻ Refresh</button>
               <div class="flex-1"></div>
-              <button type="button" class="guild-act-btn danger" data-guildact="leave-guild">${isMaster ? "Disband Guild" : "Leave Guild"}</button>
+              ${!isMaster ? `<button type="button" class="guild-act-btn secondary text-rose-400 hover:text-rose-300" data-guildact="leave-guild">Leave Guild</button>` : ""}
             </div>
           </div>
         `;
-      } else if (this.guildTab === "emblem") {
+      } else if (this.guildTab === "settings" || this.guildTab === "emblem") {
         const d = this.guildDraftEmblem;
-        const shapesOptions = EMBLEM_BG_SHAPES.map((s, idx) =>
-          `<option value="${idx}" ${d.bgShape === idx ? "selected" : ""}>${idx + 1}. ${s}</option>`
-        ).join("");
-        const symbolsOptions = EMBLEM_SYMBOLS.map((s, idx) =>
-          `<option value="${idx}" ${d.symbolShape === idx ? "selected" : ""}>${idx + 1}. ${s}</option>`
-        ).join("");
 
         const bgSwatches = EMBLEM_COLORS.map((c, idx) =>
           `<div class="guild-color-swatch ${d.bgColor === idx ? "selected" : ""}" style="background:${c.hex}" title="${c.name}" data-guildact="set-bg-color" data-color-idx="${idx}"></div>`
@@ -2264,109 +2359,221 @@ export class Windows {
           `<div class="guild-color-swatch ${d.symbolColor === idx ? "selected" : ""}" style="background:${c.hex}" title="${c.name}" data-guildact="set-sym-color" data-color-idx="${idx}"></div>`
         ).join("");
 
+        const bgShapesGrid = WZ_EMBLEM_BGS.map((b, idx) =>
+          `<div class="guild-icon-option ${d.bgShape === idx ? "selected" : ""}" data-guildact="set-bg-shape" data-shape-idx="${idx}" title="${b.name}">
+            <img src="/wz/guild-emblem?bg=${idx}&bgc=${d.bgColor}&sym=${d.symbolShape}&symc=${d.symbolColor}" alt="${b.name}" class="w-5 h-5 object-contain pixelated pointer-events-none" />
+          </div>`
+        ).join("");
+
+        const symMarksGrid = WZ_EMBLEM_MARKS.map((m, idx) =>
+          `<div class="guild-icon-option ${d.symbolShape === idx ? "selected" : ""}" data-guildact="set-sym-shape" data-shape-idx="${idx}" title="[${m.cat}] ${m.name}">
+            <img src="/wz/guild-emblem?bg=${d.bgShape}&bgc=${d.bgColor}&sym=${idx}&symc=${d.symbolColor}" alt="${m.name}" class="w-5 h-5 object-contain pixelated pointer-events-none" />
+          </div>`
+        ).join("");
+
+        const beamStyle = d.beamEffect || "gold";
+        const beamMotion = d.beamMotion || "rotate";
+
         contentHtml = `
-          <div class="flex gap-4 flex-1 overflow-y-auto p-1">
-            <div class="w-40 flex flex-col items-center justify-center p-4 bg-slate-900/60 rounded-lg border border-white/10 gap-3">
-              <span class="text-xs font-bold text-slate-400">Emblem Preview</span>
-              <div class="p-3 bg-black/60 rounded-xl border border-white/20 shadow-xl">
-                ${renderEmblemSvg(d, 64)}
+          <div class="flex-1 flex flex-col gap-3 overflow-y-auto p-1">
+            <!-- 1. Guild Emblem Editor -->
+            <div class="p-3 bg-zinc-900/60 border border-white/10 rounded-lg flex flex-col gap-3">
+              <div class="flex items-center justify-between border-b border-white/10 pb-2">
+                <div>
+                  <h4 class="text-xs text-amber-300 font-bold">Guild Emblem & Nametag Editor</h4>
+                  <p class="text-[10px] text-zinc-400">Design your crest with authentic WZ shapes, symbols, and dynamic border beam aura</p>
+                </div>
+                ${!isMaster ? `<span class="text-[9.5px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-white/10">Master Only</span>` : ""}
               </div>
-              <span class="text-[10px] text-center text-slate-400">16x16 Authentic MapleStory Guild Crest</span>
-            </div>
-            <div class="flex-1 flex flex-col gap-3">
-              <div>
-                <label class="block text-xs font-bold text-slate-300 mb-1">Background Shape</label>
-                <select class="w-full bg-slate-900 border border-white/20 rounded p-1.5 text-xs text-white" onchange="window.__setGuildDraftShape(Number(this.value))">
-                  ${shapesOptions}
-                </select>
+
+              <div class="flex gap-3.5">
+                <!-- Preview Column -->
+                <div class="w-56 flex flex-col items-center justify-center p-3 bg-zinc-950/80 rounded-lg border border-white/10 gap-2 shrink-0 shadow-inner">
+                  <span class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Emblem & Tag Preview</span>
+                  <div class="p-2 rounded-lg bg-zinc-900/60 border border-white/5 flex items-center justify-center">
+                    ${renderEmblemSvg(d, 52)}
+                  </div>
+
+                  <!-- Guild Player Name Tag Stack with Border Beam Effect -->
+                  <div class="w-full flex flex-col items-center gap-2 p-3 rounded-md bg-zinc-900/90 border border-white/10 relative overflow-visible shadow-inner">
+                    <!-- Character Player Name Tag (Classic MapleStory - Never has beam) -->
+                    <div class="player-nametag-wrap">
+                      <span class="nametag-text font-bold">${esc(myName)}</span>
+                    </div>
+
+                    <!-- Guild Name Tag with Emblem and Dynamic Border Beam -->
+                    <div class="flex items-center gap-1.5 overflow-visible">
+                      ${renderEmblemSvg(d, 16)}
+                      <div class="guild-nametag-stage">
+                        <div class="guild-nametag-wrap beam-${beamStyle} mode-${beamMotion}">
+                          <div class="guild-beam-bloom"></div>
+                          <div class="guild-beam-border"></div>
+                          <span class="nametag-text font-semibold">${esc(guild.name)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-[9px] text-center text-zinc-400 font-mono">Guild Tag Border Beam</span>
+
+                  <!-- Beam Variant Selector Buttons (8 Color Palettes from libraries.dev/beam) -->
+                  <div class="w-full flex flex-col gap-1.5 pt-1.5 border-t border-white/10">
+                    <span class="text-[9.5px] text-zinc-400 font-semibold">Border Beam Palette:</span>
+                    <div class="grid grid-cols-4 gap-1">
+                      <button type="button" class="beam-sel-btn ${beamStyle === "gold" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="gold" title="Gold Prestige">
+                        <span class="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-300"></span>
+                        <span class="text-[8px]">Gold</span>
+                      </button>
+                      <button type="button" class="beam-sel-btn ${beamStyle === "ocean" || beamStyle === "cyan" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="ocean" title="Ocean Azure">
+                        <span class="w-2.5 h-2.5 rounded-full bg-sky-400 border border-sky-300"></span>
+                        <span class="text-[8px]">Ocean</span>
+                      </button>
+                      <button type="button" class="beam-sel-btn ${beamStyle === "colorful" || beamStyle === "rainbow" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="colorful" title="Rainbow Prism">
+                        <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-rose-500 via-amber-400 to-sky-400 border border-white"></span>
+                        <span class="text-[8px]">Prism</span>
+                      </button>
+                      <button type="button" class="beam-sel-btn ${beamStyle === "sunset" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="sunset" title="Sunset Flare">
+                        <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-red-500 via-orange-400 to-amber-300 border border-orange-300"></span>
+                        <span class="text-[8px]">Sunset</span>
+                      </button>
+                      <button type="button" class="beam-sel-btn ${beamStyle === "forest" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="forest" title="Forest Jade">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-300"></span>
+                        <span class="text-[8px]">Forest</span>
+                      </button>
+                      <button type="button" class="beam-sel-btn ${beamStyle === "candy" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="candy" title="Neon Candy">
+                        <span class="w-2.5 h-2.5 rounded-full bg-pink-500 border border-pink-300"></span>
+                        <span class="text-[8px]">Candy</span>
+                      </button>
+                      <button type="button" class="beam-sel-btn ${beamStyle === "ice" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="ice" title="Glacier Frost">
+                        <span class="w-2.5 h-2.5 rounded-full bg-cyan-200 border border-cyan-300"></span>
+                        <span class="text-[8px]">Ice</span>
+                      </button>
+                      <button type="button" class="beam-sel-btn ${beamStyle === "purple" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="purple" title="Royal Amethyst">
+                        <span class="w-2.5 h-2.5 rounded-full bg-purple-500 border border-purple-300"></span>
+                        <span class="text-[8px]">Violet</span>
+                      </button>
+                    </div>
+
+                    <!-- Beam Motion / Style Selector -->
+                    <span class="text-[9.5px] text-zinc-400 font-semibold mt-1">Beam Motion Style:</span>
+                    <div class="flex gap-1 w-full">
+                      <button type="button" class="motion-sel-btn ${beamMotion === "rotate" ? "selected" : ""}" data-guildact="set-beam-motion" data-motion="rotate" title="Orbiting border beam sweep">
+                        Orbit
+                      </button>
+                      <button type="button" class="motion-sel-btn ${beamMotion === "pulse" ? "selected" : ""}" data-guildact="set-beam-motion" data-motion="pulse" title="Breathing outward halo pulse">
+                        Pulse
+                      </button>
+                      <button type="button" class="motion-sel-btn ${beamMotion === "line" ? "selected" : ""}" data-guildact="set-beam-motion" data-motion="line" title="Traveling laser streak">
+                        Streak
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Editor Grid Column -->
+                <div class="flex-1 flex flex-col gap-2.5 min-w-0">
+                  <div>
+                    <label class="block text-[11px] text-zinc-300 mb-1">
+                      Background Shape: <span class="text-amber-300 font-semibold">${WZ_EMBLEM_BGS[d.bgShape]?.name ?? "None"}</span>
+                    </label>
+                    <div class="guild-icon-grid">${bgShapesGrid}</div>
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-zinc-300 mb-1">
+                      Background Color: <span class="text-amber-300 font-semibold">${EMBLEM_COLORS[d.bgColor]?.name ?? ""}</span>
+                    </label>
+                    <div class="guild-color-grid">${bgSwatches}</div>
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-zinc-300 mb-1">
+                      Symbol Icon: <span class="text-amber-300 font-semibold">${WZ_EMBLEM_MARKS[d.symbolShape]?.name ?? "None"}</span>
+                    </label>
+                    <div class="guild-icon-grid">${symMarksGrid}</div>
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-zinc-300 mb-1">
+                      Symbol Color: <span class="text-amber-300 font-semibold">${EMBLEM_COLORS[d.symbolColor]?.name ?? ""}</span>
+                    </label>
+                    <div class="guild-color-grid">${symSwatches}</div>
+                  </div>
+                  <div class="pt-2">
+                    <button type="button" class="guild-act-btn primary w-full py-1.5" data-guildact="save-emblem" ${!isMaster ? "disabled title='Only Guild Master can change emblem'" : ""}>
+                      Save Guild Emblem
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div>
-                <label class="block text-xs font-bold text-slate-300 mb-1">Background Color</label>
-                <div class="guild-color-grid">${bgSwatches}</div>
-              </div>
-              <div>
-                <label class="block text-xs font-bold text-slate-300 mb-1">Symbol Icon</label>
-                <select class="w-full bg-slate-900 border border-white/20 rounded p-1.5 text-xs text-white" onchange="window.__setGuildDraftSymbol(Number(this.value))">
-                  ${symbolsOptions}
-                </select>
-              </div>
-              <div>
-                <label class="block text-xs font-bold text-slate-300 mb-1">Symbol Color</label>
-                <div class="guild-color-grid">${symSwatches}</div>
-              </div>
-              <div class="guild-btn-row mt-2">
-                <button type="button" class="guild-act-btn primary" data-guildact="save-emblem" ${!isMaster ? "disabled title='Only Master can change emblem'" : ""}>Save Guild Emblem</button>
-              </div>
-            </div>
-          </div>
-        `;
-      } else if (this.guildTab === "settings") {
-        contentHtml = `
-          <div class="flex-1 flex flex-col gap-4 overflow-y-auto p-2">
-            <div class="p-3 bg-slate-900/60 border border-white/10 rounded-lg">
-              <h4 class="text-xs font-bold text-amber-300 mb-1">Expand Guild Capacity</h4>
-              <p class="text-[11px] text-slate-300 mb-3 leading-relaxed">
-                Increase guild capacity by +5 members. Maximum 100 members.
-                <br>Current: <b class="text-white">${guild.capacity} Members</b> · Cost: <b class="text-amber-300">1,000,000 Mesos</b>
-              </p>
-              <button type="button" class="guild-act-btn primary" data-guildact="expand-capacity" ${!isMaster ? "disabled" : ""}>Expand (+5 Members)</button>
             </div>
 
-            <div class="p-3 bg-slate-900/60 border border-white/10 rounded-lg">
-              <h4 class="text-xs font-bold text-amber-300 mb-2">Customize Rank Titles</h4>
+            <!-- 2. Expand Guild Capacity -->
+            <div class="p-3 bg-zinc-900/60 border border-white/10 rounded-lg flex items-center justify-between gap-3">
+              <div>
+                <h4 class="text-xs text-amber-300 font-bold mb-0.5">Expand Guild Capacity</h4>
+                <p class="text-[11px] text-zinc-400">
+                  Current: <span class="text-white">${guild.capacity} Members</span> (Max 100) · Cost: <span class="text-amber-300 font-mono">1,000,000 Mesos</span>
+                </p>
+              </div>
+              <button type="button" class="guild-act-btn primary shrink-0" data-guildact="expand-capacity" ${!isMaster ? "disabled title='Only Guild Master can expand capacity'" : ""}>Expand (+5)</button>
+            </div>
+
+            <!-- 3. Customize Rank Titles -->
+            <div class="p-3 bg-zinc-900/60 border border-white/10 rounded-lg">
+              <h4 class="text-xs text-amber-300 font-bold mb-2">Customize Rank Titles</h4>
               <div class="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 1 (Guild Master)</label>
-                  <input type="text" class="rank-inp-1 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[0])}" ${!isMaster ? "disabled" : ""} />
+                  <label class="block text-[10px] text-zinc-400 mb-0.5">Rank 1 (Guild Master)</label>
+                  <input type="text" class="rank-inp-1 w-full bg-zinc-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[0])}" ${!isMaster ? "disabled" : ""} />
                 </div>
                 <div>
-                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 2 (Jr. Master)</label>
-                  <input type="text" class="rank-inp-2 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[1])}" ${!isMaster ? "disabled" : ""} />
+                  <label class="block text-[10px] text-zinc-400 mb-0.5">Rank 2 (Jr. Master)</label>
+                  <input type="text" class="rank-inp-2 w-full bg-zinc-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[1])}" ${!isMaster ? "disabled" : ""} />
                 </div>
                 <div>
-                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 3</label>
-                  <input type="text" class="rank-inp-3 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[2])}" ${!isMaster ? "disabled" : ""} />
+                  <label class="block text-[10px] text-zinc-400 mb-0.5">Rank 3</label>
+                  <input type="text" class="rank-inp-3 w-full bg-zinc-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[2])}" ${!isMaster ? "disabled" : ""} />
                 </div>
                 <div>
-                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 4</label>
-                  <input type="text" class="rank-inp-4 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[3])}" ${!isMaster ? "disabled" : ""} />
+                  <label class="block text-[10px] text-zinc-400 mb-0.5">Rank 4</label>
+                  <input type="text" class="rank-inp-4 w-full bg-zinc-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[3])}" ${!isMaster ? "disabled" : ""} />
                 </div>
                 <div>
-                  <label class="block text-[10px] text-slate-400 mb-0.5">Rank 5</label>
-                  <input type="text" class="rank-inp-5 w-full bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[4])}" ${!isMaster ? "disabled" : ""} />
+                  <label class="block text-[10px] text-zinc-400 mb-0.5">Rank 5</label>
+                  <input type="text" class="rank-inp-5 w-full bg-zinc-950 border border-white/20 rounded px-2 py-1 text-xs text-white" value="${esc(guild.ranks[4])}" ${!isMaster ? "disabled" : ""} />
                 </div>
               </div>
-              <button type="button" class="guild-act-btn primary mt-3" data-guildact="save-ranks" ${!isMaster ? "disabled" : ""}>Save Rank Titles</button>
+              <button type="button" class="guild-act-btn primary mt-3" data-guildact="save-ranks" ${!isMaster ? "disabled title='Only Guild Master can change rank titles'" : ""}>Save Rank Titles</button>
             </div>
+
+            <!-- 4. Danger Zone: Disband Guild (Owner Only) -->
+            ${
+              isMaster
+                ? `
+                  <div class="p-3 bg-rose-950/30 border border-rose-500/40 rounded-lg flex items-center justify-between gap-3 mt-1">
+                    <div>
+                      <h4 class="text-xs text-rose-400 font-bold mb-0.5">Disband Guild</h4>
+                      <p class="text-[11px] text-zinc-300">
+                        Permanently disband <span class="text-white font-semibold">${esc(guild.name)}</span>. All members will be removed and guild progress will be deleted.
+                      </p>
+                    </div>
+                    <button type="button" class="guild-act-btn danger shrink-0 px-3 py-1.5 font-bold" data-guildact="disband-guild">Disband Guild</button>
+                  </div>
+                `
+                : `
+                  <div class="p-3 bg-zinc-900/40 border border-white/5 rounded-lg flex items-center justify-between gap-3 opacity-60 mt-1">
+                    <div>
+                      <h4 class="text-xs text-zinc-400 mb-0.5">Disband Guild</h4>
+                      <p class="text-[11px] text-zinc-500">Only the Guild Master (${esc(guild.master)}) can disband this guild.</p>
+                    </div>
+                    <button type="button" class="guild-act-btn secondary shrink-0 px-3 py-1.5 cursor-not-allowed" disabled>Master Only</button>
+                  </div>
+                `
+            }
           </div>
         `;
       } else if (this.guildTab === "directory") {
-        const query = this.guildDirectorySearch.toLowerCase().trim();
-        const filtered = (this.guildCachedDirectory || []).filter((gItem) =>
-          !query || (gItem.name || "").toLowerCase().includes(query) || (gItem.master || "").toLowerCase().includes(query)
-        );
-
-        const dirRows = filtered.map((gItem) => {
-          const mCount = Array.isArray(gItem.members) ? gItem.members.length : ((gItem as any).memberCount ?? 1);
-          return `
-          <tr>
-            <td class="w-9">${renderEmblemSvg(gItem.emblem, 22)}</td>
-            <td class="font-bold text-white">${esc(gItem.name)}</td>
-            <td><span class="guild-level-badge">Lv. ${gItem.level ?? 1}</span></td>
-            <td>${esc(gItem.master)}</td>
-            <td class="font-mono text-amber-300">${(gItem.gp ?? 0).toLocaleString()} GP</td>
-            <td>${mCount} / ${gItem.capacity ?? 20}</td>
-            <td class="text-right">
-              ${gItem.id === guild.id ? `<span class="text-emerald-400 font-bold text-[10px]">Current</span>` : ""}
-            </td>
-          </tr>
-        `;
-        }).join("");
-
         contentHtml = `
           <div class="flex-1 flex flex-col overflow-hidden">
             <div class="mb-2">
-              <input type="text" placeholder="Search guilds by name or master..." class="w-full bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" value="${esc(this.guildDirectorySearch)}" oninput="window.__setGuildDirSearch(this.value)" />
+              <input type="text" placeholder="Search guilds by name or master..." class="guild-dir-search-input w-full bg-zinc-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" value="${esc(this.guildDirectorySearch)}" />
             </div>
             <div class="flex-1 overflow-y-auto">
               <table class="guild-table">
@@ -2381,8 +2588,8 @@ export class Windows {
                     <th class="text-right">Status</th>
                   </tr>
                 </thead>
-                <tbody>
-                  ${dirRows || `<tr><td colspan="7" class="text-center text-slate-400 py-6">No guilds found.</td></tr>`}
+                <tbody class="guild-dir-tbody">
+                  ${this.renderGuildDirectoryRows(guild.id)}
                 </tbody>
               </table>
             </div>
@@ -2392,8 +2599,8 @@ export class Windows {
 
       body.innerHTML = `
         <div class="guild-header-card">
-          <div class="guild-emblem-frame">
-            ${renderEmblemSvg(guild.emblem, 34)}
+          <div class="guild-emblem-outside">
+            ${renderEmblemSvg(guild.emblem, 32)}
           </div>
           <div class="guild-info-meta">
             <div class="guild-title-row">
@@ -2401,15 +2608,15 @@ export class Windows {
               <span class="guild-level-badge">Lv. ${guild.level}</span>
             </div>
             <div class="guild-sub-meta">
-              <span>Master: <b class="text-white">${esc(guild.master)}</b></span>
-              <span>Guild Points: <b class="text-amber-300 font-mono">${(guild.gp ?? 0).toLocaleString()}</b></span>
-              <span>Members: <b class="text-white">${membersList.length} / ${guild.capacity ?? 20}</b></span>
+              <span>Master: <span class="text-white">${esc(guild.master)}</span></span>
+              <span>GP: <span class="text-amber-300 font-mono">${(guild.gp ?? 0).toLocaleString()}</span></span>
+              <span>Members: <span class="text-white">${membersList.length} / ${guild.capacity ?? 20}</span></span>
             </div>
           </div>
         </div>
 
         <div class="guild-notice-banner">
-          <span class="text-[10px] font-bold text-emerald-400 uppercase tracking-wide">Notice:</span>
+          <span class="text-[10px] text-emerald-400 uppercase tracking-wide">Notice:</span>
           <span class="guild-notice-text flex-1">"${esc(guild.notice || "No notice set.")}"</span>
           ${canManage ? `<button type="button" class="guild-act-btn secondary px-2 py-0.5 text-[10px]" data-guildact="edit-notice">Edit</button>` : ""}
         </div>
@@ -2425,6 +2632,9 @@ export class Windows {
 
     } else {
       // Player is NOT in a guild
+      if (this.guildTab !== "create" && this.guildTab !== "directory") {
+        this.guildTab = "create";
+      }
       const tabs = [
         { id: "create", label: "Found Guild" },
         { id: "directory", label: "Guild Directory" },
@@ -2438,12 +2648,6 @@ export class Windows {
 
       if (this.guildTab === "create") {
         const d = this.guildDraftEmblem;
-        const shapesOptions = EMBLEM_BG_SHAPES.map((s, idx) =>
-          `<option value="${idx}" ${d.bgShape === idx ? "selected" : ""}>${idx + 1}. ${s}</option>`
-        ).join("");
-        const symbolsOptions = EMBLEM_SYMBOLS.map((s, idx) =>
-          `<option value="${idx}" ${d.symbolShape === idx ? "selected" : ""}>${idx + 1}. ${s}</option>`
-        ).join("");
 
         const bgSwatches = EMBLEM_COLORS.map((c, idx) =>
           `<div class="guild-color-swatch ${d.bgColor === idx ? "selected" : ""}" style="background:${c.hex}" title="${c.name}" data-guildact="set-bg-color" data-color-idx="${idx}"></div>`
@@ -2453,89 +2657,159 @@ export class Windows {
           `<div class="guild-color-swatch ${d.symbolColor === idx ? "selected" : ""}" style="background:${c.hex}" title="${c.name}" data-guildact="set-sym-color" data-color-idx="${idx}"></div>`
         ).join("");
 
+        const bgShapesGrid = WZ_EMBLEM_BGS.map((b, idx) =>
+          `<div class="guild-icon-option ${d.bgShape === idx ? "selected" : ""}" data-guildact="set-bg-shape" data-shape-idx="${idx}" title="${b.name}">
+            <img src="/wz/guild-emblem?bg=${idx}&bgc=${d.bgColor}&sym=${d.symbolShape}&symc=${d.symbolColor}" alt="${b.name}" class="w-5 h-5 object-contain pixelated pointer-events-none" />
+          </div>`
+        ).join("");
+
+        const symMarksGrid = WZ_EMBLEM_MARKS.map((m, idx) =>
+          `<div class="guild-icon-option ${d.symbolShape === idx ? "selected" : ""}" data-guildact="set-sym-shape" data-shape-idx="${idx}" title="[${m.cat}] ${m.name}">
+            <img src="/wz/guild-emblem?bg=${d.bgShape}&bgc=${d.bgColor}&sym=${idx}&symc=${d.symbolColor}" alt="${m.name}" class="w-5 h-5 object-contain pixelated pointer-events-none" />
+          </div>`
+        ).join("");
+
         const hasMeso = (g.stats.meso || 0) >= 5000000;
         const hasLevel = (g.stats.level || 1) >= 10;
+        const previewGuildName = this.guildDraftName.trim() || "GuildName";
+        const beamStyle = d.beamEffect || "gold";
+        const beamMotion = d.beamMotion || "rotate";
 
         contentHtml = `
-          <div class="flex-1 flex flex-col gap-3 overflow-y-auto p-1">
-            <div class="p-3 bg-slate-900/70 border border-white/10 rounded-lg">
-              <h3 class="text-sm font-black text-amber-300 mb-1">Found a MapleStory Guild</h3>
-              <p class="text-xs text-slate-300 leading-relaxed mb-2">Create your own guild, recruit fellow adventurers, design your custom 16x16 guild crest, and conquer Victoria Island together!</p>
-              <div class="flex gap-4 text-xs font-semibold">
-                <span class="${hasLevel ? "text-emerald-400" : "text-rose-400"}">Level: Lv. ${g.stats.level} / 10 required</span>
-                <span class="${hasMeso ? "text-emerald-400" : "text-rose-400"}">Fee: 5,000,000 Mesos (${(g.stats.meso || 0).toLocaleString()} owned)</span>
+          <div class="flex-1 flex flex-col gap-2.5 overflow-y-auto p-1">
+            <div class="p-2.5 bg-zinc-900/70 border border-white/10 rounded-lg flex items-center justify-between gap-2">
+              <div class="text-xs text-zinc-300">Found your own guild & custom 16x16 crest</div>
+              <div class="flex gap-3 text-[11px] shrink-0">
+                <span class="${hasLevel ? "text-emerald-400" : "text-rose-400"}">Lv. ${g.stats.level}/10</span>
+                <span class="${hasMeso ? "text-emerald-400" : "text-rose-400"}">5,000,000 Mesos</span>
               </div>
             </div>
 
-            <div class="flex gap-4">
-              <div class="w-40 flex flex-col items-center justify-center p-3 bg-slate-900/60 rounded-lg border border-white/10 gap-2">
-                <span class="text-xs font-bold text-slate-400">Emblem Preview</span>
-                <div class="p-2.5 bg-black/60 rounded-xl border border-white/20 shadow-xl">
-                  ${renderEmblemSvg(d, 56)}
+            <div class="flex gap-3.5 flex-1">
+              <!-- Preview Column -->
+              <div class="w-56 flex flex-col items-center justify-center p-3 bg-zinc-950/80 rounded-lg border border-white/10 gap-2 shrink-0 shadow-inner">
+                <span class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Emblem & Tag Preview</span>
+                <div class="p-2 rounded-lg bg-zinc-900/60 border border-white/5 flex items-center justify-center">
+                  ${renderEmblemSvg(d, 52)}
                 </div>
-                <span class="text-[9px] text-center text-slate-400">Custom Guild Crest</span>
+
+                <!-- Guild Player Name Tag Stack with Border Beam Effect -->
+                <div class="w-full flex flex-col items-center gap-2 p-3 rounded-md bg-zinc-900/90 border border-white/10 relative overflow-visible shadow-inner">
+                  <!-- Character Player Name Tag (Classic MapleStory - Never has beam) -->
+                  <div class="player-nametag-wrap">
+                    <span class="nametag-text font-bold">${esc(myName)}</span>
+                  </div>
+
+                  <!-- Guild Name Tag with Emblem and Dynamic Border Beam -->
+                  <div class="flex items-center gap-1.5 overflow-visible">
+                    ${renderEmblemSvg(d, 16)}
+                    <div class="guild-nametag-stage">
+                      <div class="guild-nametag-wrap beam-${beamStyle} mode-${beamMotion}">
+                        <div class="guild-beam-bloom"></div>
+                        <div class="guild-beam-border"></div>
+                        <span class="nametag-text font-semibold guild-live-preview-name">${esc(previewGuildName)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <span class="text-[9px] text-center text-zinc-400 font-mono">Guild Tag Border Beam</span>
+
+                <!-- Beam Variant Selector Buttons (8 Color Palettes from libraries.dev/beam) -->
+                <div class="w-full flex flex-col gap-1.5 pt-1.5 border-t border-white/10">
+                  <span class="text-[9.5px] text-zinc-400 font-semibold">Border Beam Palette:</span>
+                  <div class="grid grid-cols-4 gap-1">
+                    <button type="button" class="beam-sel-btn ${beamStyle === "gold" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="gold" title="Gold Prestige">
+                      <span class="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-300"></span>
+                      <span class="text-[8px]">Gold</span>
+                    </button>
+                    <button type="button" class="beam-sel-btn ${beamStyle === "ocean" || beamStyle === "cyan" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="ocean" title="Ocean Azure">
+                      <span class="w-2.5 h-2.5 rounded-full bg-sky-400 border border-sky-300"></span>
+                      <span class="text-[8px]">Ocean</span>
+                    </button>
+                    <button type="button" class="beam-sel-btn ${beamStyle === "colorful" || beamStyle === "rainbow" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="colorful" title="Rainbow Prism">
+                      <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-rose-500 via-amber-400 to-sky-400 border border-white"></span>
+                      <span class="text-[8px]">Prism</span>
+                    </button>
+                    <button type="button" class="beam-sel-btn ${beamStyle === "sunset" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="sunset" title="Sunset Flare">
+                      <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-red-500 via-orange-400 to-amber-300 border border-orange-300"></span>
+                      <span class="text-[8px]">Sunset</span>
+                    </button>
+                    <button type="button" class="beam-sel-btn ${beamStyle === "forest" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="forest" title="Forest Jade">
+                      <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 border border-emerald-300"></span>
+                      <span class="text-[8px]">Forest</span>
+                    </button>
+                    <button type="button" class="beam-sel-btn ${beamStyle === "candy" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="candy" title="Neon Candy">
+                      <span class="w-2.5 h-2.5 rounded-full bg-pink-500 border border-pink-300"></span>
+                      <span class="text-[8px]">Candy</span>
+                    </button>
+                    <button type="button" class="beam-sel-btn ${beamStyle === "ice" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="ice" title="Glacier Frost">
+                      <span class="w-2.5 h-2.5 rounded-full bg-cyan-200 border border-cyan-300"></span>
+                      <span class="text-[8px]">Ice</span>
+                    </button>
+                    <button type="button" class="beam-sel-btn ${beamStyle === "purple" ? "selected" : ""}" data-guildact="set-beam-effect" data-beam="purple" title="Imperial Amethyst">
+                      <span class="w-2.5 h-2.5 rounded-full bg-purple-500 border border-purple-300"></span>
+                      <span class="text-[8px]">Violet</span>
+                    </button>
+                  </div>
+
+                  <!-- Beam Motion / Style Selector -->
+                  <span class="text-[9.5px] text-zinc-400 font-semibold mt-1">Beam Motion Style:</span>
+                  <div class="flex gap-1 w-full">
+                    <button type="button" class="motion-sel-btn ${beamMotion === "rotate" ? "selected" : ""}" data-guildact="set-beam-motion" data-motion="rotate" title="Orbiting border beam sweep">
+                      Orbit
+                    </button>
+                    <button type="button" class="motion-sel-btn ${beamMotion === "pulse" ? "selected" : ""}" data-guildact="set-beam-motion" data-motion="pulse" title="Breathing outward halo pulse">
+                      Pulse
+                    </button>
+                    <button type="button" class="motion-sel-btn ${beamMotion === "line" ? "selected" : ""}" data-guildact="set-beam-motion" data-motion="line" title="Traveling laser streak">
+                      Streak
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <div class="flex-1 flex flex-col gap-2">
+              <div class="flex-1 flex flex-col gap-2 min-w-0">
                 <div>
-                  <label class="block text-xs font-bold text-slate-300 mb-1">Guild Name</label>
-                  <input type="text" class="guild-create-name-input w-full bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" placeholder="2-12 letters (e.g. MapleHeroes)" maxlength="12" />
+                  <label class="block text-[11px] text-zinc-300 mb-0.5">Guild Name</label>
+                  <input type="text" class="guild-create-name-input w-full bg-zinc-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" placeholder="2-12 letters (e.g. MapleHeroes)" maxlength="12" value="${esc(this.guildDraftName)}" />
                 </div>
                 <div>
-                  <label class="block text-xs font-bold text-slate-300 mb-0.5">Background Shape</label>
-                  <select class="w-full bg-slate-900 border border-white/20 rounded p-1 text-xs text-white" onchange="window.__setGuildDraftShape(Number(this.value))">
-                    ${shapesOptions}
-                  </select>
+                  <label class="block text-[11px] text-zinc-300 mb-1">
+                    Background Shape: <span class="text-amber-300 font-semibold">${WZ_EMBLEM_BGS[d.bgShape]?.name ?? "None"}</span>
+                  </label>
+                  <div class="guild-icon-grid">${bgShapesGrid}</div>
                 </div>
                 <div>
-                  <label class="block text-xs font-bold text-slate-300 mb-0.5">Background Color</label>
+                  <label class="block text-[11px] text-zinc-300 mb-1">
+                    Background Color: <span class="text-amber-300 font-semibold">${EMBLEM_COLORS[d.bgColor]?.name ?? ""}</span>
+                  </label>
                   <div class="guild-color-grid">${bgSwatches}</div>
                 </div>
                 <div>
-                  <label class="block text-xs font-bold text-slate-300 mb-0.5">Symbol Icon</label>
-                  <select class="w-full bg-slate-900 border border-white/20 rounded p-1 text-xs text-white" onchange="window.__setGuildDraftSymbol(Number(this.value))">
-                    ${symbolsOptions}
-                  </select>
+                  <label class="block text-[11px] text-zinc-300 mb-1">
+                    Symbol Icon: <span class="text-amber-300 font-semibold">${WZ_EMBLEM_MARKS[d.symbolShape]?.name ?? "None"}</span>
+                  </label>
+                  <div class="guild-icon-grid">${symMarksGrid}</div>
                 </div>
                 <div>
-                  <label class="block text-xs font-bold text-slate-300 mb-0.5">Symbol Color</label>
+                  <label class="block text-[11px] text-zinc-300 mb-1">
+                    Symbol Color: <span class="text-amber-300 font-semibold">${EMBLEM_COLORS[d.symbolColor]?.name ?? ""}</span>
+                  </label>
                   <div class="guild-color-grid">${symSwatches}</div>
                 </div>
               </div>
             </div>
 
-            <div class="guild-btn-row mt-2">
-              <button type="button" class="guild-act-btn primary flex-1 py-1.5 text-xs font-bold" data-guildact="create-guild">Found Guild (5,000,000 Mesos)</button>
+            <div class="guild-btn-row mt-auto">
+              <button type="button" class="guild-act-btn primary flex-1 py-1.5 text-xs" data-guildact="create-guild">Found Guild (5,000,000 Mesos)</button>
             </div>
           </div>
         `;
       } else {
-        const query = this.guildDirectorySearch.toLowerCase().trim();
-        const filtered = (this.guildCachedDirectory || []).filter((gItem) =>
-          !query || (gItem.name || "").toLowerCase().includes(query) || (gItem.master || "").toLowerCase().includes(query)
-        );
-
-        const dirRows = filtered.map((gItem) => {
-          const mCount = Array.isArray(gItem.members) ? gItem.members.length : ((gItem as any).memberCount ?? 1);
-          return `
-          <tr>
-            <td class="w-9">${renderEmblemSvg(gItem.emblem, 22)}</td>
-            <td class="font-bold text-white">${esc(gItem.name)}</td>
-            <td><span class="guild-level-badge">Lv. ${gItem.level ?? 1}</span></td>
-            <td>${esc(gItem.master)}</td>
-            <td class="font-mono text-amber-300">${(gItem.gp ?? 0).toLocaleString()} GP</td>
-            <td>${mCount} / ${gItem.capacity ?? 20}</td>
-            <td class="text-right">
-              <button type="button" class="guild-act-btn primary px-2 py-0.5 text-[10px]" data-guildact="join-guild" data-guild-id="${gItem.id}">Join</button>
-            </td>
-          </tr>
-        `;
-        }).join("");
-
         contentHtml = `
           <div class="flex-1 flex flex-col overflow-hidden">
             <div class="mb-2">
-              <input type="text" placeholder="Search guilds by name or master..." class="w-full bg-slate-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" value="${esc(this.guildDirectorySearch)}" oninput="window.__setGuildDirSearch(this.value)" />
+              <input type="text" placeholder="Search guilds by name or master..." class="guild-dir-search-input w-full bg-zinc-950 border border-white/20 rounded px-2.5 py-1 text-xs text-white" value="${esc(this.guildDirectorySearch)}" />
             </div>
             <div class="flex-1 overflow-y-auto">
               <table class="guild-table">
@@ -2550,8 +2824,8 @@ export class Windows {
                     <th class="text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody>
-                  ${dirRows || `<tr><td colspan="7" class="text-center text-slate-400 py-6">No guilds found. Click 'Found Guild' to create the first!</td></tr>`}
+                <tbody class="guild-dir-tbody">
+                  ${this.renderGuildDirectoryRows(undefined)}
                 </tbody>
               </table>
             </div>
@@ -2561,15 +2835,15 @@ export class Windows {
 
       body.innerHTML = `
         <div class="guild-header-card">
-          <div class="guild-emblem-frame">
-            <svg width="34" height="34" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#334155"/><text x="12" y="16" font-size="12" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="#94a3b8">G</text></svg>
+          <div class="guild-emblem-outside">
+            ${renderEmblemSvg(this.guildDraftEmblem, 32)}
           </div>
           <div class="guild-info-meta">
             <div class="guild-title-row">
               <span class="guild-name">Guild Registry</span>
             </div>
             <div class="guild-sub-meta">
-              <span>You are currently not in a guild.</span>
+              <span>You are currently not in a guild. Found a new guild or join an existing one below.</span>
             </div>
           </div>
         </div>
@@ -2584,35 +2858,39 @@ export class Windows {
       `;
     }
 
-    // Attach global swatch helpers for reactive emblem color picking
-    (window as any).__setGuildDraftShape = (val: number) => {
-      this.guildDraftEmblem.bgShape = val;
-      this.renderGuild();
-    };
-    (window as any).__setGuildDraftSymbol = (val: number) => {
-      this.guildDraftEmblem.symbolShape = val;
-      this.renderGuild();
-    };
-    (window as any).__setGuildDirSearch = (val: string) => {
-      this.guildDirectorySearch = val;
-      this.renderGuild();
-    };
+    const nameInp = body.querySelector<HTMLInputElement>(".guild-create-name-input");
+    if (nameInp) {
+      nameInp.addEventListener("input", () => {
+        this.guildDraftName = nameInp.value;
+        const previewEl = body.querySelector<HTMLElement>(".guild-live-preview-name");
+        if (previewEl) previewEl.textContent = this.guildDraftName.trim() || "GuildName";
+      });
+    }
 
-    body.querySelectorAll<HTMLElement>("[data-guildact='set-bg-color']").forEach((el) => {
-      el.addEventListener("click", () => {
-        const idx = Number(el.dataset.colorIdx);
-        this.guildDraftEmblem.bgColor = idx;
+    const shapeSel = body.querySelector<HTMLSelectElement>(".guild-shape-select");
+    if (shapeSel) {
+      shapeSel.addEventListener("change", () => {
+        this.guildDraftEmblem.bgShape = Number(shapeSel.value || 0);
         this.renderGuild();
       });
-    });
+    }
 
-    body.querySelectorAll<HTMLElement>("[data-guildact='set-sym-color']").forEach((el) => {
-      el.addEventListener("click", () => {
-        const idx = Number(el.dataset.colorIdx);
-        this.guildDraftEmblem.symbolColor = idx;
+    const symSel = body.querySelector<HTMLSelectElement>(".guild-symbol-select");
+    if (symSel) {
+      symSel.addEventListener("change", () => {
+        this.guildDraftEmblem.symbolShape = Number(symSel.value || 0);
         this.renderGuild();
       });
-    });
+    }
+
+    const dirSearchInp = body.querySelector<HTMLInputElement>(".guild-dir-search-input");
+    if (dirSearchInp) {
+      dirSearchInp.addEventListener("input", () => {
+        this.guildDirectorySearch = dirSearchInp.value;
+        const tbody = body.querySelector<HTMLElement>(".guild-dir-tbody");
+        if (tbody) tbody.innerHTML = this.renderGuildDirectoryRows(guild?.id);
+      });
+    }
   }
 
   // ------------------------------------------------------------- MapleStory Party Window
@@ -2780,21 +3058,21 @@ export class Windows {
 
     if (!party) {
       body.innerHTML = `
-        <div class="p-3 flex flex-col gap-2.5 text-slate-200">
+        <div class="p-3 flex flex-col gap-2.5 text-zinc-200">
           <div class="p-2.5 bg-white/[0.04] border border-white/10 rounded flex items-center gap-2.5">
             <div class="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 flex-shrink-0">
               ${lucideIcon("users", 15)}
             </div>
             <div class="min-w-0">
               <h3 class="text-xs font-bold text-white">No Party Joined</h3>
-              <p class="text-[10px] text-slate-400 leading-tight">Hunt together and share bonus EXP on the same map.</p>
+              <p class="text-[10px] text-zinc-400 leading-tight">Hunt together and share bonus EXP on the same map.</p>
             </div>
           </div>
 
           <div class="p-2.5 bg-white/[0.02] border border-white/10 rounded flex flex-col gap-2">
             <div class="flex items-center justify-between">
               <span class="text-[11px] font-bold text-amber-300">Create Party</span>
-              <span class="text-[9.5px] text-slate-400">Up to 6 members</span>
+              <span class="text-[9.5px] text-zinc-400">Up to 6 members</span>
             </div>
             <button type="button" class="guild-act-btn primary py-1 text-xs font-bold w-full" data-partyact="create-party">
               Create New Party
@@ -2804,12 +3082,12 @@ export class Windows {
           <div class="p-2.5 bg-white/[0.02] border border-white/10 rounded flex flex-col gap-1.5">
             <span class="text-[11px] font-bold text-sky-300">Join by Party ID</span>
             <div class="flex items-center gap-1.5">
-              <input type="text" placeholder="Enter ID (e.g. PT-1234)..." class="party-join-id-inp flex-1 bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white uppercase font-mono placeholder:normal-case placeholder:text-slate-500" />
+              <input type="text" placeholder="Enter ID (e.g. PT-1234)..." class="party-join-id-inp flex-1 bg-zinc-950 border border-white/20 rounded px-2 py-1 text-xs text-white uppercase font-mono placeholder:normal-case placeholder:text-zinc-500" />
               <button type="button" class="guild-act-btn secondary px-3 py-1 text-xs font-bold" data-partyact="join-party">Join</button>
             </div>
           </div>
 
-          <div class="p-2 bg-indigo-950/25 border border-indigo-500/20 rounded text-[10px] text-slate-300 flex flex-col gap-1 leading-snug">
+          <div class="p-2 bg-indigo-950/25 border border-indigo-500/20 rounded text-[10px] text-zinc-300 flex flex-col gap-1 leading-snug">
             <div class="font-bold text-indigo-300 flex items-center gap-1">
               ${lucideIcon("sparkles", 11)}
               <span>Party Perks</span>
@@ -2842,40 +3120,49 @@ export class Windows {
     const memberCards = membersList.map((m) => {
       const isSelf = m.name.toLowerCase() === myName.toLowerCase();
       const isMemLeader = m.isLeader || m.name.toLowerCase() === party.leaderName.toLowerCase();
-      const inSameMap = (m.mapId || 910000000) === myMapId;
-      const mapName = MAP_NAMES_LOCAL[m.mapId || 910000000] || `Map ${m.mapId || 910000000}`;
-      const hpPct = Math.max(0, Math.min(100, Math.round(((m.hp ?? 50) / (m.maxHp ?? 50)) * 100)));
-      const maxMpVal = m.maxMp ?? 50;
-      const mpVal = m.mp ?? maxMpVal;
-      const mpPct = Math.max(0, Math.min(100, Math.round((mpVal / maxMpVal) * 100)));
-      const avatarUrl = `/wz/char?eq=${(m.look || [2000, 12000, 20000, 30030]).join(",")}&action=stand1&frame=0`;
+      const remoteMatch = [...this.game.remotePlayers.values()].find(
+        (rp) => (rp.name || "").toLowerCase() === m.name.toLowerCase()
+      );
+      const isOnline = isSelf || Boolean(remoteMatch) || Boolean(m.online);
+      const inSameMap = isSelf || Boolean(remoteMatch) || (isOnline && (m.mapId || 910000000) === myMapId);
+      const isGrayed = !isOnline || !inSameMap;
+      const mapName = !isOnline
+        ? "Offline"
+        : (MAP_NAMES_LOCAL[m.mapId || 910000000] || `Map ${m.mapId || 910000000}`);
+      const curHp = isSelf ? this.game.stats.hp : (remoteMatch?.hp ?? m.hp ?? 50);
+      const maxHp = isSelf ? this.game.stats.maxHp : (remoteMatch?.maxHp ?? m.maxHp ?? 50);
+      const hpPct = !isOnline ? 0 : Math.max(0, Math.min(100, Math.round((curHp / Math.max(1, maxHp)) * 100)));
+      const maxMpVal = isSelf ? this.game.stats.maxMp : (remoteMatch?.maxMp ?? m.maxMp ?? 50);
+      const mpVal = isSelf ? this.game.stats.mp : (remoteMatch?.mp ?? m.mp ?? maxMpVal);
+      const mpPct = !isOnline ? 0 : Math.max(0, Math.min(100, Math.round((mpVal / Math.max(1, maxMpVal)) * 100)));
+      const avatarUrl = `/wz/char?eq=${(m.look || [2000, 12000, 20000, 30030]).join(",")}&action=stand1&frame=0&portrait=1`;
 
       return `
-        <div class="bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 rounded p-1.5 transition-colors flex flex-col gap-1">
+        <div class="${isGrayed ? "bg-zinc-950/60 opacity-55" : "bg-white/[0.04] hover:bg-white/[0.07]"} border border-white/10 rounded p-1.5 transition-colors flex flex-col gap-1">
           <div class="flex items-center gap-2">
-            <div class="relative w-7 h-7 rounded bg-black/40 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
-              <img src="${avatarUrl}" class="w-full h-full object-contain image-rendering-pixelated" alt="${esc(m.name)}" onerror="this.src='/wz/sprite/Mob/0100100/stand/0'" />
+            <div class="relative w-8 h-8 rounded-full bg-zinc-900 border border-white/15 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-inner ${isGrayed ? "grayscale" : ""}">
+              <img src="${avatarUrl}" class="w-full h-full object-cover image-rendering-pixelated scale-105" alt="${esc(m.name)}" onerror="this.src='/wz/sprite/Mob/0100100/stand/0'" />
               ${isMemLeader ? `<span class="absolute top-0 right-0 p-0.5 bg-amber-500/80 rounded-bl text-amber-200" title="Party Leader">${lucideIcon("crown", 8)}</span>` : ""}
             </div>
 
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1">
-                <span class="font-bold text-[11px] text-white truncate">${esc(m.name)}</span>
+                <span class="w-2 h-2 rounded-full ${!isOnline ? "bg-zinc-600" : isGrayed ? "bg-zinc-400" : "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"} flex-shrink-0" title="${!isOnline ? "Offline" : inSameMap ? "Online (Same Map)" : "Online (Other Map)"}"></span>
+                <span class="font-bold text-[11px] ${isGrayed ? "text-zinc-400" : "text-white"} truncate">${esc(m.name)}</span>
                 ${isSelf ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">YOU</span>` : ""}
                 ${isMemLeader ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">LEADER</span>` : ""}
               </div>
-              <div class="flex items-center gap-1.5 text-[9px] text-slate-400 leading-tight">
-                <span class="text-amber-200/90 font-semibold">Lv.${m.level ?? 1}</span>
+              <div class="flex items-center gap-1.5 text-[9px] text-zinc-400 leading-tight">
+                <span class="${isGrayed ? "text-zinc-500" : "text-amber-200/90"} font-semibold">Lv.${m.level ?? 1}</span>
                 <span class="truncate">${esc(m.job || "Beginner")}</span>
-                <span class="${inSameMap ? "text-emerald-300 font-semibold flex items-center gap-0.5" : "text-slate-500"} truncate">
-                  ${inSameMap ? `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>` : ""}
+                <span class="${!isOnline ? "text-zinc-500 italic" : inSameMap ? "text-emerald-300 font-semibold" : "text-zinc-500"} truncate">
                   ${esc(mapName)}
                 </span>
               </div>
             </div>
 
             <div class="flex items-center gap-1 flex-shrink-0">
-              ${!inSameMap ? `
+              ${isOnline && !inSameMap ? `
                 <button type="button" class="guild-act-btn secondary p-1 text-[9px]" title="Warp to Member's Map" data-partyact="warp-party-member" data-map-id="${m.mapId}">
                   ${lucideIcon("zap", 10)}
                 </button>
@@ -2892,20 +3179,20 @@ export class Windows {
           </div>
 
           <!-- Dual Micro Gauges (HP & MP) -->
-          <div class="grid grid-cols-2 gap-1.5 text-[8.5px]">
+          <div class="grid grid-cols-2 gap-1.5 text-[8.5px] ${isGrayed ? "grayscale opacity-75" : ""}">
             <div class="flex items-center gap-1">
               <span class="font-mono text-rose-300/80 flex-shrink-0">HP</span>
               <div class="flex-1 h-1.5 rounded bg-black/50 border border-white/10 overflow-hidden relative">
-                <div class="h-full bg-gradient-to-r from-rose-500 to-rose-400 rounded transition-all duration-300" style="width: ${hpPct}%"></div>
+                <div class="h-full ${isGrayed ? "bg-zinc-500" : "bg-gradient-to-r from-rose-500 to-rose-400"} rounded transition-all duration-300" style="width: ${hpPct}%"></div>
               </div>
-              <span class="font-mono text-slate-300 flex-shrink-0 text-right">${hpPct}%</span>
+              <span class="font-mono text-zinc-300 flex-shrink-0 text-right">${hpPct}%</span>
             </div>
             <div class="flex items-center gap-1">
               <span class="font-mono text-sky-300/80 flex-shrink-0">MP</span>
               <div class="flex-1 h-1.5 rounded bg-black/50 border border-white/10 overflow-hidden relative">
-                <div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded transition-all duration-300" style="width: ${mpPct}%"></div>
+                <div class="h-full ${isGrayed ? "bg-zinc-600" : "bg-gradient-to-r from-sky-500 to-sky-400"} rounded transition-all duration-300" style="width: ${mpPct}%"></div>
               </div>
-              <span class="font-mono text-slate-300 flex-shrink-0 text-right">${mpPct}%</span>
+              <span class="font-mono text-zinc-300 flex-shrink-0 text-right">${mpPct}%</span>
             </div>
           </div>
         </div>
@@ -2913,7 +3200,7 @@ export class Windows {
     }).join("");
 
     body.innerHTML = `
-      <div class="p-2.5 flex flex-col gap-2 h-full overflow-hidden text-slate-200">
+      <div class="p-2.5 flex flex-col gap-2 h-full overflow-hidden text-zinc-200">
         <!-- Top Party Status Banner -->
         <div class="flex items-center justify-between p-2 bg-white/[0.04] border border-white/10 rounded flex-shrink-0">
           <div class="flex items-center gap-1.5 min-w-0">
@@ -2923,10 +3210,10 @@ export class Windows {
             <div class="min-w-0">
               <div class="flex items-center gap-1">
                 <span class="font-bold text-[11px] text-white truncate font-mono">${esc(party.id)}</span>
-                <button type="button" class="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" title="Copy Party ID" data-partyact="copy-party-id">
+                <button type="button" class="p-0.5 rounded hover:bg-white/10 text-zinc-400 hover:text-white transition-colors" title="Copy Party ID" data-partyact="copy-party-id">
                   ${lucideIcon("copy", 10)}
                 </button>
-                <span class="text-[9px] text-slate-400">(${membersList.length}/6)</span>
+                <span class="text-[9px] text-zinc-400">(${membersList.length}/6)</span>
               </div>
               <div class="text-[9px] text-amber-300/90 flex items-center gap-1 truncate">
                 ${lucideIcon("crown", 9)}
@@ -2957,10 +3244,10 @@ export class Windows {
         <div class="flex flex-col gap-1.5 pt-1.5 border-t border-white/10 flex-shrink-0">
           ${membersList.length < 6 ? `
             <div class="flex items-center gap-1">
-              <input type="text" placeholder="Invite player by name..." class="party-invite-name-inp flex-1 bg-slate-950 border border-white/20 rounded px-2 py-1 text-xs text-white placeholder:text-slate-500" />
+              <input type="text" placeholder="Invite player by name..." class="party-invite-name-inp flex-1 bg-zinc-950 border border-white/20 rounded px-2 py-1 text-xs text-white placeholder:text-zinc-500" />
               <button type="button" class="guild-act-btn primary px-2.5 py-1 text-xs font-bold" data-partyact="invite-member">Invite</button>
             </div>
-          ` : `<div class="text-center text-[9px] text-slate-500">Party is full (6/6).</div>`}
+          ` : `<div class="text-center text-[9px] text-zinc-500">Party is full (6/6).</div>`}
 
           <div class="flex items-center justify-between gap-1.5">
             <button type="button" class="guild-act-btn secondary py-1 text-xs flex-1 text-center" data-partyact="leave-party">
@@ -3005,9 +3292,10 @@ export class ExtWindows {
   equipWin: HTMLElement; invWin: HTMLElement; craftWin: HTMLElement; ahWin: HTMLElement; menuPop: HTMLElement;
   stageHud: HTMLElement; bossBar: HTMLElement; offline: HTMLElement | null = null;
   items: ItemBrowser;
+  cashShop: CashShop;
   tips = new Map<string, () => string>();
   sig: Record<string, string> = {};
-  equipTab: "equip" | "visual" | "pet" = "equip";
+  equipTab: "equip" | "visual" | "pet" | "damage" = "equip";
   invTab: Tab<"equip" | "use" | "etc" | "setup" | "cash" | "dec"> = { cur: "equip" };
   invSearch = "";
   craftTab: Tab<"gear" | "refine" | "star" | "cube"> = { cur: "gear" };
@@ -3024,7 +3312,8 @@ export class ExtWindows {
     this.equipWin = w.makeWindow("equip-win", 320, 395, "EQUIPMENT INVENTORY", 300, 176);
     this.invWin = w.makeWindow("inv-win", 412, 478, "INVENTORY", 584, 176);
     this.craftWin = w.makeWindow("craft-win", 340, 380, "CRAFTING", innerWidth / 2 - 170, 80);
-    this.ahWin = w.makeWindow("ah-win", 440, 400, "AUCTION HOUSE", innerWidth / 2 - 220, 70);
+    this.ahWin = w.makeWindow("ah-win", 540, 440, "AUCTION HOUSE", Math.max(20, Math.round(innerWidth / 2 - 270)), 65);
+    this.cashShop = new CashShop(w);
 
     // Windows start closed by default; toggled with dedicated menu buttons or hotkeys
     for (const win of [this.equipWin, this.invWin, this.craftWin, this.ahWin]) {
@@ -3033,12 +3322,72 @@ export class ExtWindows {
       win.addEventListener("contextmenu", (e) => this.onRightClick(e as MouseEvent));
       win.addEventListener("pointermove", (e) => {
         if (w.ghost) return;
-        const t = (e.target as HTMLElement).closest<HTMLElement>("[data-tip]");
-        const f = t && this.tips.get(t.dataset.tip!);
+        const target = e.target as HTMLElement;
+        const t = target.closest<HTMLElement>("[data-tip], [data-uid], [data-use], [data-mat], [data-slot]");
+        if (!t) {
+          w.hideTip();
+          return;
+        }
+
+        const g = this.w.game;
+
+        // 1. Equipped items or bag items with data-uid
+        const uid = t.dataset.uid;
+        if (uid) {
+          const gear = g.findGear(uid) || Object.values(g.eq).find((eq) => eq?.uid === uid) || Object.values(g.visualEq).find((eq) => eq?.uid === uid);
+          if (gear) {
+            const isEquipped = Object.values(g.eq).some((eq) => eq?.uid === uid) || Object.values(g.visualEq).some((eq) => eq?.uid === uid);
+            const isVisual = Object.values(g.visualEq).some((eq) => eq?.uid === uid);
+            const note = isVisual ? "Visual Cosmetic Outfit · Click to unequip" : isEquipped ? "Currently Equipped · Click to unequip" : "Equipment Inventory · Click to equip";
+            w.showTip(renderGearTooltip(gear, isEquipped, note, g.stats.level, g.stats.classId, g.stats.gender), (e as PointerEvent).clientX, (e as PointerEvent).clientY);
+            return;
+          }
+        }
+
+        // 2. Empty equipment slots in equipment window
+        if (t.dataset.slot && t.classList.contains("empty")) {
+          const s = t.dataset.slot as Slot;
+          const isVisual = t.classList.contains("visual-slot");
+          const title = isVisual ? `Visual ${SLOT_NAME[s] ?? s}` : (SLOT_NAME[s] ?? s);
+          const emptyLabel = isVisual ? "Empty Visual Slot (Replaces Outfit)" : "Empty Equipment Slot";
+          w.showTip(`<div class="ms-tooltip-card p-2.5 min-w-[140px] text-center"><div class="tt-title text-[12px] font-bold ${isVisual ? "text-purple-300" : "text-zinc-200"}">${title}</div><div class="text-[9.5px] text-zinc-400 mt-1">${emptyLabel}</div></div>`, (e as PointerEvent).clientX, (e as PointerEvent).clientY);
+          return;
+        }
+
+        // 3. Use item slots
+        if (t.dataset.use) {
+          const id = Number(t.dataset.use);
+          w.showTip(renderUseTooltip(id, g.inv[id] ?? 0), (e as PointerEvent).clientX, (e as PointerEvent).clientY);
+          return;
+        }
+
+        // 4. Material item slots
+        if (t.dataset.mat) {
+          const id = Number(t.dataset.mat);
+          w.showTip(renderMatTooltip(id, g.mats[id] ?? 0), (e as PointerEvent).clientX, (e as PointerEvent).clientY);
+          return;
+        }
+
+        // 5. Fallback to registered tip
+        const f = t.dataset.tip && this.tips.get(t.dataset.tip);
         if (f) w.showTip(f(), (e as PointerEvent).clientX, (e as PointerEvent).clientY); else w.hideTip();
       });
       win.addEventListener("pointerleave", () => w.hideTip());
     }
+
+    this.ahWin.addEventListener("change", (e) => {
+      const t = e.target as HTMLElement;
+      if (t && t.classList.contains("ah-curr-sel")) {
+        const row = t.closest<HTMLElement>(".ah-row");
+        if (!row) return;
+        const val = (t as HTMLSelectElement).value;
+        const mesoInp = row.querySelector<HTMLElement>(".ah-price-meso");
+        const nxInp = row.querySelector<HTMLElement>(".ah-price-nx");
+        if (mesoInp) mesoInp.style.display = val === "nx" ? "none" : "";
+        if (nxInp) nxInp.style.display = val === "meso" ? "none" : "";
+      }
+    });
+
     w.item = this.invWin;
 
     this.menuPop = el("div", "menu-pop hidden", document.body);
@@ -3052,7 +3401,6 @@ export class ExtWindows {
       if (target.closest(".boss-go")) g.challengeBoss();
       if (target.closest(".auto-boss-toggle")) {
         g.auto.boss = !g.auto.boss;
-        g.onChat("notice", g.auto.boss ? "Auto Boss is ON. Stage boss will be challenged automatically." : "Auto Boss is OFF.");
         g.onChange();
       }
     });
@@ -3062,21 +3410,36 @@ export class ExtWindows {
       if (m) this.bossBar.innerHTML = `${icon(m.data.books.stand?.[0]?.url ?? "", "boss-ic")}<div class="boss-main"><div class="boss-name">${esc(m.data.name.trim())} <small>Lv.${m.data.meta?.level ?? "?"}</small></div><div class="boss-hp"><div class="boss-fill"></div><span class="boss-num"></span></div></div><div class="boss-time"></div>`;
     };
     g.onOffline = (r) => this.showOffline(r);
+
+    if (!this.equipWin.classList.contains("hidden")) this.renderEquip();
+    if (!this.invWin.classList.contains("hidden")) this.renderInv();
+    if (!this.craftWin.classList.contains("hidden")) this.renderCraft();
+    if (!this.ahWin.classList.contains("hidden")) this.renderAh();
   }
 
-  open(k: "equip" | "inv" | "craft" | "ah") {
+  open(k: "equip" | "inv" | "craft" | "ah" | "cashshop") {
+    if (k === "cashshop") {
+      this.cashShop.open();
+      return;
+    }
     const win = { equip: this.equipWin, inv: this.invWin, craft: this.craftWin, ah: this.ahWin }[k];
-    const wasHidden = win.classList.contains("hidden");
-    if (k === "ah" && wasHidden) this.w.game.ah.refresh(Date.now());
+    const isAlreadyOpen = !win.classList.contains("hidden");
+    if (isAlreadyOpen) {
+      win.classList.add("hidden");
+      return;
+    }
+    if (k === "ah") this.w.game.ah.refresh(Date.now());
     if (k === "equip") this.renderEquip();
     else if (k === "inv") this.renderInv();
     else if (k === "craft") this.renderCraft();
     else this.renderAh();
-    if (wasHidden) {
-      win.classList.remove("hidden");
-      clampWindow(win);
-    }
+    win.classList.remove("hidden");
+    win.style.zIndex = String(++this.w.z);
+    clampWindow(win);
     this.sig = {};
+  }
+  openCashShop() {
+    this.cashShop.open();
   }
   renderMenuPop() {
     this.menuPop.innerHTML = "";
@@ -3090,6 +3453,7 @@ export class ExtWindows {
       { label: "Guild", key: "G", fn: () => w.toggle(w.guildWin) },
       { label: "Crafting", key: "J", fn: () => this.open("craft") },
       { label: "Auction House", key: "H", fn: () => this.open("ah") },
+      { label: "Cash Shop (NX)", key: "CS", fn: () => this.openCashShop() },
       { label: "Game Guide", key: "F3", fn: () => w.toggle(w.guideWin) },
       { label: "Auto Settings", key: "B·RMB", fn: () => w.toggle(w.autoWin) },
     ];
@@ -3157,8 +3521,8 @@ export class ExtWindows {
 
   // ------------------------------------------------------------- tooltips
   gearTip(g: Gear, note = "") {
-    const isEquipped = Object.values(this.w.game.eq).some((eq) => eq?.uid === g.uid);
-    return renderGearTooltip(g, isEquipped, note, this.w.game.stats.level);
+    const isEquipped = Object.values(this.w.game.eq).some((eq) => eq?.uid === g.uid) || Object.values(this.w.game.visualEq).some((eq) => eq?.uid === g.uid);
+    return renderGearTooltip(g, isEquipped, note, this.w.game.stats.level, this.w.game.stats.classId, this.w.game.stats.gender);
   }
   tip(key: string, f: () => string) { this.tips.set(key, f); return `data-tip="${key}"`; }
   gearCell(g: Gear, action: string, note: string, extra = "") {
@@ -3237,6 +3601,19 @@ export class ExtWindows {
         this.renderEquip();
         break;
       }
+      case "equip-damage-skin": {
+        const id = t.dataset.id;
+        if (id !== undefined) {
+          g.setDamageSkin(id);
+          this.renderEquip();
+        }
+        break;
+      }
+      case "unequip-damage-skin": {
+        g.setDamageSkin(0);
+        this.renderEquip();
+        break;
+      }
       case "invtab": this.invTab.cur = t.dataset.v as any; break;
       case "selljunk": g.sellJunk(); break;
       case "crafttab": this.craftTab.cur = t.dataset.v as any; this.lastResult = ""; break;
@@ -3251,13 +3628,25 @@ export class ExtWindows {
       case "cube": { const ok = g.cube(this.pick ?? ""); this.lastResult = ok ? "POTENTIAL RESET" : "NOT ENOUGH MESOS OR SLIME BUBBLES"; this.flash(ok); break; }
       case "ahtab": this.ahTab.cur = t.dataset.v as any; break;
       case "ahfilter": this.ahFilter = t.dataset.v as any; break;
-      case "ahrefresh": if (g.stats.meso >= 100) { g.stats.meso -= 100; g.ah.listings = []; g.ah.refresh(Date.now()); g.onChange(); } break;
-      case "buy": g.ahBuy(t.dataset.v!); break;
+      case "buy": {
+        const payWith = (t.dataset.pay as "meso" | "nx") || "meso";
+        g.ahBuy(t.dataset.v!, payWith);
+        break;
+      }
       case "list": {
         const row = t.closest<HTMLElement>(".ah-row")!;
-        const price = Math.max(1, Math.round(Number((row.querySelector("input") as HTMLInputElement).value) || 0));
+        const currSel = row.querySelector<HTMLSelectElement>(".ah-curr-sel");
+        const durSel = row.querySelector<HTMLSelectElement>(".ah-dur-sel");
+        const mesoInput = row.querySelector<HTMLInputElement>(".ah-price-meso");
+        const nxInput = row.querySelector<HTMLInputElement>(".ah-price-nx");
+
+        const currency = (currSel?.value as "meso" | "nx" | "both") || "meso";
+        const durationHours = (Number(durSel?.value) || 24) as 12 | 24;
+        const priceMeso = mesoInput ? Math.max(0, Math.round(Number(mesoInput.value) || 0)) : 0;
+        const priceNx = nxInput ? Math.max(0, Math.round(Number(nxInput.value) || 0)) : 0;
+
         const goods = this.sellGoods(t.dataset.v!);
-        if (goods) g.ahList(goods, price);
+        if (goods) g.ahList(goods, priceMeso, priceNx, currency, durationHours);
         break;
       }
       case "collect": g.ahCollect(t.dataset.v!); break;
@@ -3272,9 +3661,12 @@ export class ExtWindows {
         this.renderInv();
         break;
       }
-      case "drop-mode":
-        g.onChat("notice", "Drag an item onto the game canvas or right-click it to drop it on the ground!");
+      case "auto-equip": {
+        g.autoEquipBest();
+        this.renderInv();
+        this.renderEquip();
         break;
+      }
       case "lock":
         g.onChat("system", "Item protection lock is active.");
         break;
@@ -3298,16 +3690,16 @@ export class ExtWindows {
     const gear = g.findGear(uid);
     if (!gear) return;
     document.querySelectorAll(".item-context-menu").forEach((m) => m.remove());
-    const menu = el("div", "item-context-menu fixed z-[200] bg-[#1a2230] border border-slate-600 rounded-lg shadow-2xl p-1.5 flex flex-col gap-1 min-w-[160px] text-xs text-white", document.body);
+    const menu = el("div", "item-context-menu fixed z-[200] bg-[#1a2230] border border-zinc-600 rounded-lg shadow-2xl p-1.5 flex flex-col gap-1 min-w-[160px] text-xs text-white", document.body);
     menu.style.left = `${Math.min(innerWidth - 170, Math.max(10, x))}px`;
     menu.style.top = `${Math.min(innerHeight - 150, Math.max(10, y))}px`;
 
     const bName = GEAR.get(gear.id)?.name ?? "Equipment";
-    const header = el("div", "px-2 py-1 text-[11px] font-bold border-b border-slate-700 text-amber-300 truncate", menu);
+    const header = el("div", "px-2 py-1 text-[11px] font-bold border-b border-zinc-700 text-amber-300 truncate", menu);
     header.textContent = bName;
 
-    const equipBtn = el("button", "text-left px-2 py-1.5 hover:bg-slate-700/80 rounded transition-colors flex items-center gap-2 cursor-pointer font-medium", menu);
-    equipBtn.innerHTML = `<span>⚔️</span> <span>Equip Item</span>`;
+    const equipBtn = el("button", "text-left px-2 py-1.5 hover:bg-zinc-700/80 rounded transition-colors flex items-center gap-2 cursor-pointer font-medium text-zinc-200", menu);
+    equipBtn.innerHTML = `<span>${lucideIcon("swords", 12, "text-sky-400")}</span> <span>Equip Item</span>`;
     equipBtn.addEventListener("click", () => {
       g.equip(uid);
       this.renderEquip();
@@ -3316,7 +3708,7 @@ export class ExtWindows {
     });
 
     const dropBtn = el("button", "text-left px-2 py-1.5 hover:bg-red-950/70 text-red-300 rounded transition-colors flex items-center gap-2 cursor-pointer font-medium", menu);
-    dropBtn.innerHTML = `<span>📥</span> <span>Drop on Ground (10m)</span>`;
+    dropBtn.innerHTML = `<span>${lucideIcon("trash-2", 12, "text-rose-400")}</span> <span>Drop on Ground (10m)</span>`;
     dropBtn.addEventListener("click", () => {
       g.dropGear(uid);
       this.renderInv();
@@ -3325,7 +3717,7 @@ export class ExtWindows {
 
     const sellPrice = npcSellPrice(gear);
     const sellBtn = el("button", "text-left px-2 py-1.5 hover:bg-emerald-950/70 text-emerald-300 rounded transition-colors flex items-center gap-2 cursor-pointer font-medium", menu);
-    sellBtn.innerHTML = `<span>💰</span> <span>Sell (${fmt(sellPrice)} m)</span>`;
+    sellBtn.innerHTML = `<span>${lucideIcon("coins", 12, "text-amber-400")}</span> <span>Sell (${fmt(sellPrice)} m)</span>`;
     sellBtn.addEventListener("click", () => {
       g.sellGear(uid);
       this.renderInv();
@@ -3354,6 +3746,104 @@ export class ExtWindows {
 
     const isVisual = this.equipTab === "visual";
     const isPet = this.equipTab === "pet";
+    const isDamage = this.equipTab === "damage";
+
+    if (isDamage) {
+      const activeSkinId = g.damageSkin ?? 0;
+      const activeSkin = DamageSkinSystem.getSkin(activeSkinId);
+
+      const skinsHtml = DAMAGE_SKIN_PRESETS.map((preset) => {
+        const isEquipped = String(preset.id) === String(activeSkinId);
+        const skin = DamageSkinSystem.getSkin(preset.id);
+        const dFirst = skin.dmgFirst["5"] || skin.dmg["5"];
+        const d4 = skin.dmg["4"] || skin.dmg["1"];
+        const d8 = skin.dmg["8"] || skin.dmg["2"];
+        const d2 = skin.dmg["2"] || skin.dmg["3"];
+        const cFirst = skin.criFirst["9"] || skin.cri["9"];
+        const c7 = skin.cri["7"] || skin.cri["9"];
+        const c8 = skin.cri["8"] || skin.cri["9"];
+        const c9 = skin.cri["9"];
+
+        return `
+          <div class="damage-skin-card ${isEquipped ? "equipped" : ""}" data-name="${esc(preset.name.toLowerCase())}" data-id="${preset.id}">
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-[10px] font-bold ${isEquipped ? "text-amber-300" : "text-zinc-200"} truncate font-sans" title="${esc(preset.name)}">${esc(preset.name)}</span>
+              ${isEquipped ? `<span class="text-[7.5px] font-mono px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase font-bold shrink-0">Equipped</span>` : ""}
+            </div>
+
+            <!-- Transparent Numbers Preview Strip (Normal by default, Critical on hover) -->
+            <div class="damage-digits-preview" title="Hover to view Critical damage preview">
+              <!-- Normal damage numbers -->
+              <div class="norm-digits">
+                <img src="${dFirst}" class="damage-digit-img" alt="5" onerror="this.style.display='none'" />
+                <img src="${d4}" class="damage-digit-img" alt="4" onerror="this.style.display='none'" />
+                <img src="${d8}" class="damage-digit-img" alt="8" onerror="this.style.display='none'" />
+                <img src="${d2}" class="damage-digit-img" alt="2" onerror="this.style.display='none'" />
+              </div>
+              <!-- Critical damage numbers (shows on hover) -->
+              <div class="cri-digits">
+                ${skin.criEffect ? `<img src="${skin.criEffect}" class="damage-crit-img -mr-1" alt="CRIT" onerror="this.style.display='none'" />` : ""}
+                <img src="${cFirst}" class="damage-crit-img" alt="9" onerror="this.style.display='none'" />
+                <img src="${c7}" class="damage-crit-img" alt="7" onerror="this.style.display='none'" />
+                <img src="${c8}" class="damage-crit-img" alt="8" onerror="this.style.display='none'" />
+                <img src="${c9}" class="damage-crit-img" alt="9" onerror="this.style.display='none'" />
+              </div>
+            </div>
+
+            <!-- Action button -->
+            <div class="pt-1 border-t border-white/5 flex justify-end">
+              ${
+                isEquipped
+                  ? `<button type="button" data-act="unequip-damage-skin" class="w-full py-1 text-[9px] font-bold rounded bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40 transition-colors cursor-pointer">
+                      Unequip
+                    </button>`
+                  : `<button type="button" data-act="equip-damage-skin" data-id="${preset.id}" class="w-full py-1 text-[9px] font-bold rounded bg-sky-600/80 hover:bg-sky-500 text-white border border-sky-400/40 transition-colors cursor-pointer">
+                      Equip
+                    </button>`
+              }
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      body.innerHTML = `
+        <div class="equip-head-tabs">
+          <button type="button" data-act="equiptab" data-v="equip" class="equip-tab">Equip</button>
+          <button type="button" data-act="equiptab" data-v="visual" class="equip-tab">Cash</button>
+          <button type="button" data-act="equiptab" data-v="pet" class="equip-tab">Pet</button>
+          <button type="button" data-act="equiptab" data-v="damage" class="equip-tab on">Damage Skin</button>
+        </div>
+        <div class="equip-sub-bar">
+          <span class="equip-title-label">DAMAGE SKINS (${DAMAGE_SKIN_PRESETS.length} WZ EFFECTS)</span>
+          <span class="text-[9.5px] text-amber-300 font-bold font-mono">Active: ${esc(activeSkin.name)}</span>
+        </div>
+        <div class="px-2 pt-1.5 pb-0.5">
+          <input type="text" id="damage-skin-filter" placeholder="🔍 Search damage skins by name or ID..." class="w-full px-2 py-1 text-[10px] rounded bg-zinc-900/90 border border-white/15 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-400/60 font-sans" />
+        </div>
+        <div class="damage-skin-view flex flex-col gap-2 p-2 overflow-y-scroll max-h-[350px] scrollbar-thin">
+          <div class="text-[10px] font-bold text-zinc-300 uppercase tracking-wider flex items-center justify-between">
+            <span>Hover card to preview Critical hit</span>
+            ${String(activeSkinId) !== "0" ? `<button type="button" data-act="unequip-damage-skin" class="text-[8.5px] text-rose-400 hover:text-rose-300 underline font-normal cursor-pointer">Reset to Classic</button>` : ""}
+          </div>
+          <div class="damage-skin-grid">
+            ${skinsHtml}
+          </div>
+        </div>
+      `;
+      const filterInput = body.querySelector("#damage-skin-filter") as HTMLInputElement | null;
+      if (filterInput) {
+        filterInput.addEventListener("input", () => {
+          const q = filterInput.value.toLowerCase().trim();
+          const cards = body.querySelectorAll<HTMLElement>(".damage-skin-card");
+          cards.forEach((card) => {
+            const name = card.dataset.name ?? "";
+            const id = card.dataset.id ?? "";
+            card.style.display = !q || name.includes(q) || id.includes(q) ? "" : "none";
+          });
+        });
+      }
+      return;
+    }
 
     if (isPet) {
       const activePets = g.pets ?? [];
@@ -3361,7 +3851,7 @@ export class ExtWindows {
         const pet = activePets.find((p) => p.slotIndex === slotIdx);
         if (pet) {
           return `
-            <div class="pet-slot-card flex items-center justify-between p-2.5 rounded bg-slate-900/60 border border-emerald-500/35 shadow-sm">
+            <div class="pet-slot-card flex items-center justify-between p-2.5 rounded bg-zinc-900/60 border border-emerald-500/35 shadow-sm">
               <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded bg-black/50 border border-emerald-500/40 flex items-center justify-center overflow-hidden">
                   <img src="/wz/pet-icon/${pet.id}" alt="${pet.name}" class="w-8 h-8 object-contain pixelated" />
@@ -3370,7 +3860,7 @@ export class ExtWindows {
                   <div class="text-[12px] font-bold text-emerald-300 flex items-center gap-1.5">
                     ${pet.name} <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 font-semibold uppercase">Slot ${slotIdx + 1}</span>
                   </div>
-                  <div class="text-[9.5px] text-slate-300 mt-0.5">Auto Follow · Active Field Looting</div>
+                  <div class="text-[9.5px] text-zinc-300 mt-0.5">Auto Follow · Active Field Looting</div>
                 </div>
               </div>
               <button type="button" data-act="unequip-pet" data-slot="${slotIdx}" class="px-2.5 py-1 text-[10px] font-bold rounded bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40 transition-colors">
@@ -3380,14 +3870,14 @@ export class ExtWindows {
           `;
         }
         return `
-          <div class="pet-slot-card flex items-center justify-between p-2.5 rounded bg-slate-900/35 border border-dashed border-white/15">
+          <div class="pet-slot-card flex items-center justify-between p-2.5 rounded bg-zinc-900/35 border border-dashed border-white/15">
             <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded bg-black/30 border border-dashed border-white/15 flex items-center justify-center text-slate-500 text-[11px] font-bold">
+              <div class="w-10 h-10 rounded bg-black/30 border border-dashed border-white/15 flex items-center justify-center text-zinc-500 text-[11px] font-bold">
                 ${slotIdx + 1}
               </div>
               <div>
-                <div class="text-[11.5px] font-medium text-slate-400">Empty Pet Slot ${slotIdx + 1}</div>
-                <div class="text-[9.5px] text-slate-500 mt-0.5">Summon a companion below (Max 3 pets)</div>
+                <div class="text-[11.5px] font-medium text-zinc-400">Empty Pet Slot ${slotIdx + 1}</div>
+                <div class="text-[9.5px] text-zinc-500 mt-0.5">Summon a companion below (Max 3 pets)</div>
               </div>
             </div>
           </div>
@@ -3412,11 +3902,11 @@ export class ExtWindows {
       const catalogHtml = catalog.map((p) => {
         const isSummoned = activePets.some((x) => x.id === p.id);
         return `
-          <div class="pet-cat-card p-2 rounded bg-slate-900/50 border ${isSummoned ? "border-emerald-500/50 bg-emerald-950/25 shadow-[0_0_8px_rgba(16,185,129,0.15)]" : "border-white/10 hover:border-white/25"} flex flex-col items-center text-center gap-1.5 transition-all">
+          <div class="pet-cat-card p-2 rounded bg-zinc-900/50 border ${isSummoned ? "border-emerald-500/50 bg-emerald-950/25 shadow-[0_0_8px_rgba(16,185,129,0.15)]" : "border-white/10 hover:border-white/25"} flex flex-col items-center text-center gap-1.5 transition-all">
             <div class="w-10 h-10 rounded bg-black/40 flex items-center justify-center overflow-hidden">
               <img src="/wz/pet-icon/${p.id}" alt="${p.name}" class="w-8 h-8 object-contain pixelated" />
             </div>
-            <div class="text-[11px] font-semibold text-slate-200 line-clamp-1">${p.name}</div>
+            <div class="text-[11px] font-semibold text-zinc-200 line-clamp-1">${p.name}</div>
             <button type="button" data-act="${isSummoned ? "dismiss-pet" : "summon-pet"}" data-id="${p.id}" class="w-full py-1 text-[9.5px] font-bold rounded ${isSummoned ? "bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40" : "bg-sky-600/70 hover:bg-sky-500 text-white border border-sky-400/40"} transition-colors">
               ${isSummoned ? "Dismiss" : "Summon"}
             </button>
@@ -3426,20 +3916,21 @@ export class ExtWindows {
 
       body.innerHTML = `
         <div class="equip-head-tabs">
-          <button type="button" data-act="equiptab" data-v="equip" class="equip-tab">Equipment</button>
-          <button type="button" data-act="equiptab" data-v="visual" class="equip-tab">Cash / Visual</button>
+          <button type="button" data-act="equiptab" data-v="equip" class="equip-tab">Equip</button>
+          <button type="button" data-act="equiptab" data-v="visual" class="equip-tab">Cash</button>
           <button type="button" data-act="equiptab" data-v="pet" class="equip-tab on">Pet</button>
+          <button type="button" data-act="equiptab" data-v="damage" class="equip-tab">Damage Skin</button>
         </div>
         <div class="equip-sub-bar">
           <span class="equip-title-label">PET COMPANIONS (${activePets.length} / 3 ACTIVE)</span>
           <span class="text-[10px] text-emerald-400 font-bold">Auto-Follow & Looting</span>
         </div>
         <div class="pet-equip-view flex flex-col gap-2 p-3 overflow-y-auto max-h-[380px] scrollbar-thin">
-          <div class="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Active Pets (Follows player & loots drops)</div>
+          <div class="text-[11px] font-bold text-zinc-300 uppercase tracking-wider">Active Pets (Follows player & loots drops)</div>
           <div class="flex flex-col gap-1.5">
             ${slotsHtml}
           </div>
-          <div class="text-[11px] font-bold text-slate-300 uppercase tracking-wider mt-2">Available Pets (Click to Summon up to 3)</div>
+          <div class="text-[11px] font-bold text-zinc-300 uppercase tracking-wider mt-2">Available Pets (Click to Summon up to 3)</div>
           <div class="grid grid-cols-3 gap-2">
             ${catalogHtml}
           </div>
@@ -3454,17 +3945,50 @@ export class ExtWindows {
     const rightCol1: Slot[] = ["hat", "top", "bottom", "shoes", "gloves"];
     const rightCol2: Slot[] = ["cape", "weapon", "shield", "shoulder", "emblem"];
 
+    const SLOT_SIMPLE_ICON: Record<string, string> = {
+      hat: "crown",
+      face: "eye",
+      eye: "eye",
+      earrings: "sparkles",
+      top: "shield",
+      bottom: "sliders",
+      shoes: "navigation",
+      gloves: "zap",
+      cape: "flag",
+      shield: "shield",
+      weapon: "swords",
+      ring1: "gem",
+      ring2: "gem",
+      ring3: "gem",
+      ring4: "gem",
+      pendant: "award",
+      belt: "sliders",
+      shoulder: "shield",
+      pocket: "package",
+      emblem: "star",
+      ring: "gem",
+    };
+
     const cellFor = (s: Slot) => {
       const it = isVisual ? g.visualEq[s] : g.eq[s];
       if (!it) {
-        const title = isVisual ? `Visual ${SLOT_NAME[s]}` : SLOT_NAME[s];
-        const emptyLabel = isVisual ? "Empty Visual Slot (Replaces Outfit)" : "Empty Slot";
-        return `<div class="eslot empty ${isVisual ? "visual-slot" : ""}" data-slot="${s}" ${this.tip("eslot-" + (isVisual ? "v-" : "") + s, () => `<div class="ms-tooltip-card p-2 min-w-[140px] text-center"><div class="tt-title text-[12px] ${isVisual ? "text-purple-300" : "text-slate-200"}">${title}</div><div class="text-[9.5px] text-slate-400 mt-1">${emptyLabel}</div></div>`)}></div>`;
+        const wornTop = isVisual ? g.visualEq.top : g.eq.top;
+        if (s === "bottom" && wornTop && isOverallItem(wornTop.id)) {
+          const overallName = GEAR.get(wornTop.id)?.name ?? "Overall";
+          return `<div class="eslot covered ${isVisual ? "visual-slot" : ""}" data-slot="${s}" title="Slot covered by equipped Overall (${esc(overallName)})"><span class="eslot-covered-badge">OVERALL</span></div>`;
+        }
+        const ico = SLOT_SIMPLE_ICON[s] ?? "star";
+        return `<div class="eslot empty ${isVisual ? "visual-slot" : ""}" data-slot="${s}"><span class="eslot-icon-placeholder">${lucideIcon(ico, 15)}</span></div>`;
       }
       const act = isVisual ? "unequip-visual" : "unequip";
       const note = isVisual ? "Click to unequip visual cosmetic" : "Click to unequip";
-      return `<div class="eslot filled ${isVisual ? "visual-slot" : ""}" data-slot="${s}" data-act="${act}" data-uid="${it.uid}" ${this.tip("g" + it.uid, () => this.gearTip(it, note))}>${this.gearCell(it, act, note, `data-slot="${s}"`)}</div>`;
+      return `<div class="eslot filled ${isVisual ? "visual-slot" : ""} r${it.rarity}" data-slot="${s}" data-act="${act}" data-uid="${it.uid}" ${this.tip("g" + it.uid, () => this.gearTip(it, note))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
     };
+
+    const activeWeapon = g.visualEq.weapon ?? g.eq.weapon;
+    const weaponId = activeWeapon ? activeWeapon.id : 0;
+    const standAnim = weaponId ? getWeaponStandAnim(weaponId) : "stand1";
+    const hasHighStar = (activeWeapon?.star ?? 0) >= 10 || g.gmEffect || g.hasWizetHat();
 
     let cells = `<div class="e-sub-col">${leftCol1.map(cellFor).join("")}</div>`;
     cells += `<div class="e-sub-col">${leftCol2.map(cellFor).join("")}</div>`;
@@ -3472,9 +3996,9 @@ export class ExtWindows {
       <div class="eprev">
         <div class="eprev-pedestal"></div>
         <div class="eprev-char-wrap">
-          <img alt="Character preview" class="eprev-char" src="${charUrlFor(g.look, "stand1", this.equipAnimFrame)}" />
+          <img alt="Character preview" class="eprev-char" src="${charUrlFor(g.look, standAnim, this.equipAnimFrame)}" />
         </div>
-        <div class="eprev-aura"></div>
+        <div class="eprev-aura ${hasHighStar ? "high-star" : ""}"></div>
       </div>
     `;
     cells += `<div class="e-sub-col">${rightCol1.map(cellFor).join("")}</div>`;
@@ -3482,9 +4006,10 @@ export class ExtWindows {
 
     body.innerHTML = `
       <div class="equip-head-tabs">
-        <button type="button" data-act="equiptab" data-v="equip" class="equip-tab ${this.equipTab === "equip" ? "on" : ""}">Equipment</button>
-        <button type="button" data-act="equiptab" data-v="visual" class="equip-tab ${this.equipTab === "visual" ? "on" : ""}">Cash / Visual</button>
+        <button type="button" data-act="equiptab" data-v="equip" class="equip-tab ${this.equipTab === "equip" ? "on" : ""}">Equip</button>
+        <button type="button" data-act="equiptab" data-v="visual" class="equip-tab ${this.equipTab === "visual" ? "on" : ""}">Cash</button>
         <button type="button" data-act="equiptab" data-v="pet" class="equip-tab ${this.equipTab === "pet" ? "on" : ""}">Pet</button>
+        <button type="button" data-act="equiptab" data-v="damage" class="equip-tab ${this.equipTab === "damage" ? "on" : ""}">Damage Skin</button>
       </div>
       <div class="equip-sub-bar">
         <span class="equip-title-label">${isVisual ? "VISUAL COSMETICS (NX)" : isPet ? "PET EQUIPMENT" : "EQUIPMENT"}</span>
@@ -3501,8 +4026,9 @@ export class ExtWindows {
         </div>
       </div>
       <div class="equip-bottom-actions">
+        <button type="button" class="equip-act-pill emerald" data-act="auto-equip" title="Equip highest Combat Power (CP) gear for your class">${lucideIcon("zap", 11)} EQUIP BEST</button>
         <button type="button" class="equip-act-pill lime">TITLE · MEDAL</button>
-        <button type="button" class="equip-act-pill slate">VALUABLE</button>
+        <button type="button" class="equip-act-pill zinc">VALUABLE</button>
         <button type="button" class="equip-act-pill cyan">SYMBOL &gt;</button>
       </div>
     `;
@@ -3526,21 +4052,59 @@ export class ExtWindows {
         const b = GEAR.get(it.id);
         return !b?.cosmetic && !b?.cash;
       });
-      if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
+      if (q) {
+        bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
+        // Quality of life: temporarily sort matching items to the top
+        bag.sort((a, b) => {
+          const nameA = (GEAR.get(a.id)?.name ?? "").toLowerCase();
+          const nameB = (GEAR.get(b.id)?.name ?? "").toLowerCase();
+          const pfxA = nameA.startsWith(q) ? 0 : 1;
+          const pfxB = nameB.startsWith(q) ? 0 : 1;
+          if (pfxA !== pfxB) return pfxA - pfxB;
+          if (b.rarity !== a.rarity) return b.rarity - a.rarity;
+          if (b.star !== a.star) return b.star - a.star;
+          const lvA = GEAR.get(a.id)?.req ?? 0;
+          const lvB = GEAR.get(b.id)?.req ?? 0;
+          if (lvB !== lvA) return lvB - lvA;
+          return nameA.localeCompare(nameB);
+        });
+      }
       curCount = bag.length;
       const maxSlot = bag.reduce((m, it) => Math.max(m, it.slot ?? 0), 0);
-      const targetPad = Math.max(32, Math.ceil((maxSlot + 1) / 4) * 4);
+      const targetPad = Math.max(32, Math.ceil((q ? bag.length : maxSlot + 1) / 8) * 8);
       for (let i = 0; i < targetPad; i++) {
-        const it = bag.find((x) => x.slot === i);
+        const it = q ? bag[i] : bag.find((x) => x.slot === i);
         if (it) {
-          grid += `<div class="gcell r${it.rarity}" data-act="equip" data-uid="${it.uid}" data-slot-idx="${i}" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to equip · drag to move anywhere · right-click for actions"))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
+          grid += `<div class="gcell r${it.rarity}" data-act="equip" data-uid="${it.uid}" data-slot-idx="${it.slot ?? i}" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to equip · drag to move anywhere · right-click for actions"))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
         } else {
-          grid += `<div class="gcell blank" data-slot-idx="${i}" title="Empty slot ${i + 1} (drop items here)"></div>`;
+          grid += `<div class="gcell blank" data-slot-idx="${i}"></div>`;
         }
       }
     } else if (tab === "use") {
       let ids = Object.keys(ITEMS).map(Number).filter((id) => (g.inv[id] ?? 0) > 0);
-      if (q) ids = ids.filter((id) => (ITEMS[id]?.name ?? "").toLowerCase().includes(q));
+      if (q) {
+        ids = ids.filter((id) => (ITEMS[id]?.name ?? "").toLowerCase().includes(q));
+        ids.sort((a, b) => {
+          const nameA = (ITEMS[a]?.name ?? "").toLowerCase();
+          const nameB = (ITEMS[b]?.name ?? "").toLowerCase();
+          const pfxA = nameA.startsWith(q) ? 0 : 1;
+          const pfxB = nameB.startsWith(q) ? 0 : 1;
+          if (pfxA !== pfxB) return pfxA - pfxB;
+          return nameA.localeCompare(nameB);
+        });
+      } else {
+        ids.sort((a, b) => {
+          const itA = ITEMS[a], itB = ITEMS[b];
+          const typeOrder: Record<string, number> = { hp: 1, mp: 1, all: 1, recovery: 1, star: 2, arrow: 2, bullet: 2, buff: 3, cube: 4 };
+          const tA = typeOrder[itA?.type ?? ""] ?? 99;
+          const tB = typeOrder[itB?.type ?? ""] ?? 99;
+          if (tA !== tB) return tA - tB;
+          const powerA = (itA?.hp ?? 0) + (itA?.mp ?? 0) + (itA?.att ?? 0) * 10 + (itA?.hpPct ?? 0) * 100;
+          const powerB = (itB?.hp ?? 0) + (itB?.mp ?? 0) + (itB?.att ?? 0) * 10 + (itB?.hpPct ?? 0) * 100;
+          if (powerB !== powerA) return powerB - powerA;
+          return a - b;
+        });
+      }
       curCount = ids.length;
       for (const id of ids) {
         const it = ITEMS[id];
@@ -3548,32 +4112,54 @@ export class ExtWindows {
         const countHtml = isThrowable ? `<span class="cnt">∞</span>` : `<span class="cnt">${g.inv[id]}</span>`;
         grid += `<div class="gcell" data-use="${id}" ${this.tip("u" + id, () => renderUseTooltip(id, g.inv[id] ?? 0))}>${icon(itemIcon(id), "ic grab")}${countHtml}</div>`;
       }
-      const targetPad = Math.max(32, Math.ceil(ids.length / 4) * 4 + 8);
+      const targetPad = Math.max(32, Math.ceil(ids.length / 8) * 8);
       for (let i = ids.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
     } else if (tab === "etc") {
       let entries = Object.entries(g.mats).filter(([_, n]) => n > 0);
-      if (q) entries = entries.filter(([id]) => (MATS.get(+id) ?? "").toLowerCase().includes(q));
+      if (q) {
+        entries = entries.filter(([id]) => (MATS.get(+id) ?? "").toLowerCase().includes(q));
+        entries.sort(([idA], [idB]) => {
+          const nameA = (MATS.get(+idA) ?? "").toLowerCase();
+          const nameB = (MATS.get(+idB) ?? "").toLowerCase();
+          const pfxA = nameA.startsWith(q) ? 0 : 1;
+          const pfxB = nameB.startsWith(q) ? 0 : 1;
+          if (pfxA !== pfxB) return pfxA - pfxB;
+          return nameA.localeCompare(nameB);
+        });
+      } else {
+        entries.sort(([idA], [idB]) => Number(idA) - Number(idB));
+      }
       curCount = entries.length;
       for (const [id, n] of entries) {
         grid += `<div class="gcell" data-mat="${id}" ${this.tip("m" + id, () => renderMatTooltip(+id, n))}>${icon(matIcon(+id))}<span class="cnt">${n}</span></div>`;
       }
-      const targetPad = Math.max(32, Math.ceil(entries.length / 4) * 4 + 8);
+      const targetPad = Math.max(32, Math.ceil(entries.length / 8) * 8);
       for (let i = entries.length; i < targetPad; i++) grid += `<div class="gcell blank"></div>`;
     } else if (tab === "cash" || tab === "dec") {
       let bag = g.bag.filter((it) => {
         const b = GEAR.get(it.id);
         return Boolean(b?.cosmetic || b?.cash);
       });
-      if (q) bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
+      if (q) {
+        bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
+        bag.sort((a, b) => {
+          const nameA = (GEAR.get(a.id)?.name ?? "").toLowerCase();
+          const nameB = (GEAR.get(b.id)?.name ?? "").toLowerCase();
+          const pfxA = nameA.startsWith(q) ? 0 : 1;
+          const pfxB = nameB.startsWith(q) ? 0 : 1;
+          if (pfxA !== pfxB) return pfxA - pfxB;
+          return nameA.localeCompare(nameB);
+        });
+      }
       curCount = bag.length;
       const maxSlot = bag.reduce((m, it) => Math.max(m, it.slot ?? 0), 0);
-      const targetPad = Math.max(32, Math.ceil((maxSlot + 1) / 4) * 4);
+      const targetPad = Math.max(32, Math.ceil((q ? bag.length : maxSlot + 1) / 8) * 8);
       for (let i = 0; i < targetPad; i++) {
-        const it = bag.find((x) => x.slot === i);
+        const it = q ? bag[i] : bag.find((x) => x.slot === i);
         if (it) {
-          grid += `<div class="gcell r${it.rarity}" data-act="equip-visual" data-uid="${it.uid}" data-slot-idx="${i}" data-is-cash="1" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to equip as visual cosmetic · drag to move anywhere · right-click for actions"))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
+          grid += `<div class="gcell r${it.rarity}" data-act="equip-visual" data-uid="${it.uid}" data-slot-idx="${it.slot ?? i}" data-is-cash="1" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to equip as visual cosmetic · drag to move anywhere · right-click for actions"))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
         } else {
-          grid += `<div class="gcell blank" data-slot-idx="${i}" data-is-cash="1" title="Empty cash slot ${i + 1} (drop items here)"></div>`;
+          grid += `<div class="gcell blank" data-slot-idx="${i}" data-is-cash="1"></div>`;
         }
       }
     } else {
@@ -3588,10 +4174,9 @@ export class ExtWindows {
       <div class="inv-sub-bar">
         <div class="inv-sub-actions">
           <button type="button" class="inv-pill-btn cyan" data-act="sort"><span class="inv-ico">${lucideIcon("sort", 12)}</span> Sort</button>
+          <button type="button" class="inv-pill-btn emerald" data-act="auto-equip" title="Equip highest Combat Power (CP) gear for your class"><span class="inv-ico">${lucideIcon("zap", 12)}</span> Equip Best</button>
           <button type="button" class="inv-pill-btn slate" data-act="lock"><span class="inv-ico">${lucideIcon("lock", 12)}</span> Lock</button>
-          <button type="button" class="inv-pill-btn red" data-act="drop-mode" title="Drag item outside window or right-click to drop on ground"><span class="inv-ico">${lucideIcon("trash", 12)}</span> Drop Item</button>
         </div>
-        <button type="button" class="inv-plus-slot" title="Infinite Bag Storage Enabled">∞ SLOTS</button>
       </div>
       <div class="inv-grid-wrap">
         <div class="inv-grid">${grid}</div>
@@ -3752,7 +4337,10 @@ export class ExtWindows {
       const all: { g: Gear; where: string }[] = [
         ...SLOTS.map((s) => g.eq[s]).filter((x): x is Gear => !!x).map((x) => ({ g: x, where: "Equipped" })),
         ...g.bag.map((x) => ({ g: x, where: "Inventory" })),
-      ];
+      ].filter((x) => {
+        const b = GEAR.get(x.g.id);
+        return !b?.cosmetic && !b?.cash && !x.g.cosmetic && !x.g.cash;
+      });
       if (!this.pick || !all.some((x) => x.g.uid === this.pick)) this.pick = all[0]?.g.uid ?? null;
       const sel = all.find((x) => x.g.uid === this.pick)?.g;
       const list = all.map((x) => `<div class="pickc ${x.g.uid === this.pick ? "on" : ""}">${this.gearCell(x.g, "pick", x.where)}</div>`).join("");
@@ -3810,35 +4398,123 @@ export class ExtWindows {
       .map(([t, l]) => `<span data-act="ahtab" data-v="${t}" class="${t === tab ? "on" : ""}">${l}</span>`).join("");
     let html = "";
     if (tab === "browse") {
-      if (!ah.listings.length) ah.refresh(Date.now());
       const f = this.ahFilter;
       const chips = ([["all", "All"], ["gear", "Equipment"], ["mat", "Materials"], ["use", "Consumables"]] as const)
         .map(([k, l]) => `<span data-act="ahfilter" data-v="${k}" class="chip ${k === f ? "on" : ""}">${l}</span>`).join("");
       const rows = ah.listings.filter((l) => f === "all" || l.goods.t === f).map((l) => {
-        const v = goodsValue(l.goods), deal = l.price / v;
-        const tag = deal < 0.9 ? `<span class="deal good">${Math.round((1 - deal) * 100)}% below market</span>` : deal > 1.2 ? `<span class="deal bad">${Math.round((deal - 1) * 100)}% above</span>` : `<span class="deal">fair price</span>`;
         const req = l.goods.t === "gear" ? GEAR.get(l.goods.gear.id)?.req ?? 0 : 0;
-        return `<div class="ah-row">${this.goodsCell(l.goods, "ah" + l.lid)}<div class="xinfo">${this.goodsLabel(l.goods)}<small>${esc(l.seller)}${req ? ` · Lv ${req}` : ""} · ${tag}</small></div>
-          <div class="ah-price">${fmt(l.price)}<small>mesos</small></div><button type="button" class="xbtn" data-act="buy" data-v="${l.lid}" ${g.stats.meso >= l.price ? "" : "disabled"}>Buy</button></div>`;
+        const durLeft = Math.max(0, Math.ceil((l.until - Date.now()) / (3600 * 1000)));
+        const durLabel = durLeft > 0 ? `${durLeft}h left` : "Expiring";
+        const isOwnListing = Boolean(l.seller && g.stats.name && l.seller.toLowerCase() === g.stats.name.toLowerCase());
+
+        let priceHtml = "";
+        let buttonsHtml = "";
+
+        if (l.currency === "both") {
+          priceHtml = `
+            <div class="ah-price text-right leading-tight min-w-[70px]">
+              <div class="text-amber-300 font-bold text-xs font-mono">${fmt(l.price)} <small class="text-[9px] text-amber-200/70">M</small></div>
+              <div class="text-pink-300 font-bold text-xs font-mono">${fmt(l.priceNx ?? 0)} <small class="text-[9px] text-pink-200/70">NX</small></div>
+            </div>`;
+          buttonsHtml = isOwnListing
+            ? `<button type="button" class="xbtn text-[10px] py-0.5 px-1.5" data-act="collect" data-v="${l.lid}">Cancel</button>`
+            : `
+            <div class="flex flex-col gap-1">
+              <button type="button" class="xbtn text-[10px] py-0.5 px-1.5" data-act="buy" data-v="${l.lid}" data-pay="meso" ${g.stats.meso >= l.price ? "" : "disabled"}>Buy (Meso)</button>
+              <button type="button" class="xbtn text-[10px] py-0.5 px-1.5 gold" data-act="buy" data-v="${l.lid}" data-pay="nx" ${(g.stats.nx ?? 0) >= (l.priceNx ?? 0) ? "" : "disabled"}>Buy (NX)</button>
+            </div>`;
+        } else if (l.currency === "nx") {
+          const nxP = l.priceNx ?? l.price;
+          priceHtml = `<div class="ah-price text-pink-300 font-bold text-xs font-mono min-w-[70px]">${fmt(nxP)} <small class="text-pink-300/80">NX</small></div>`;
+          buttonsHtml = isOwnListing
+            ? `<button type="button" class="xbtn" data-act="collect" data-v="${l.lid}">Cancel</button>`
+            : `<button type="button" class="xbtn gold" data-act="buy" data-v="${l.lid}" data-pay="nx" ${(g.stats.nx ?? 0) >= nxP ? "" : "disabled"}>Buy (NX)</button>`;
+        } else {
+          priceHtml = `<div class="ah-price text-amber-300 font-bold text-xs font-mono min-w-[70px]">${fmt(l.price)} <small class="text-amber-300/80">mesos</small></div>`;
+          buttonsHtml = isOwnListing
+            ? `<button type="button" class="xbtn" data-act="collect" data-v="${l.lid}">Cancel</button>`
+            : `<button type="button" class="xbtn" data-act="buy" data-v="${l.lid}" data-pay="meso" ${g.stats.meso >= l.price ? "" : "disabled"}>Buy</button>`;
+        }
+
+        return `<div class="ah-row items-center gap-2 py-1 px-1 border-b border-zinc-700/40">
+          ${this.goodsCell(l.goods, "ah" + l.lid)}
+          <div class="xinfo flex-1 min-w-0">
+            ${this.goodsLabel(l.goods)}
+            <small class="text-[10px] text-zinc-400 block truncate">${esc(l.seller)}${req ? ` · Lv ${req}` : ""} · <span class="text-zinc-300 font-medium">${durLabel}</span></small>
+          </div>
+          ${priceHtml}
+          ${buttonsHtml}
+        </div>`;
       }).join("");
-      html = `<div class="ah-bar">${chips}<button type="button" class="xbtn" data-act="ahrefresh" title="Fetch new listings (100 mesos)">Refresh · 100</button></div><div class="xlist ah">${rows || "<p class='xnote'>No listings.</p>"}</div>`;
+      html = `<div class="ah-bar">${chips}</div><div class="xlist ah">${rows || "<p class='xnote'>No player listings available.</p>"}</div>`;
     } else if (tab === "sell") {
       const rows: string[] = [];
       const row = (key: string, x: Goods) => {
         const v = goodsValue(x);
-        rows.push(`<div class="ah-row">${this.goodsCell(x, "s" + key)}<div class="xinfo">${this.goodsLabel(x)}<small>Market ≈ ${fmt(v)} · NPC ${x.t === "gear" ? fmt(npcSellPrice(x.gear)) : "—"}</small></div>
-          <input type="number" min="1" step="1" value="${v}" aria-label="Price in mesos"><button type="button" class="xbtn" data-act="list" data-v="${key}">List</button></div>`);
+        const nxEst = Math.max(100, Math.round(v / 100));
+        rows.push(`<div class="ah-row items-center gap-1.5 py-1 px-1 border-b border-zinc-700/50">
+          ${this.goodsCell(x, "s" + key)}
+          <div class="xinfo flex-1 min-w-0">
+            ${this.goodsLabel(x)}
+            <small class="text-[10px] text-zinc-400 block truncate">Market ≈ ${fmt(v)} · NPC ${x.t === "gear" ? fmt(npcSellPrice(x.gear)) : "—"}</small>
+          </div>
+          <select class="ah-curr-sel text-[11px] bg-zinc-800 text-zinc-200 border border-zinc-600 rounded px-1 py-1" title="Currency">
+            <option value="meso">Mesos</option>
+            <option value="nx">NX</option>
+            <option value="both">Both</option>
+          </select>
+          <select class="ah-dur-sel text-[11px] bg-zinc-800 text-zinc-200 border border-zinc-600 rounded px-1 py-1" title="Listing Duration">
+            <option value="12">12h</option>
+            <option value="24" selected>24h</option>
+          </select>
+          <div class="flex items-center gap-1">
+            <input type="number" min="1" step="1" class="ah-price-meso w-20 px-1.5 py-1 text-xs bg-zinc-900 border border-zinc-600 rounded text-amber-300 font-mono" value="${v}" placeholder="Mesos" title="Price in mesos">
+            <input type="number" min="1" step="1" class="ah-price-nx w-16 px-1.5 py-1 text-xs bg-zinc-900 border border-zinc-600 rounded text-pink-300 font-mono" style="display:none;" value="${nxEst}" placeholder="NX" title="Price in NX">
+          </div>
+          <button type="button" class="xbtn py-1 px-2.5" data-act="list" data-v="${key}">List</button>
+        </div>`);
       };
       for (const it of [...g.bag].sort((a, b) => gearValue(b) - gearValue(a))) row(`g:${it.uid}`, { t: "gear", gear: it });
       for (const [id, n] of Object.entries(g.mats)) if (n > 0) row(`m:${id}`, { t: "mat", id: +id, n: Math.min(100, n) });
       for (const [id, n] of Object.entries(g.inv)) if (n > 0) row(`u:${id}`, { t: "use", id: +id, n: Math.min(100, n) });
-      html = `<p class="xnote">Price below market to sell fast. Listing fee 1% · sales tax ${AH_TAX * 100}%. Buyers shop while you play.</p><div class="xlist ah tall">${rows.join("") || "<p class='xnote'>Nothing to sell.</p>"}</div>`;
+      html = `<p class="xnote text-xs text-zinc-400 mb-1.5">List items for 12h or 24h. Choose Mesos, NX, or Both. Listing fee: 1% mesos or 100 NX · 5% sales tax.</p><div class="xlist ah tall">${rows.join("") || "<p class='xnote'>Nothing to sell.</p>"}</div>`;
     } else {
-      const rows = ah.mine.map((m) => `<div class="ah-row">${this.goodsCell(m.goods, "my" + m.lid)}<div class="xinfo">${this.goodsLabel(m.goods)}<small>${m.sold ? `<span class="deal good">SOLD · you receive ${fmt(m.price * (1 - AH_TAX))}</span>` : `Waiting for a buyer · listed ${dur((Date.now() - m.listedAt) / 1000)} ago`}</small></div>
-        <div class="ah-price">${fmt(m.price)}<small>mesos</small></div><button type="button" class="xbtn ${m.sold ? "gold" : ""}" data-act="collect" data-v="${m.lid}">${m.sold ? "Collect" : "Cancel"}</button></div>`).join("");
+      const rows = ah.mine.map((m) => {
+        const durLeft = Math.max(0, Math.ceil((m.until - Date.now()) / (3600 * 1000)));
+        const isExpired = Date.now() > m.until && !m.sold;
+        let statusText = "";
+        if (m.sold) {
+          const isNx = m.soldCurrency === "nx";
+          const net = isNx ? Math.floor((m.priceNx ?? m.price) * (1 - AH_TAX)) : Math.floor(m.price * (1 - AH_TAX));
+          statusText = `<span class="deal good">SOLD · Receive ${fmt(net)} ${isNx ? "NX" : "mesos"}</span>`;
+        } else if (isExpired) {
+          statusText = `<span class="text-rose-400 font-medium">EXPIRED (${m.durationHours}h) · reclaim item</span>`;
+        } else {
+          statusText = `<span class="text-zinc-400">Listed · ${durLeft}h left (${m.durationHours}h duration)</span>`;
+        }
+
+        let priceHtml = "";
+        if (m.currency === "both") {
+          priceHtml = `<div class="ah-price text-right leading-tight min-w-[70px]"><div class="text-amber-300 font-semibold text-xs font-mono">${fmt(m.price)} <small>M</small></div><div class="text-pink-300 font-semibold text-xs font-mono">${fmt(m.priceNx ?? 0)} <small>NX</small></div></div>`;
+        } else if (m.currency === "nx") {
+          priceHtml = `<div class="ah-price text-pink-300 font-semibold text-xs font-mono min-w-[70px]">${fmt(m.priceNx ?? m.price)} <small>NX</small></div>`;
+        } else {
+          priceHtml = `<div class="ah-price text-amber-300 font-semibold text-xs font-mono min-w-[70px]">${fmt(m.price)} <small>mesos</small></div>`;
+        }
+
+        return `<div class="ah-row items-center gap-2 py-1 px-1 border-b border-zinc-700/40">
+          ${this.goodsCell(m.goods, "my" + m.lid)}
+          <div class="xinfo flex-1 min-w-0">
+            ${this.goodsLabel(m.goods)}
+            <small class="text-[10px] block truncate">${statusText}</small>
+          </div>
+          ${priceHtml}
+          <button type="button" class="xbtn ${m.sold ? "gold" : isExpired ? "warn" : ""}" data-act="collect" data-v="${m.lid}">${m.sold ? "Collect" : isExpired ? "Reclaim" : "Cancel"}</button>
+        </div>`;
+      }).join("");
       html = `<div class="xlist ah tall">${rows || "<p class='xnote'>You have no listings. Sell items from the SELL tab.</p>"}</div>`;
     }
-    body.innerHTML = `<div class="xtabs">${tabs}</div>${html}<div class="inv-foot"><span class="tip-dim">${ah.listings.length} listings on the market</span><span class="meso">${fmt(g.stats.meso)}</span></div>`;
+    body.innerHTML = `<div class="xtabs">${tabs}</div>${html}<div class="inv-foot flex items-center justify-between"><span class="tip-dim">${ah.listings.length} listings</span><div class="flex items-center gap-3"><span class="text-pink-300 text-xs font-mono font-semibold">NX: ${fmt(g.stats.nx ?? 0)}</span><span class="meso">${fmt(g.stats.meso)}</span></div></div>`;
   }
 
   // ------------------------------------------------------------- offline rewards
@@ -3898,11 +4574,18 @@ export class ExtWindows {
   renderHud() {
     const g = this.w.game, s = g.stage, need = g.stageNeed;
     const ready = g.bossReady();
-    const sig = `${s.n}|${s.kills}|${ready}|${!!g.boss}|${g.bossLoading}|${g.combatPower()}|${g.auto.boss}`;
+    const reqSf = g.requiredStarForce(s.n);
+    const playerSf = g.totalStarForce();
+    const sfMul = g.starForceMultiplier(playerSf, reqSf).dmgMul;
+    const sfColor = sfMul >= 1.5 ? "#34d399" : sfMul >= 1.0 ? "#facc15" : "#f87171";
+    const sfTag = reqSf > 0 ? `<span class="st-sf" style="color:${sfColor};font-weight:700;margin-left:4px;" title="Star Force: Deal ${Math.round(sfMul * 100)}% DMG (150% at 1.5x requirement)">★${playerSf}/${reqSf}</span>` : "";
+    const runeDur = g.runeBuff ? Math.ceil(g.runeBuff.timeLeft) : 0;
+    const sig = `${s.n}|${s.kills}|${ready}|${!!g.boss}|${g.bossLoading}|${g.combatPower()}|${g.auto.boss}|${playerSf}|${reqSf}|${runeDur}`;
     if (sig !== this.sig.hud) {
       this.sig.hud = sig;
       const bossName = (g.mobData.get(g.bossFor())?.name ?? "Stage Boss").trim();
-      this.stageHud.innerHTML = `<div class="st-top"><span class="st-n">STAGE ${s.n}</span><span class="st-cp">CP ${fmt(g.combatPower())}</span></div>
+      this.stageHud.innerHTML = `<div class="st-top"><span class="st-n">STAGE ${s.n} ${sfTag}</span><span class="st-cp">CP ${fmt(g.combatPower())}</span></div>
+        ${g.runeBuff ? `<div class="st-buff-row" style="display:flex;justify-content:center;font-size:10px;font-weight:700;color:#c084fc;background:rgba(168,85,247,0.12);border-radius:4px;padding:2px 4px;margin-bottom:2px;">✦ LIBERATED RUNE (${g.runeBuff.type.toUpperCase()}: +100% EXP · ${runeDur}s)</div>` : ""}
         <div class="st-bar"><div class="st-fill" style="width:${Math.min(100, (s.kills / need) * 100)}%"></div><span>${g.boss ? "BOSS BATTLE" : `${Math.min(s.kills, need)} / ${need}`}</span></div>
         <div class="st-actions">
           <button type="button" class="auto-boss-toggle ${g.auto.boss ? "on" : ""}" title="Toggle Auto Boss Challenge"><span class="auto-dot"></span>AUTO BOSS: ${g.auto.boss ? "ON" : "OFF"}</button>
@@ -3927,21 +4610,24 @@ export class ExtWindows {
     const run = (k: string, e: HTMLElement, sig: () => string, f: () => void) => {
       if (!vis(e)) return;
       const s = sig();
-      if (s !== this.sig[k]) { this.sig[k] = s; this.tips.clear(); f(); }
+      if (s !== this.sig[k]) { this.sig[k] = s; f(); }
     };
     // Don't re-render while the user is typing a price.
     const typing = document.activeElement?.closest("#ah-win") && document.activeElement?.tagName === "INPUT";
-    run("eq", this.equipWin, () => JSON.stringify([g.eq, g.visualEq, this.equipTab, g.stats.level, g.look, g.stats.maxHp, g.buffs["1101006"] ? 1 : 0]), () => this.renderEquip());
+    run("eq", this.equipWin, () => JSON.stringify([g.eq, g.visualEq, this.equipTab, g.stats.level, g.look, g.stats.maxHp, g.damageSkin, g.buffs["1101006"] ? 1 : 0]), () => this.renderEquip());
     run("inv", this.invWin, () => JSON.stringify([this.invTab.cur, g.bag.length, g.bag.map((b) => b.uid + b.star + b.rarity).join(), g.inv, g.mats, g.stats.meso, g.stats.level]), () => this.renderInv());
     run("craft", this.craftWin, () => JSON.stringify([this.craftTab.cur, this.pick, this.lastResult, g.mats, g.stats.meso, g.stats.level, g.bag.length, g.eq, g.bag.map((b) => b.uid + b.star + b.rarity).join()]), () => this.renderCraft());
-    if (!typing) run("ah", this.ahWin, () => JSON.stringify([this.ahTab.cur, this.ahFilter, g.ah.listings.length, g.ah.listings[0]?.lid, g.ah.mine.map((m) => m.lid + m.sold), g.stats.meso, this.ahTab.cur === "sell" ? [g.bag.length, g.mats, g.inv] : 0, this.ahTab.cur === "mine" ? Math.floor(Date.now() / 30000) : 0]), () => this.renderAh());
+    if (!typing) run("ah", this.ahWin, () => JSON.stringify([this.ahTab.cur, this.ahFilter, g.ah.listings.length, g.ah.listings[0]?.lid, g.ah.mine.map((m) => m.lid + m.sold), g.stats.meso, g.stats.nx, this.ahTab.cur === "sell" ? [g.bag.length, g.mats, g.inv] : 0, this.ahTab.cur === "mine" ? Math.floor(Date.now() / 30000) : 0]), () => this.renderAh());
 
     // Character preview idle animation inside equipment window
     if (vis(this.equipWin)) {
+      const activeWeapon = g.visualEq.weapon ?? g.eq.weapon;
+      const weaponId = activeWeapon ? activeWeapon.id : 0;
+      const standAnim = weaponId ? getWeaponStandAnim(weaponId) : "stand1";
       const f = Math.floor(Date.now() / 500) % 3;
       const img = this.equipWin.querySelector<HTMLImageElement>(".eprev-char");
       if (img) {
-        const url = charUrlFor(g.look, "stand1", f);
+        const url = charUrlFor(g.look, standAnim, f);
         if (img.getAttribute("src") !== url) {
           img.src = url;
           this.equipAnimFrame = f;

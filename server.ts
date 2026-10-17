@@ -84,11 +84,18 @@ const jsonNoStore = (v: unknown, status = 200) =>
   Response.json(v, { status, headers: { "cache-control": "no-store" } });
 function pngResponse(png: Buffer | null, what: string): Response {
   if (!png)
-    return Response.json({ error: `no canvas at ${what}` }, { status: 404 });
+    return Response.json(
+      { error: `no canvas at ${what}` },
+      { status: 404, headers: { "cache-control": "no-store, no-cache, must-revalidate", "access-control-allow-origin": "*" } },
+    );
   // Wrap in a Uint8Array view: Bun's Response accepts it as BodyInit, and the
   // Buffer may be a view into a larger allocation.
   return new Response(new Uint8Array(png), {
-    headers: { "content-type": "image/png", "cache-control": "no-store" },
+    headers: {
+      "content-type": "image/png",
+      "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
+      "access-control-allow-origin": "*",
+    },
   });
 }
 /** Wrap a handler so a thrown WZ error becomes a 500 JSON body. */ function guard<
@@ -96,9 +103,14 @@ function pngResponse(png: Buffer | null, what: string): Response {
 >(fn: T) {
   return async (...args: Parameters<T>): Promise<Response> => {
     try {
-      return await fn(...args);
+      const res = await fn(...args);
+      res.headers.set("access-control-allow-origin", "*");
+      return res;
     } catch (e) {
-      return Response.json({ error: (e as Error).message }, { status: 500 });
+      return Response.json(
+        { error: (e as Error).message },
+        { status: 500, headers: { "cache-control": "no-store, no-cache, must-revalidate", "access-control-allow-origin": "*" } },
+      );
     }
   };
 }
@@ -190,15 +202,18 @@ function mobData(s: SpriteStore, id: number) {
     if (info instanceof WzSubProperty)
       for (const c of info.children()) meta[c.name] = (c as any).value ?? null;
     const strings = s.files("String")[0];
-    let name = sid;
+    let name = "";
     if (strings) {
       const mi = strings.root.images.get("Mob.img");
       if (mi) {
-        const e = mi.parse().child(sid);
+        const parsed = mi.parse();
+        const unpadded = String(Number(id));
+        const e = parsed.child(unpadded) ?? parsed.child(sid) ?? parsed.child(String(id));
         if (e instanceof WzSubProperty)
-          name = String((e.child("name") as any)?.value ?? sid);
+          name = String((e.child("name") as any)?.value ?? "");
       }
     }
+    if (!name) name = sid;
     return { id, name, meta, books };
   }
   return null;
@@ -247,6 +262,22 @@ function mapBounds(m: MapStore, id: number): {
   const ox = -minX + pad;
   const oy = -minY + pad;
   return { w, h, ox, oy };
+}
+const serverMapNameCache = new Map<number, string>();
+function getMapName(s: SpriteStore, id: number): string {
+  if (serverMapNameCache.has(id)) return serverMapNameCache.get(id)!;
+  try {
+    const m = getMaps(s);
+    const strings = s.files("String")[0] ?? null;
+    const { name } = m.name(id, strings);
+    if (name) {
+      serverMapNameCache.set(id, name);
+      return name;
+    }
+  } catch {}
+  const fallback = id === 910000000 ? "Free Market Entrance" : id === 100010000 ? "The Hill North of Henesys" : id === 100020000 ? "Spore Hill" : id === 101010000 ? "Shining Forest Path" : id === 100000000 ? "Henesys" : `Map ${id}`;
+  serverMapNameCache.set(id, fallback);
+  return fallback;
 }
 function mapData(s: SpriteStore, id: number) {
   const m = getMaps(s);
@@ -645,14 +676,48 @@ function itemsData(s: SpriteStore) {
   const gear: any[] = [];
   const mats: { id: number; name: string }[] = [];
   const strings = s.files("String")[0];
-  let eqNames: WzSubProperty | null = null;
-  let itemNames: WzSubProperty | null = null;
+  const nameMap: Record<number, string> = {};
+
+  const loadSubProps = (prop: WzSubProperty | null | undefined) => {
+    if (!prop) return;
+    for (const c of prop.children()) {
+      if (c instanceof WzSubProperty) {
+        const n = c.child("name");
+        if (n instanceof WzStringProperty && n.str && !/^\d+$/.test(n.str)) {
+          const idNum = Number(c.name);
+          if (Number.isFinite(idNum)) {
+            nameMap[idNum] = n.str;
+          }
+        }
+      }
+    }
+  };
+
   if (strings) {
     const eq = strings.root.images.get("Eqp.img");
-    if (eq) eqNames = eq.parse();
-    const it = strings.root.images.get("Item.img");
-    if (it) itemNames = it.parse();
+    if (eq) {
+      const eqp = eq.parse().child("Eqp");
+      if (eqp instanceof WzSubProperty) {
+        for (const cat of eqp.children()) {
+          if (cat instanceof WzSubProperty) loadSubProps(cat);
+        }
+      }
+    }
+    const consume = strings.root.images.get("Consume.img");
+    if (consume) loadSubProps(consume.parse());
+    const etc = strings.root.images.get("Etc.img");
+    if (etc) {
+      const etcChild = etc.parse().child("Etc");
+      if (etcChild instanceof WzSubProperty) loadSubProps(etcChild);
+    }
+    const ins = strings.root.images.get("Ins.img");
+    if (ins) loadSubProps(ins.parse());
+    const cash = strings.root.images.get("Cash.img");
+    if (cash) loadSubProps(cash.parse());
+    const pet = strings.root.images.get("Pet.img");
+    if (pet) loadSubProps(pet.parse());
   }
+
   const slotFor = (cat: string): string => {
     const map: Record<string, string> = {
       Cap: "hat",
@@ -671,7 +736,7 @@ function itemsData(s: SpriteStore) {
     };
     return map[cat] ?? cat.toLowerCase();
   };
-  // Equip name lookup from String.wz: Eqp.img -> Eqp -> <cat> -> <7-digit id> -> name
+
   const KNOWN_EQUIP_NAMES: Record<number, string> = {
     1004644: "Royal Ruby Feather Turban",
     1004645: "Royal Emerald Feather Turban",
@@ -680,36 +745,7 @@ function itemsData(s: SpriteStore) {
     1004648: "Royal Violet Feather Turban",
     1004649: "Royal Obsidian Feather Turban",
   };
-  let nameMap: Record<string, string> = {};
-  if (eqNames) {
-    const eqpCat = eqNames.child("Eqp");
-    if (eqpCat instanceof WzSubProperty) {
-      for (const cat of [
-        "Cap",
-        "Coat",
-        "Longcoat",
-        "Pants",
-        "Shoes",
-        "Glove",
-        "Shield",
-        "Cape",
-        "Weapon",
-        "Accessory",
-        "Ring",
-      ]) {
-        const strCat = eqpCat.child(cat);
-        if (strCat instanceof WzSubProperty) {
-          for (const entry of strCat.children()) {
-            if (entry instanceof WzSubProperty) {
-              const n = entry.child("name");
-              if (n instanceof WzStringProperty)
-                nameMap[entry.name] = n.str ?? entry.name;
-            }
-          }
-        }
-      }
-    }
-  }
+
   for (const f of s.files("Character")) {
     for (const [cat, dir] of f.root.subdirs) {
       if (
@@ -744,13 +780,14 @@ function itemsData(s: SpriteStore) {
         const v = (k: string) => (info.child(k) as any)?.value ?? 0;
         const icon = resolveUol(info.child("icon"));
         if (!(icon instanceof WzCanvasProperty)) continue;
-        const rawName = nameMap[String(id).replace(/^0+/, "") || "0"];
-        const equipName = KNOWN_EQUIP_NAMES[id] ?? (rawName && !/^\d+$/.test(rawName) ? rawName : null) ?? `${cat} #${id}`;
+        const rawName = nameMap[id] ?? KNOWN_EQUIP_NAMES[id];
+        const equipName = rawName && !/^\d+$/.test(rawName) ? rawName : `${cat} #${id}`;
         gear.push({
           id,
           name: equipName,
           slot: slotFor(cat),
           req: Number(v("reqLevel") || 0),
+          reqJob: Number(v("reqJob") || 0),
           watk: Number(v("incPAD") || 0),
           str: Number(v("incSTR") || 0),
           dex: Number(v("incDEX") || 0),
@@ -765,6 +802,7 @@ function itemsData(s: SpriteStore) {
       }
     }
   }
+
   const matDirs = ["Etc", "Consume", "Install", "Special", "Cash", "Pet"];
   for (const dirName of matDirs) {
     for (const f of s.files("Item")) {
@@ -786,19 +824,24 @@ function itemsData(s: SpriteStore) {
           const icon = resolveUol(info.child("icon"));
           if (!(icon instanceof WzCanvasProperty)) continue;
           let name = String((info.child("name") as any)?.value ?? "");
-          if (!name && itemNames) {
-            const cat = itemNames.child(dirName);
-            const hit = cat instanceof WzSubProperty ? cat.child(e.name) : null;
-            if (hit instanceof WzSubProperty)
-              name = String((hit.child("name") as any)?.value ?? "");
+          if (!name || /^\d+$/.test(name)) {
+            name = nameMap[id] ?? "";
           }
-          mats.push({ id, name: name || String(id) });
+          if (name && !/^\d+$/.test(name)) {
+            mats.push({ id, name });
+          }
         }
         img.root = null;
       }
     }
   }
+
   cachedItemsData = { gear, mats };
+  try {
+    const dir = join(ROOT, ".cache");
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(cachePath, JSON.stringify(cachedItemsData));
+  } catch {}
   return cachedItemsData;
 }
 let cachedSkillsData: any = null;
@@ -959,7 +1002,18 @@ function skillsData(
     info: WzSubProperty,
     key: import("./wz/reader.ts").WzKey | null,
   ) => {
-    const rawC = resolveUol(info.child(field));
+    // If requesting icon, try iconRaw first to eliminate pre-baked dark slot frames
+    const targetFields = (field === "icon" || field === "iconRaw")
+      ? ["iconRaw", "icon"]
+      : [field];
+    let rawC: WzProperty | null = null;
+    for (const f of targetFields) {
+      const child = resolveUol(info.child(f));
+      if (child instanceof WzCanvasProperty) {
+        rawC = child;
+        break;
+      }
+    }
     if (!(rawC instanceof WzCanvasProperty)) return null;
     const c = resolveCanvas(rawC, (cat, img) => s.image(cat, img)) ?? rawC;
     const realKey = c.image?.file?.reader?.key ?? key;
@@ -1777,9 +1831,19 @@ interface PlayerSession {
   job?: string;
   hp?: number;
   maxHp?: number;
+  mp?: number;
+  maxMp?: number;
   fps?: number;
   ping?: number;
   damageSkin?: number | string;
+  gmEffect?: boolean;
+  godMode?: boolean;
+  infiniteMp?: boolean;
+  oneHitKill?: boolean;
+  gmHide?: boolean;
+  autoCombat?: boolean;
+  speedMultiplier?: number;
+  isGm?: boolean;
 }
 
 const wsPlayers = new Map<any, PlayerSession>();
@@ -1870,7 +1934,7 @@ interface ServerGuild {
   level: number;
   gp: number;
   capacity: number;
-  emblem: { bgShape: number; bgColor: number; symbolShape: number; symbolColor: number };
+  emblem: { bgShape: number; bgColor: number; symbolShape: number; symbolColor: number; beamEffect?: string; beamMotion?: string };
   ranks: [string, string, string, string, string];
   members: ServerGuildMember[];
   createdAt: number;
@@ -2056,6 +2120,8 @@ function getPartyWithOnlineStatus(party: ServerParty): ServerParty {
         mapId: sess?.mapId ?? m.mapId,
         hp: sess?.hp ?? m.hp,
         maxHp: sess?.maxHp ?? m.maxHp,
+        mp: sess?.mp ?? m.mp,
+        maxMp: sess?.maxMp ?? m.maxMp,
         look: sess?.look ?? m.look,
       };
     }),
@@ -2108,6 +2174,75 @@ function broadcastPartyState(
   }
 }
 
+// ── Auction House Persistence & Real-time Player Listings ───────────────────
+interface ServerAuctionListing {
+  lid: string;
+  seller: string;
+  goods: any;
+  price: number;
+  priceNx?: number;
+  currency: "meso" | "nx" | "both";
+  durationHours: 12 | 24;
+  listedAt: number;
+  until: number;
+  sold: boolean;
+  soldCurrency?: "meso" | "nx";
+  buyer?: string;
+}
+
+const AUCTION_FILE = join(ROOT, ".cache", "auction.json");
+let auctionCache: Map<string, ServerAuctionListing> | null = null;
+
+function loadAuctions(): Map<string, ServerAuctionListing> {
+  if (auctionCache) return auctionCache;
+  auctionCache = new Map();
+  try {
+    if (existsSync(AUCTION_FILE)) {
+      const list: ServerAuctionListing[] = JSON.parse(readFileSync(AUCTION_FILE, "utf-8"));
+      for (const item of list) {
+        if (item && item.lid && item.seller) {
+          auctionCache.set(item.lid, item);
+        }
+      }
+    }
+  } catch {}
+  return auctionCache;
+}
+
+function saveAuctions() {
+  if (!auctionCache) return;
+  try {
+    mkdirSync(join(ROOT, ".cache"), { recursive: true });
+    writeFileSync(AUCTION_FILE, JSON.stringify([...auctionCache.values()], null, 2), "utf-8");
+  } catch {}
+}
+
+function getActiveAuctionListings(): ServerAuctionListing[] {
+  const all = loadAuctions();
+  const now = Date.now();
+  return [...all.values()]
+    .filter((l) => !l.sold && l.until > now)
+    .sort((a, b) => a.price - b.price);
+}
+
+function getSellerAuctionListings(sellerName: string): ServerAuctionListing[] {
+  const all = loadAuctions();
+  const sLow = (sellerName || "").trim().toLowerCase();
+  if (!sLow) return [];
+  return [...all.values()]
+    .filter((l) => l.seller.toLowerCase() === sLow)
+    .sort((a, b) => b.listedAt - a.listedAt);
+}
+
+function broadcastAuctionState() {
+  const active = getActiveAuctionListings();
+  for (const [c, p] of wsPlayers.entries()) {
+    try {
+      const mine = p.name ? getSellerAuctionListings(p.name) : [];
+      c.send(JSON.stringify({ t: "auction_update", listings: active, mine }));
+    } catch {}
+  }
+}
 
 const GUILD_MARK_BGS = Array.from({ length: 31 }, (_, i) => String(1000 + i).padStart(8, "0"));
 const GUILD_MARK_SYMBOLS: { cat: string; id: string }[] = [
@@ -2179,8 +2314,14 @@ function composeGuildEmblemPng(
 
 // ── SpacetimeDB Client Integration ─────────────────────────────────────────────
 let cachedSpacetimeUrl: string | null = null;
+let lastCheckTime = 0;
+
 async function getSpacetimeUrl(): Promise<string> {
-  if (cachedSpacetimeUrl) return cachedSpacetimeUrl;
+  const now = Date.now();
+  if (cachedSpacetimeUrl !== null && now - lastCheckTime < 5000) {
+    return cachedSpacetimeUrl;
+  }
+  lastCheckTime = now;
   const candidates = [
     process.env.SPACETIMEDB_URL,
     "http://127.0.0.1:3100",
@@ -2197,7 +2338,8 @@ async function getSpacetimeUrl(): Promise<string> {
       }
     } catch {}
   }
-  return process.env.SPACETIMEDB_URL || "http://127.0.0.1:3100";
+  cachedSpacetimeUrl = "http://127.0.0.1:3100";
+  return cachedSpacetimeUrl;
 }
 
 async function spacetimeSql(query: string): Promise<any[][]> {
@@ -2206,11 +2348,11 @@ async function spacetimeSql(query: string): Promise<any[][]> {
     method: "POST",
     headers: { "Content-Type": "text/plain" },
     body: query,
-    signal: AbortSignal.timeout(3000),
+    signal: AbortSignal.timeout(2500),
   });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err);
+    const errText = await res.text().catch(() => "");
+    throw new Error(`SpacetimeDB SQL failed (${res.status}): ${errText}`);
   }
   const data = await res.json();
   return data[0]?.rows ?? [];
@@ -2222,11 +2364,11 @@ async function spacetimeCall(reducer: string, args: any[]): Promise<boolean> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(args),
-    signal: AbortSignal.timeout(3000),
+    signal: AbortSignal.timeout(2500),
   });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err);
+    const errText = await res.text().catch(() => "");
+    throw new Error(`SpacetimeDB call ${reducer} failed (${res.status}): ${errText}`);
   }
   return true;
 }
@@ -2445,16 +2587,19 @@ const server = Bun.serve<{ id: string }>({
       const targetW = c?.width ?? Math.min(220, Math.round(Number((mini.child("width") as any)?.value ?? 220) / 16));
       const targetH = c?.height ?? Math.max(50, Math.round(Number((mini.child("height") as any)?.value ?? 120) / 16));
 
-      // Generate real-texture terrain minimap matching current in-game tiles and objects
+      // 1. Prefer authentic WZ solid platform drawing canvas (footholds, ladders, ground schematics)
+      if (c) {
+        return pngResponse(
+          canvasToPng(c, img.file.reader.key),
+          `map ${req.params.id} minimap`,
+        );
+      }
+
+      // 2. Fallback: generate terrain minimap if no solid drawing canvas exists in WZ
       const realPng = renderMinimapPng(getMaps(s), Number(req.params.id), s, targetW, targetH);
       if (realPng) return pngResponse(realPng, `map ${req.params.id} minimap`);
 
-      if (!c)
-        return Response.json({ error: "no minimap canvas" }, { status: 404 });
-      return pngResponse(
-        canvasToPng(c, img.file.reader.key),
-        `map ${req.params.id} minimap`,
-      );
+      return Response.json({ error: "no minimap canvas" }, { status: 404 });
     },
     "/wz/map/:id/render": guard((req) => {
       const s = getStore();
@@ -2492,6 +2637,7 @@ const server = Bun.serve<{ id: string }>({
       const url = new URL(req.url);
       const eq = url.searchParams.get("eq") ?? "";
       if (!eq) return Response.json({ error: "missing eq" }, { status: 400 });
+      const portrait = url.searchParams.get("portrait") === "1" || url.searchParams.get("head") === "1";
       return pngResponse(
         composeCharacter(
           s,
@@ -2501,6 +2647,7 @@ const server = Bun.serve<{ id: string }>({
           url.searchParams.get("flip") === "1",
           url.searchParams.get("expr") ?? "default",
           Number(url.searchParams.get("ef") ?? 0),
+          portrait,
         ),
         `char ${eq}`,
       );
@@ -2594,42 +2741,93 @@ const server = Bun.serve<{ id: string }>({
       const spacetimeUrl = await getSpacetimeUrl();
       let alive = false;
       try {
-        const res = await fetch(`${spacetimeUrl}/v1/ping`, { signal: AbortSignal.timeout(1000) });
+        const res = await fetch(`${spacetimeUrl}/v1/ping`, { signal: AbortSignal.timeout(500) });
         alive = res.ok;
       } catch {}
       return Response.json({
         spacetimedb: {
           url: spacetimeUrl,
           connected: alive,
+          remoteConnected: alive,
+          mode: "spacetimedb",
         },
         onlinePlayers: wsPlayers.size,
         activeMaps: new Set([...wsPlayers.values()].map((p) => p.mapId)).size,
       });
     },
     "/api/gm/players": async () => {
+      const s = getStore();
       const seen = new Set<string>();
       const playerList: any[] = [];
       for (const [_, p] of wsPlayers.entries()) {
-        const key = (p.username && p.username !== "guest" ? `u:${p.username.toLowerCase()}` : `n:${p.name.toLowerCase()}`);
+        const key = p.username ? `u:${p.username.toLowerCase()}` : `n:${p.name.toLowerCase()}`;
         if (seen.has(key)) continue;
         seen.add(key);
+        const mapName = s ? getMapName(s, p.mapId) : `Map ${p.mapId}`;
         playerList.push({
           id: p.id,
           name: p.name,
+          level: p.level || 1,
+          job: p.job || "Beginner",
           mapId: p.mapId,
+          mapName,
           x: p.x,
           y: p.y,
           anim: p.anim,
           frame: p.frame,
           face: p.face,
           look: p.look,
+          online: true,
+          gmEffect: Boolean(p.gmEffect),
+          godMode: Boolean(p.godMode),
+          infiniteMp: Boolean(p.infiniteMp),
+          oneHitKill: Boolean(p.oneHitKill),
+          gmHide: Boolean(p.gmHide),
+          autoCombat: Boolean(p.autoCombat),
+          speedMultiplier: Number(p.speedMultiplier || 1),
+          isGm: Boolean(p.isGm),
         });
       }
+
       return Response.json({
         ok: true,
         onlineCount: playerList.length,
         activeMaps: new Set(playerList.map((p) => p.mapId)).size,
         players: playerList,
+      });
+    },
+    "/api/players/suggest": async () => {
+      const byName = new Map<string, { name: string; level: number; job: string; online: boolean }>();
+      for (const [_, p] of wsPlayers.entries()) {
+        if (!p.name) continue;
+        byName.set(p.name.toLowerCase(), {
+          name: p.name,
+          level: p.level || 1,
+          job: p.job || "Beginner",
+          online: true,
+        });
+      }
+      try {
+        const rows = await spacetimeSql(`SELECT name, class_id, level FROM character;`);
+        for (const r of rows) {
+          const name = String(r[0] || "").trim();
+          if (!name) continue;
+          const key = name.toLowerCase();
+          if (!byName.has(key)) {
+            const rawJob = String(r[1] || "Beginner");
+            const job = rawJob.charAt(0).toUpperCase() + rawJob.slice(1);
+            byName.set(key, {
+              name,
+              level: Number(r[2]) || 1,
+              job,
+              online: false,
+            });
+          }
+        }
+      } catch {}
+      return Response.json({
+        ok: true,
+        players: Array.from(byName.values()),
       });
     },
     "/api/gm/action": async (req: any) => {
@@ -2644,6 +2842,25 @@ const server = Bun.serve<{ id: string }>({
           const noticeMsg = JSON.stringify({ t: "chat", kind: "notice", text: `[GM Notice] ${text}` });
           for (const [c] of wsPlayers) {
             try { c.send(noticeMsg); } catch {}
+          }
+          return Response.json({ ok: true });
+        }
+
+        if (action === "heal_all") {
+          const healMsg = JSON.stringify({ t: "gm_heal", reason: "Server-wide GM Blessing" });
+          for (const [c] of wsPlayers) {
+            try { c.send(healMsg); } catch {}
+          }
+          return Response.json({ ok: true });
+        }
+
+        if (action === "cleardrops") {
+          const mapId = Number(body.mapId || 0);
+          const dropMsg = JSON.stringify({ t: "clear_drops", mapId });
+          for (const [c, s] of wsPlayers) {
+            if (!mapId || s.mapId === mapId) {
+              try { c.send(dropMsg); } catch {}
+            }
           }
           return Response.json({ ok: true });
         }
@@ -2668,11 +2885,102 @@ const server = Bun.serve<{ id: string }>({
             targetWs.close(1000, "Kicked by GM");
           } catch {}
           wsPlayers.delete(targetWs);
+          const leaveMsg = JSON.stringify({ t: "player_leave", id: targetSession.id, name: targetSession.name });
+          for (const [c, p] of wsPlayers) {
+            if (p.mapId === targetSession.mapId) {
+              try { c.send(leaveMsg); } catch {}
+            }
+          }
+          return Response.json({ ok: true });
+        } else if (action === "ban") {
+          try {
+            targetWs.send(JSON.stringify({ t: "chat", kind: "notice", text: "[GM] Your account has been permanently suspended by a GameMaster." }));
+            targetWs.close(1000, "Banned by GM");
+          } catch {}
+          wsPlayers.delete(targetWs);
+          return Response.json({ ok: true });
+        } else if (action === "mute") {
+          try {
+            targetWs.send(JSON.stringify({ t: "gm_mute", muted: true, reason: "Muted by GameMaster" }));
+          } catch {}
+          return Response.json({ ok: true });
+        } else if (action === "freeze") {
+          const frozen = Boolean(body.frozen ?? true);
+          try {
+            targetWs.send(JSON.stringify({ t: "gm_freeze", frozen }));
+          } catch {}
+          return Response.json({ ok: true });
+        } else if (action === "exp") {
+          const amount = Number(body.amount || 10000);
+          try {
+            targetWs.send(JSON.stringify({ t: "gm_exp", amount }));
+          } catch {}
+          return Response.json({ ok: true });
+        } else if (action === "levelup") {
+          try {
+            targetWs.send(JSON.stringify({ t: "gm_levelup", levels: Number(body.levels || 1) }));
+          } catch {}
           return Response.json({ ok: true });
         } else if (action === "summon") {
           const mapId = Number(body.mapId || 910000000);
-          const x = Number(body.x || 0);
-          const y = Number(body.y || 0);
+          const x = Math.round(Number(body.x || 0));
+          const y = Math.round(Number(body.y || 0));
+          const oldMap = targetSession.mapId;
+          targetSession.mapId = mapId;
+          targetSession.x = x;
+          targetSession.y = y;
+
+          if (oldMap !== mapId) {
+            const leaveMsg = JSON.stringify({ t: "player_leave", id: targetSession.id, name: targetSession.name });
+            for (const [c, p] of wsPlayers) {
+              if (c !== targetWs && p.mapId === oldMap) {
+                try { c.send(leaveMsg); } catch {}
+              }
+            }
+            const joinMsg = JSON.stringify({ t: "player_join", player: targetSession });
+            for (const [c, p] of wsPlayers) {
+              if (c !== targetWs && p.mapId === mapId) {
+                try { c.send(joinMsg); } catch {}
+              }
+            }
+          } else {
+            const moveMsg = JSON.stringify({
+              t: "player_move",
+              id: targetSession.id,
+              x: targetSession.x,
+              y: targetSession.y,
+              face: targetSession.face,
+              anim: targetSession.anim,
+              frame: targetSession.frame,
+              fps: targetSession.fps,
+              ping: targetSession.ping,
+              damageSkin: targetSession.damageSkin,
+              gmEffect: targetSession.gmEffect,
+              hp: targetSession.hp,
+              maxHp: targetSession.maxHp,
+              mp: targetSession.mp,
+              maxMp: targetSession.maxMp,
+            });
+            for (const [c, p] of wsPlayers) {
+              if (c !== targetWs && p.mapId === mapId) {
+                try { c.send(moveMsg); } catch {}
+              }
+            }
+          }
+
+          if (targetSession.partyId) {
+            const allParties = loadParties();
+            const party = allParties.get(targetSession.partyId);
+            if (party) {
+              const mem = party.members.find((m) => m.name.toLowerCase() === targetSession.name.toLowerCase());
+              if (mem) {
+                mem.mapId = mapId;
+                saveParties();
+                broadcastPartyState(party.id);
+              }
+            }
+          }
+
           try {
             targetWs.send(JSON.stringify({ t: "force_warp", mapId, x, y, reason: "Summoned to GameMaster location" }));
           } catch {}
@@ -2688,6 +2996,55 @@ const server = Bun.serve<{ id: string }>({
             targetWs.send(JSON.stringify({ t: "gm_meso", amount }));
           } catch {}
           return Response.json({ ok: true });
+        } else if (action === "autocombat") {
+          const next = body.enabled !== undefined ? Boolean(body.enabled) : !Boolean(targetSession.autoCombat);
+          targetSession.autoCombat = next;
+          try {
+            targetWs.send(JSON.stringify({ t: "gm_power", power: "autoCombat", value: next }));
+          } catch {}
+          return Response.json({ ok: true, enabled: next });
+        } else if (action === "power") {
+          const power = String(body.power || "");
+          const val = body.value;
+          if (power === "gmEffect") {
+            targetSession.gmEffect = Boolean(val);
+            const moveMsg = JSON.stringify({
+              t: "player_move",
+              id: targetSession.id,
+              x: targetSession.x,
+              y: targetSession.y,
+              face: targetSession.face,
+              anim: targetSession.anim,
+              frame: targetSession.frame,
+              fps: targetSession.fps,
+              ping: targetSession.ping,
+              damageSkin: targetSession.damageSkin,
+              gmEffect: targetSession.gmEffect,
+            });
+            for (const [c, p] of wsPlayers) {
+              if (p.mapId === targetSession.mapId) {
+                try { c.send(moveMsg); } catch {}
+              }
+            }
+          } else if (power === "godMode") {
+            targetSession.godMode = Boolean(val);
+          } else if (power === "infiniteMp") {
+            targetSession.infiniteMp = Boolean(val);
+          } else if (power === "oneHitKill") {
+            targetSession.oneHitKill = Boolean(val);
+          } else if (power === "gmHide") {
+            targetSession.gmHide = Boolean(val);
+          } else if (power === "autoCombat") {
+            targetSession.autoCombat = Boolean(val);
+          } else if (power === "speedMultiplier") {
+            targetSession.speedMultiplier = Number(val || 1);
+          } else if (power === "grantGm") {
+            targetSession.isGm = Boolean(val);
+          }
+          try {
+            targetWs.send(JSON.stringify({ t: "gm_power", power, value: val }));
+          } catch {}
+          return Response.json({ ok: true, power, value: val });
         }
 
         return Response.json({ ok: false, error: "Unknown GM action" }, { status: 400 });
@@ -2726,11 +3083,15 @@ const server = Bun.serve<{ id: string }>({
           return Response.json({ ok: false, error: "Username and password required" }, { status: 400 });
         }
         const passHash = hashPassword(password);
-        const rows = await spacetimeSql(`SELECT username, password_hash FROM user WHERE username = '${username}';`);
+        let rows = await spacetimeSql(`SELECT username, password_hash FROM user WHERE username = '${username}';`);
+        if (!rows.length) {
+          const allUsers = await spacetimeSql(`SELECT username, password_hash FROM user;`);
+          rows = allUsers.filter((r) => String(r[0] || "").trim().toLowerCase() === username);
+        }
         if (!rows.length || rows[0][1] !== passHash) {
           return Response.json({ ok: false, error: "Invalid username or password" }, { status: 401 });
         }
-        return Response.json({ ok: true, username });
+        return Response.json({ ok: true, username: String(rows[0][0] || username).trim().toLowerCase() });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Login failed" }, { status: 500 });
       }
@@ -2740,29 +3101,36 @@ const server = Bun.serve<{ id: string }>({
         const url = new URL(req.url);
         const username = String(url.searchParams.get("username") || "").trim().toLowerCase();
         if (!username) return Response.json({ ok: false, error: "Username required" }, { status: 400 });
-        const rows = await spacetimeSql(`SELECT name, username, class_id, gender, level, exp, hp, max_hp, mp, max_mp, meso, map_id, x, y, look, stats, inventory, equipment, skills, updated_at FROM character WHERE username = '${username}';`);
-        const characters = rows.map((r) => ({
-          name: r[0],
-          username: r[1],
-          classId: r[2],
-          gender: r[3],
-          level: Number(r[4] || 1),
-          exp: Number(r[5] || 0),
-          hp: Number(r[6] || 50),
-          maxHp: Number(r[7] || 50),
-          mp: Number(r[8] || 20),
-          maxMp: Number(r[9] || 20),
-          meso: Number(r[10] || 0),
-          mapId: (!r[11] || Number(r[11]) === 0) ? 910000000 : Number(r[11]),
-          x: Number(r[12] || 0),
-          y: Number(r[13] || 0),
-          look: typeof r[14] === "string" ? JSON.parse(r[14] || "[]") : (r[14] || []),
-          stats: typeof r[15] === "string" ? JSON.parse(r[15] || "{}") : (r[15] || {}),
-          inventory: typeof r[16] === "string" ? JSON.parse(r[16] || "[]") : (r[16] || []),
-          equipment: typeof r[17] === "string" ? JSON.parse(r[17] || "{}") : (r[17] || {}),
-          skills: typeof r[18] === "string" ? JSON.parse(r[18] || "{}") : (r[18] || {}),
-          updatedAt: Number(r[19] || 0),
-        }));
+        const rows = await spacetimeSql(
+          `SELECT name, username, class_id, gender, level, exp, hp, max_hp, mp, max_mp, meso, map_id, x, y, look, stats, inventory, equipment, skills, updated_at FROM character WHERE username = '${username}';`
+        );
+        const characters = rows.map((r) => {
+          const statsObj = typeof r[15] === "string" ? JSON.parse(r[15] || "{}") : (r[15] || {});
+          const resolvedClassId = (statsObj.classId && (!r[2] || r[2] === "beginner")) ? statsObj.classId : (r[2] || "beginner");
+          return {
+            name: r[0],
+            username: String(r[1] || username).toLowerCase(),
+            classId: resolvedClassId,
+            gender: r[3] || "male",
+            level: Number(r[4] || 1),
+            exp: Number(r[5] || 0),
+            hp: Number(r[6] || 50),
+            maxHp: Number(r[7] || 50),
+            mp: Number(r[8] || 20),
+            maxMp: Number(r[9] || 20),
+            meso: Number(r[10] || 0),
+            mapId: (!r[11] || Number(r[11]) === 0) ? 910000000 : Number(r[11]),
+            x: Number(r[12] || 0),
+            y: Number(r[13] || 0),
+            look: typeof r[14] === "string" ? JSON.parse(r[14] || "[]") : (r[14] || []),
+            stats: statsObj,
+            inventory: typeof r[16] === "string" ? JSON.parse(r[16] || "[]") : (r[16] || []),
+            equipment: typeof r[17] === "string" ? JSON.parse(r[17] || "{}") : (r[17] || {}),
+            skills: typeof r[18] === "string" ? JSON.parse(r[18] || "{}") : (r[18] || {}),
+            updatedAt: Number(r[19] || 0),
+          };
+        });
+        characters.sort((a, b) => b.updatedAt - a.updatedAt);
         return Response.json({ ok: true, characters });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to fetch characters" }, { status: 500 });
@@ -2775,8 +3143,9 @@ const server = Bun.serve<{ id: string }>({
         if (!/^[a-zA-Z0-9]{2,12}$/.test(name)) {
           return Response.json({ available: false, error: "Name must be 2-12 alphanumeric characters" });
         }
-        const rows = await spacetimeSql(`SELECT name FROM character WHERE name = '${name}';`);
-        return Response.json({ available: rows.length === 0 });
+        const allChars = await spacetimeSql(`SELECT name FROM character;`);
+        const taken = allChars.some((r) => String(r[0] || "").trim().toLowerCase() === name.toLowerCase());
+        return Response.json({ available: !taken });
       } catch (e: any) {
         return Response.json({ available: false, error: e?.message });
       }
@@ -2796,8 +3165,8 @@ const server = Bun.serve<{ id: string }>({
         if (!/^[a-zA-Z0-9]{2,12}$/.test(name)) {
           return Response.json({ ok: false, error: "Name must be 2-12 alphanumeric characters" }, { status: 400 });
         }
-        const existing = await spacetimeSql(`SELECT name FROM character WHERE name = '${name}';`);
-        if (existing.length > 0) {
+        const allChars = await spacetimeSql(`SELECT name FROM character;`);
+        if (allChars.some((r) => String(r[0] || "").trim().toLowerCase() === name.toLowerCase())) {
           return Response.json({ ok: false, error: "Character name already taken" }, { status: 409 });
         }
         await spacetimeCall("create_char", [
@@ -2809,9 +3178,6 @@ const server = Bun.serve<{ id: string }>({
           JSON.stringify(stats),
           JSON.stringify(equipment),
         ]);
-        try {
-          await spacetimeSql(`UPDATE character SET map_id = 910000000 WHERE name = '${name}';`);
-        } catch {}
         return Response.json({ ok: true, name });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to create character" }, { status: 500 });
@@ -2839,7 +3205,7 @@ const server = Bun.serve<{ id: string }>({
               username, classId, gender, level, exp, hp, maxHp, mp, maxMp, meso, mapId, x, y, look, stats, inventory, equipment, skills
             ] = rows[0];
             await spacetimeCall("create_char", [
-              username,
+              String(username || "").toLowerCase(),
               newName,
               classId,
               gender,
@@ -2849,16 +3215,16 @@ const server = Bun.serve<{ id: string }>({
             ]);
             await spacetimeCall("save_char", [
               newName,
-              Number(level || 1),
-              Number(exp || 0),
-              Number(hp || 50),
-              Number(maxHp || 50),
-              Number(mp || 20),
-              Number(maxMp || 20),
-              Number(meso || 0),
-              Number(mapId || 910000000),
-              Number(x || 0),
-              Number(y || 0),
+              Math.round(Number(level || 1)),
+              Math.round(Number(exp || 0)),
+              Math.round(Number(hp || 50)),
+              Math.round(Number(maxHp || 50)),
+              Math.round(Number(mp || 20)),
+              Math.round(Number(maxMp || 20)),
+              Math.round(Number(meso || 0)),
+              Math.round(Number(mapId || 910000000)),
+              Math.round(Number(x || 0)),
+              Math.round(Number(y || 0)),
               look || "[]",
               stats || "{}",
               inventory || "[]",
@@ -2879,7 +3245,7 @@ const server = Bun.serve<{ id: string }>({
         const username = String(body.username || "").trim().toLowerCase();
         const name = String(body.name || "").trim();
         const rows = await spacetimeSql(`SELECT username FROM character WHERE name = '${name}';`);
-        if (!rows.length || rows[0][0] !== username) {
+        if (!rows.length || String(rows[0][0] || "").trim().toLowerCase() !== username) {
           return Response.json({ ok: false, error: "Character not found or unauthorized" }, { status: 403 });
         }
         await spacetimeCall("delete_char", [name]);
@@ -2895,16 +3261,16 @@ const server = Bun.serve<{ id: string }>({
         if (!name) return Response.json({ ok: false, error: "Character name required" }, { status: 400 });
         await spacetimeCall("save_char", [
           name,
-          Number(body.level || 1),
-          Number(body.exp || 0),
-          Number(body.hp || 50),
-          Number(body.maxHp || 50),
-          Number(body.mp || 20),
-          Number(body.maxMp || 20),
-          Number(body.meso || 0),
-          Number(body.mapId || 910000000),
-          Number(body.x || 0),
-          Number(body.y || 0),
+          Math.round(Number(body.level || 1)),
+          Math.round(Number(body.exp || 0)),
+          Math.round(Number(body.hp || 50)),
+          Math.round(Number(body.maxHp || 50)),
+          Math.round(Number(body.mp || 20)),
+          Math.round(Number(body.maxMp || 20)),
+          Math.round(Number(body.meso || 0)),
+          Math.round(Number(body.mapId || 910000000)),
+          Math.round(Number(body.x || 0)),
+          Math.round(Number(body.y || 0)),
           JSON.stringify(body.look || []),
           JSON.stringify(body.stats || {}),
           JSON.stringify(body.inventory || []),
@@ -2914,6 +3280,145 @@ const server = Bun.serve<{ id: string }>({
         return Response.json({ ok: true });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to save character" }, { status: 500 });
+      }
+    },
+    "/api/auction/listings": async (req: any) => {
+      const url = new URL(req.url);
+      const seller = String(url.searchParams.get("seller") || "").trim();
+      if (req.method === "POST") {
+        try {
+          const body = await req.json();
+          const sName = String(body.seller || seller).trim();
+          const syncMine: any[] = Array.isArray(body.mine) ? body.mine : [];
+          if (sName && syncMine.length > 0) {
+            const all = loadAuctions();
+            let changed = false;
+            for (const m of syncMine) {
+              if (m && m.lid && !all.has(m.lid)) {
+                all.set(m.lid, {
+                  lid: String(m.lid),
+                  seller: sName,
+                  goods: m.goods,
+                  price: Math.max(1, Math.round(Number(m.price || 1))),
+                  priceNx: m.priceNx ? Math.max(1, Math.round(Number(m.priceNx))) : undefined,
+                  currency: m.currency || "meso",
+                  durationHours: m.durationHours === 12 ? 12 : 24,
+                  listedAt: Number(m.listedAt || Date.now()),
+                  until: Number(m.until || Date.now() + 24 * 3600_000),
+                  sold: Boolean(m.sold),
+                  soldCurrency: m.soldCurrency,
+                });
+                changed = true;
+              }
+            }
+            if (changed) saveAuctions();
+          }
+          return Response.json({
+            ok: true,
+            listings: getActiveAuctionListings(),
+            mine: sName ? getSellerAuctionListings(sName) : [],
+          });
+        } catch {}
+      }
+      return Response.json({
+        ok: true,
+        listings: getActiveAuctionListings(),
+        mine: seller ? getSellerAuctionListings(seller) : [],
+      });
+    },
+    "/api/auction/list": async (req: any) => {
+      try {
+        const body = await req.json();
+        const seller = String(body.seller || "").trim();
+        if (!seller || !body.goods) {
+          return Response.json({ ok: false, error: "Seller and item required" }, { status: 400 });
+        }
+        const all = loadAuctions();
+        const now = Date.now();
+        const durationHours: 12 | 24 = Number(body.durationHours) === 12 ? 12 : 24;
+        const lid = String(body.lid || `P${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`);
+        const entry: ServerAuctionListing = {
+          lid,
+          seller,
+          goods: body.goods,
+          price: Math.max(1, Math.round(Number(body.price || 1))),
+          priceNx: body.priceNx ? Math.max(1, Math.round(Number(body.priceNx))) : undefined,
+          currency: (body.currency === "nx" || body.currency === "both") ? body.currency : "meso",
+          durationHours,
+          listedAt: Number(body.listedAt || now),
+          until: Number(body.until || (now + durationHours * 3600_000)),
+          sold: false,
+        };
+        all.set(lid, entry);
+        saveAuctions();
+        broadcastAuctionState();
+        return Response.json({
+          ok: true,
+          listing: entry,
+          listings: getActiveAuctionListings(),
+          mine: getSellerAuctionListings(seller),
+        });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to list item" }, { status: 500 });
+      }
+    },
+    "/api/auction/buy": async (req: any) => {
+      try {
+        const body = await req.json();
+        const lid = String(body.lid || "").trim();
+        const buyer = String(body.buyer || "").trim();
+        const payWith: "meso" | "nx" = body.payWith === "nx" ? "nx" : "meso";
+        const all = loadAuctions();
+        const entry = all.get(lid);
+        if (!entry || entry.sold || entry.until <= Date.now()) {
+          return Response.json({ ok: false, error: "Listing is no longer available" }, { status: 404 });
+        }
+        if (buyer && entry.seller.toLowerCase() === buyer.toLowerCase()) {
+          return Response.json({ ok: false, error: "Cannot buy your own listing" }, { status: 400 });
+        }
+        entry.sold = true;
+        entry.soldCurrency = payWith;
+        entry.buyer = buyer || "Adventurer";
+        saveAuctions();
+
+        // Notify seller in real time if online
+        for (const [c, p] of wsPlayers.entries()) {
+          if (p.name && p.name.toLowerCase() === entry.seller.toLowerCase()) {
+            try {
+              c.send(JSON.stringify({ t: "auction_sold", listing: entry }));
+            } catch {}
+          }
+        }
+        broadcastAuctionState();
+        return Response.json({
+          ok: true,
+          listing: entry,
+          listings: getActiveAuctionListings(),
+          mine: buyer ? getSellerAuctionListings(buyer) : [],
+        });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to purchase item" }, { status: 500 });
+      }
+    },
+    "/api/auction/collect": async (req: any) => {
+      try {
+        const body = await req.json();
+        const lid = String(body.lid || "").trim();
+        const seller = String(body.seller || "").trim();
+        const all = loadAuctions();
+        const entry = all.get(lid);
+        if (entry && (!seller || entry.seller.toLowerCase() === seller.toLowerCase())) {
+          all.delete(lid);
+          saveAuctions();
+          broadcastAuctionState();
+        }
+        return Response.json({
+          ok: true,
+          listings: getActiveAuctionListings(),
+          mine: seller ? getSellerAuctionListings(seller) : [],
+        });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to collect listing" }, { status: 500 });
       }
     },
     "/api/guild/list": () => {
@@ -3106,6 +3611,27 @@ const server = Bun.serve<{ id: string }>({
         return Response.json({ ok: true });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to leave guild" }, { status: 500 });
+      }
+    },
+    "/api/guild/disband": async (req: any) => {
+      try {
+        const body = await req.json();
+        const masterName = String(body.masterName || body.characterName || "").trim();
+        const guildId = String(body.guildId || "").trim();
+        const all = loadGuilds();
+        const g = all.get(guildId);
+        if (!g) return Response.json({ ok: false, error: "Guild not found" }, { status: 404 });
+        if (g.master.toLowerCase() !== masterName.toLowerCase()) {
+          return Response.json({ ok: false, error: "Only the Guild Master can disband the guild" }, { status: 403 });
+        }
+        const guildName = g.name;
+        const allMemberNames = g.members.map((m) => m.name);
+        all.delete(g.id);
+        saveGuilds();
+        broadcastGuildState(g.id, { disbanded: true, disbandedName: guildName, removedPlayerNames: allMemberNames });
+        return Response.json({ ok: true, disbanded: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Failed to disband guild" }, { status: 500 });
       }
     },
     "/api/guild/expel": async (req: any) => {
@@ -3755,7 +4281,7 @@ const server = Bun.serve<{ id: string }>({
   },
   websocket: {
     open(ws: any) {},
-    message(ws: any, raw: string | Buffer) {
+    async message(ws: any, raw: string | Buffer) {
       try {
         const msg = JSON.parse(String(raw));
         if (msg.t === "join") {
@@ -3777,6 +4303,20 @@ const server = Bun.serve<{ id: string }>({
             fps: Number(msg.fps ?? 60),
             ping: Number(msg.ping ?? 20),
             damageSkin: msg.damageSkin ?? 0,
+            level: Number(msg.level || 1),
+            job: String(msg.job || "Beginner"),
+            gmEffect: Boolean(msg.gmEffect),
+            godMode: Boolean(msg.godMode),
+            infiniteMp: Boolean(msg.infiniteMp),
+            oneHitKill: Boolean(msg.oneHitKill),
+            gmHide: Boolean(msg.gmHide),
+            autoCombat: Boolean(msg.autoCombat),
+            speedMultiplier: Number(msg.speedMultiplier || 1),
+            isGm: Boolean(msg.isGm),
+            hp: msg.hp !== undefined ? Number(msg.hp) : 50,
+            maxHp: msg.maxHp !== undefined ? Number(msg.maxHp) : 50,
+            mp: msg.mp !== undefined ? Number(msg.mp) : 50,
+            maxMp: msg.maxMp !== undefined ? Number(msg.maxMp) : 50,
           };
           wsPlayers.set(ws, session);
           const g = getGuildForPlayer(session.name);
@@ -3810,6 +4350,18 @@ const server = Bun.serve<{ id: string }>({
           if (msg.ping !== undefined) session.ping = Number(msg.ping);
           if (msg.damageSkin !== undefined) session.damageSkin = msg.damageSkin;
           if (msg.mapId !== undefined) session.mapId = Number(msg.mapId);
+          if (msg.gmEffect !== undefined) session.gmEffect = Boolean(msg.gmEffect);
+          if (msg.autoCombat !== undefined) session.autoCombat = Boolean(msg.autoCombat);
+          if (msg.godMode !== undefined) session.godMode = Boolean(msg.godMode);
+          if (msg.infiniteMp !== undefined) session.infiniteMp = Boolean(msg.infiniteMp);
+          if (msg.oneHitKill !== undefined) session.oneHitKill = Boolean(msg.oneHitKill);
+          if (msg.gmHide !== undefined) session.gmHide = Boolean(msg.gmHide);
+          if (msg.speedMultiplier !== undefined) session.speedMultiplier = Number(msg.speedMultiplier);
+          if (msg.isGm !== undefined) session.isGm = Boolean(msg.isGm);
+          if (msg.hp !== undefined) session.hp = Number(msg.hp);
+          if (msg.maxHp !== undefined) session.maxHp = Number(msg.maxHp);
+          if (msg.mp !== undefined) session.mp = Number(msg.mp);
+          if (msg.maxMp !== undefined) session.maxMp = Number(msg.maxMp);
           const moveMsg = JSON.stringify({
             t: "player_move",
             id: session.id,
@@ -3821,6 +4373,11 @@ const server = Bun.serve<{ id: string }>({
             fps: session.fps,
             ping: session.ping,
             damageSkin: session.damageSkin,
+            gmEffect: session.gmEffect,
+            hp: session.hp,
+            maxHp: session.maxHp,
+            mp: session.mp,
+            maxMp: session.maxMp,
           });
           for (const [c, p] of wsPlayers) {
             if (c !== ws && p.mapId === session.mapId) c.send(moveMsg);
@@ -3930,6 +4487,20 @@ const server = Bun.serve<{ id: string }>({
               fps: Number(msg.fps ?? 60),
               ping: Number(msg.ping ?? 20),
               damageSkin: msg.damageSkin ?? 0,
+              level: Number(msg.level || 1),
+              job: String(msg.job || "Beginner"),
+              gmEffect: Boolean(msg.gmEffect),
+              godMode: Boolean(msg.godMode),
+              infiniteMp: Boolean(msg.infiniteMp),
+              oneHitKill: Boolean(msg.oneHitKill),
+              gmHide: Boolean(msg.gmHide),
+              autoCombat: Boolean(msg.autoCombat),
+              speedMultiplier: Number(msg.speedMultiplier || 1),
+              isGm: Boolean(msg.isGm),
+              hp: msg.hp !== undefined ? Number(msg.hp) : 50,
+              maxHp: msg.maxHp !== undefined ? Number(msg.maxHp) : 50,
+              mp: msg.mp !== undefined ? Number(msg.mp) : 50,
+              maxMp: msg.maxMp !== undefined ? Number(msg.maxMp) : 50,
             };
             wsPlayers.set(ws, session);
           } else {
@@ -3945,6 +4516,20 @@ const server = Bun.serve<{ id: string }>({
             if (msg.fps !== undefined) session.fps = Number(msg.fps);
             if (msg.ping !== undefined) session.ping = Number(msg.ping);
             if (msg.damageSkin !== undefined) session.damageSkin = msg.damageSkin;
+            if (msg.level !== undefined) session.level = Number(msg.level);
+            if (msg.job !== undefined) session.job = String(msg.job);
+            if (msg.gmEffect !== undefined) session.gmEffect = Boolean(msg.gmEffect);
+            if (msg.godMode !== undefined) session.godMode = Boolean(msg.godMode);
+            if (msg.infiniteMp !== undefined) session.infiniteMp = Boolean(msg.infiniteMp);
+            if (msg.oneHitKill !== undefined) session.oneHitKill = Boolean(msg.oneHitKill);
+            if (msg.gmHide !== undefined) session.gmHide = Boolean(msg.gmHide);
+            if (msg.autoCombat !== undefined) session.autoCombat = Boolean(msg.autoCombat);
+            if (msg.speedMultiplier !== undefined) session.speedMultiplier = Number(msg.speedMultiplier);
+            if (msg.isGm !== undefined) session.isGm = Boolean(msg.isGm);
+            if (msg.hp !== undefined) session.hp = Number(msg.hp);
+            if (msg.maxHp !== undefined) session.maxHp = Number(msg.maxHp);
+            if (msg.mp !== undefined) session.mp = Number(msg.mp);
+            if (msg.maxMp !== undefined) session.maxMp = Number(msg.maxMp);
           }
           const g = getGuildForPlayer(session.name);
           if (g) {
@@ -4010,9 +4595,41 @@ const server = Bun.serve<{ id: string }>({
                 if (msg.maxHp !== undefined) mem.maxHp = Number(msg.maxHp);
                 if (msg.mp !== undefined) mem.mp = Number(msg.mp);
                 if (msg.maxMp !== undefined) mem.maxMp = Number(msg.maxMp);
+                if (msg.buffs !== undefined) (mem as any).buffs = msg.buffs;
                 if (session.look) mem.look = session.look;
                 saveParties();
                 broadcastPartyState(party.id);
+              }
+            }
+            if (msg.activeBuffs && typeof msg.activeBuffs === "object" && Object.keys(msg.activeBuffs).length > 0) {
+              for (const [c, p] of wsPlayers) {
+                if (c !== ws && p.partyId === session.partyId && p.mapId === session.mapId) {
+                  c.send(JSON.stringify({
+                    t: "party_buff_sync",
+                    casterName: session.name,
+                    activeBuffs: msg.activeBuffs,
+                  }));
+                }
+              }
+            }
+          }
+        } else if (msg.t === "party_buff") {
+          const session = wsPlayers.get(ws);
+          if (!session) return;
+          const pid = session.partyId || msg.partyId;
+          const skillId = String(msg.skillId || "");
+          const lv = Math.max(1, Number(msg.lv || 1));
+          const dur = Math.max(1, Number(msg.dur || 60));
+          if (pid && skillId) {
+            for (const [c, p] of wsPlayers) {
+              if (c !== ws && p.partyId === pid && p.mapId === session.mapId) {
+                c.send(JSON.stringify({
+                  t: "party_buff_gain",
+                  casterName: session.name,
+                  skillId,
+                  lv,
+                  dur,
+                }));
               }
             }
           }
@@ -4143,16 +4760,123 @@ const server = Bun.serve<{ id: string }>({
               }
             }
           } else if (kind === "whisper") {
-            const target = String(msg.target || "").trim().toLowerCase();
-            for (const [c, p] of wsPlayers) {
-              if (c === ws || (target && p.name.toLowerCase() === target)) {
-                c.send(chatMsg);
+            let rawTarget = String(msg.target || "").trim();
+            let cleanText = text;
+            if (!rawTarget) {
+              const m = text.match(/^@([A-Za-z0-9_]+)\s*:\s*(.*)$/);
+              if (m) {
+                rawTarget = m[1];
+                cleanText = m[2];
               }
+            }
+            const targetLower = rawTarget.toLowerCase();
+            let delivered = false;
+            const whisperMsg = JSON.stringify({
+              t: "chat",
+              id: session.id,
+              name: session.name,
+              target: rawTarget,
+              text: cleanText,
+              kind: "whisper",
+              itemLink: msg.itemLink || undefined,
+              guildName: session.guildName,
+            });
+            for (const [c, p] of wsPlayers) {
+              if (targetLower && p.name.toLowerCase() === targetLower) {
+                delivered = true;
+                if (c !== ws) {
+                  c.send(whisperMsg);
+                }
+              }
+            }
+            if (!delivered && rawTarget) {
+              ws.send(
+                JSON.stringify({
+                  t: "chat",
+                  id: "system",
+                  name: "System",
+                  text: `[Whisper] "${rawTarget}" is currently offline or could not be found.`,
+                  kind: "system",
+                })
+              );
             }
           } else {
             for (const [c, p] of wsPlayers) {
               if (p.mapId === session.mapId) c.send(chatMsg);
             }
+          }
+        } else if (msg.t === "asset_req") {
+          const reqId = msg.id;
+          const reqPath = String(msg.path || "");
+          const s = getStore();
+          if (!s) {
+            ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, error: "no store" }));
+            return;
+          }
+          try {
+            if (reqPath.startsWith("/wz/sprite/")) {
+              const parts = reqPath.replace(/^\/wz\/sprite\//, "").split("/");
+              const cat = parts[0];
+              const img = parts[1];
+              const sub = parts.slice(2).join("/");
+              const png = s.spritePng(cat, img, sub);
+              if (png) {
+                ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, data: Buffer.from(png).toString("base64") }));
+              } else {
+                ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, error: "not found" }));
+              }
+            } else if (reqPath.startsWith("/wz/char")) {
+              const parsed = new URL(reqPath, "http://localhost");
+              const eq = parsed.searchParams.get("eq") ?? "";
+              const action = parsed.searchParams.get("action") ?? "stand1";
+              const frame = Number(parsed.searchParams.get("frame") ?? 0);
+              const flip = parsed.searchParams.get("flip") === "1";
+              const expr = parsed.searchParams.get("expr") ?? "default";
+              const ef = Number(parsed.searchParams.get("ef") ?? 0);
+              const portrait = parsed.searchParams.get("portrait") === "1" || parsed.searchParams.get("head") === "1";
+              const png = composeCharacter(s, eq.split(",").map(Number).filter(Boolean), action, frame, flip, expr, ef, portrait);
+              if (png) {
+                ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, data: Buffer.from(png).toString("base64") }));
+              } else {
+                ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, error: "compose failed" }));
+              }
+            } else if (reqPath.startsWith("/wz/data/")) {
+              let data: any = null;
+              if (reqPath === "/wz/data/ui") data = uiData(s);
+              else if (reqPath === "/wz/data/windows") data = windowsData(s);
+              else if (reqPath === "/wz/data/items") data = itemsData(s);
+              else if (reqPath === "/wz/data/skills") data = skillsData(s);
+              else if (reqPath === "/wz/data/fx") data = fxData(s);
+              else if (reqPath.startsWith("/wz/data/map/")) data = mapData(s, Number(reqPath.split("/").pop()));
+              else if (reqPath.startsWith("/wz/data/mob/")) data = mobData(s, Number(reqPath.split("/").pop()));
+              else if (reqPath.startsWith("/wz/data/item-eff/")) data = itemEffData(s, Number(reqPath.split("/").pop()));
+              else if (reqPath === "/wz/data/shadow-partner") data = shadowPartnerData(s);
+              else if (reqPath === "/wz/data/pets/list") data = petList(s);
+              else if (reqPath.startsWith("/wz/data/pet/")) data = petData(s, Number(reqPath.split("/").pop()));
+
+              if (data) {
+                ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, json: data }));
+              } else {
+                ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, error: "data not found" }));
+              }
+            } else {
+              const url = reqPath.startsWith("http") ? reqPath : `http://localhost:3000${reqPath.startsWith("/") ? "" : "/"}${reqPath}`;
+              const localRes = await server.fetch(new Request(url));
+              if (localRes.ok) {
+                const ctype = localRes.headers.get("content-type") || "";
+                if (ctype.includes("application/json")) {
+                  const json = await localRes.json();
+                  ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, json }));
+                } else {
+                  const buf = Buffer.from(await localRes.arrayBuffer());
+                  ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, data: buf.toString("base64") }));
+                }
+              } else {
+                ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, error: `status ${localRes.status}` }));
+              }
+            }
+          } catch (err: any) {
+            ws.send(JSON.stringify({ t: "asset_res", id: reqId, path: reqPath, error: err?.message || "error" }));
           }
         } else if (msg.t === "ping") {
           const session = wsPlayers.get(ws);
@@ -4182,15 +4906,5 @@ const server = Bun.serve<{ id: string }>({
     },
   },
 });
-
-console.log(`Maple Wayfarer running at http://localhost:${server.port}`);
-const clientDir = findClientDir();
-if (clientDir) {
-  console.log(`MapleStory client found at: ${clientDir}`);
-} else {
-  console.warn(
-    "No MapleStory client found. Set MAPLE_CLIENT_DIR to the folder holding Data/ or *.wz.",
-  );
-}
 
 export { server };

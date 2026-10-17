@@ -1,0 +1,1722 @@
+[
+  {
+    "id": 0,
+    "name": "Classic Maple"
+  },
+  {
+    "id": "kite",
+    "name": "Kite Festival"
+  },
+  {
+    "id": "blue",
+    "name": "Arcane Blue"
+  },
+  {
+    "id": "violet",
+    "name": "Shadow Violet"
+  },
+  {
+    "id": "green",
+    "name": "Verdant Green"
+  },
+  {
+    "id": 4,
+    "name": "Hard-Hitting Crimson"
+  },
+  {
+    "id": 5,
+    "name": "Reminiscence Star"
+  },
+  {
+    "id": 6,
+    "name": "Snowflake Winter"
+  },
+  {
+    "id": 7,
+    "name": "Alicia's Starlight"
+  },
+  {
+    "id": 8,
+    "name": "Dorothy's Arcane"
+  },
+  {
+    "id": 9,
+    "name": "Keyboard Warrior"
+  },
+  {
+    "id": 10,
+    "name": "Singles Army"
+  },
+  {
+    "id": 11,
+    "name": "Gentle Spring Breeze"
+  },
+  {
+    "id": 12,
+    "name": "Crown Festival"
+  },
+  {
+    "id": 13,
+    "name": "Monochrome Minimal"
+  },
+  {
+    "id": 14,
+    "name": "Starry Cosmos"
+  },
+  {
+    "id": 15,
+    "name": "Neon Hologram"
+  },
+  {
+    "id": 16,
+    "name": "Churros Snack"
+  },
+  {
+    "id": 17,
+    "name": "Hallowcat Spooky"
+  },
+  {
+    "id": 18,
+    "name": "Marshmallow Fluff"
+  },
+  {
+    "id": 19,
+    "name": "Comic Action FX"
+  },
+  {
+    "id": 21,
+    "name": "Golden Sovereign"
+  },
+  {
+    "id": 22,
+    "name": "Chalk Art"
+  },
+  {
+    "id": 23,
+    "name": "Autumn Full Moon"
+  },
+  {
+    "id": 24,
+    "name": "Jett Galactic"
+  },
+  {
+    "id": 25,
+    "name": "Beasts of Fury"
+  },
+  {
+    "id": 26,
+    "name": "Super Spooky"
+  },
+  {
+    "id": 27,
+    "name": "Jack o' Lantern"
+  },
+  {
+    "id": 28,
+    "name": "Wicked Witch"
+  },
+  {
+    "id": 29,
+    "name": "Noise Static"
+  },
+  {
+    "id": 30,
+    "name": "Violetta's Charm"
+  },
+  {
+    "id": 31,
+    "name": "Dragon's Fire"
+  },
+  {
+    "id": 32,
+    "name": "Night Sky"
+  },
+  {
+    "id": 33,
+    "name": "Lovely Heart"
+  },
+  {
+    "id": 34,
+    "name": "Dried Out Desert"
+  },
+  {
+    "id": 35,
+    "name": "Heart Balloon"
+  },
+  {
+    "id": 36,
+    "name": "Scribble Crush"
+  },
+  {
+    "id": 38,
+    "name": "Antique Fantasy"
+  },
+  {
+    "id": 39,
+    "name": "Sheep Meadow"
+  },
+  {
+    "id": 40,
+    "name": "Chinese Spring Fireworks"
+  },
+  {
+    "id": 41,
+    "name": "Hangul Day Festival"
+  },
+  {
+    "id": 42,
+    "name": "Remnant of Goddess"
+  },
+  {
+    "id": 43,
+    "name": "Moon Bunny Rice Cake"
+  },
+  {
+    "id": 44,
+    "name": "Striped Candy"
+  },
+  {
+    "id": 45,
+    "name": "Orchid Blooming"
+  },
+  {
+    "id": 46,
+    "name": "Lotus Telekinesis"
+  },
+  {
+    "id": 47,
+    "name": "Black Heaven Fortress"
+  },
+  {
+    "id": 48,
+    "name": "Couples Army"
+  },
+  {
+    "id": 49,
+    "name": "White Heaven Sun"
+  },
+  {
+    "id": 50,
+    "name": "Glitch Cyberpunk"
+  },
+  {
+    "id": 51,
+    "name": "White Heaven Rain"
+  },
+  {
+    "id": 52,
+    "name": "White Heaven Rainbow"
+  },
+  {
+    "id": 53,
+    "name": "White Heaven Snow"
+  },
+  {
+    "id": 56,
+    "name": "White Heaven Lightning"
+  },
+  {
+    "id": 57,
+    "name": "White Heaven Wind"
+  },
+  {
+    "id": 58,
+    "name": "Earth Day Harmony"
+  },
+  {
+    "id": 59,
+    "name": "Azure Beasts of Fury"
+  },
+  {
+    "id": 60,
+    "name": "Crimson Beasts of Fury"
+  },
+  {
+    "id": 61,
+    "name": "Yeti and Pepe"
+  },
+  {
+    "id": 62,
+    "name": "Slime and Mushroom"
+  },
+  {
+    "id": 63,
+    "name": "Pink Bean Chaos"
+  },
+  {
+    "id": 64,
+    "name": "Alishan Mountain"
+  },
+  {
+    "id": 65,
+    "name": "Irena's Wind Band"
+  },
+  {
+    "id": 66,
+    "name": "Damien's Dark Band"
+  },
+  {
+    "id": 67,
+    "name": "Rainbow Boom"
+  },
+  {
+    "id": 68,
+    "name": "Fluffy Marshmallow"
+  },
+  {
+    "id": 69,
+    "name": "Mu Lung Dojo Transcendence"
+  },
+  {
+    "id": 70,
+    "name": "Bonfire Camp"
+  },
+  {
+    "id": 71,
+    "name": "Teddy Bear"
+  },
+  {
+    "id": 72,
+    "name": "Mighty Ursus King"
+  },
+  {
+    "id": 73,
+    "name": "Autumn Festival Fireworks"
+  },
+  {
+    "id": 74,
+    "name": "USA Stars and Stripes"
+  },
+  {
+    "id": 75,
+    "name": "Singapore Skyline"
+  },
+  {
+    "id": 76,
+    "name": "Kanna Spirit Flame"
+  },
+  {
+    "id": 77,
+    "name": "Hayato Blade Dance"
+  },
+  {
+    "id": 78,
+    "name": "Tot's Know-How"
+  },
+  {
+    "id": 79,
+    "name": "Nine-Tailed Fox Mirage"
+  },
+  {
+    "id": 80,
+    "name": "Murgoth Soul Drain"
+  },
+  {
+    "id": 81,
+    "name": "Jelly Bean Pop"
+  },
+  {
+    "id": 82,
+    "name": "Sweet Donut Glaze"
+  },
+  {
+    "id": 83,
+    "name": "Soft Serve Sundae"
+  },
+  {
+    "id": 84,
+    "name": "MVP Royal Special"
+  },
+  {
+    "id": 85,
+    "name": "Miracle Cube Transmute"
+  },
+  {
+    "id": 86,
+    "name": "One Winter Night"
+  },
+  {
+    "id": 87,
+    "name": "Monster Park Carnival"
+  },
+  {
+    "id": 88,
+    "name": "Christmas Tree Lights"
+  },
+  {
+    "id": 89,
+    "name": "Grandmaster Chess"
+  },
+  {
+    "id": 90,
+    "name": "Secret Code Matrix"
+  },
+  {
+    "id": 91,
+    "name": "Happy New Week"
+  },
+  {
+    "id": 92,
+    "name": "Heroes Phantom Phantom"
+  },
+  {
+    "id": 93,
+    "name": "Heroes Mercedes Elven"
+  },
+  {
+    "id": 94,
+    "name": "Festival Fireworks"
+  },
+  {
+    "id": 95,
+    "name": "Neon Sign Glow"
+  },
+  {
+    "id": 96,
+    "name": "Freeze Tag Glacial"
+  },
+  {
+    "id": 97,
+    "name": "Traditional Calligraphy"
+  },
+  {
+    "id": 98,
+    "name": "Explosive Dynamite"
+  },
+  {
+    "id": 99,
+    "name": "Snow-Wing Fairy"
+  },
+  {
+    "id": 100,
+    "name": "Royal Gold Sovereign"
+  },
+  {
+    "id": 102,
+    "name": "Basic (102)"
+  },
+  {
+    "id": 103,
+    "name": "Digitized (103)"
+  },
+  {
+    "id": 104,
+    "name": "Party Quest (104)"
+  },
+  {
+    "id": 105,
+    "name": "Sweet Tea Cake (105)"
+  },
+  {
+    "id": 106,
+    "name": "Merry Christmas (106)"
+  },
+  {
+    "id": 107,
+    "name": "Gentle Springtime Breeze (107)"
+  },
+  {
+    "id": 108,
+    "name": "Cherry Blossoms (108)"
+  },
+  {
+    "id": 109,
+    "name": "Golden Week (109)"
+  },
+  {
+    "id": 110,
+    "name": "Orange Mushroom (110)"
+  },
+  {
+    "id": 111,
+    "name": "Blood (111)"
+  },
+  {
+    "id": 112,
+    "name": "Zombie (112)"
+  },
+  {
+    "id": 113,
+    "name": "Princess No (113)"
+  },
+  {
+    "id": 114,
+    "name": "Monotone (114)"
+  },
+  {
+    "id": 116,
+    "name": "Star Planet (116)"
+  },
+  {
+    "id": 117,
+    "name": "Halloween (117)"
+  },
+  {
+    "id": 118,
+    "name": "Chinese Marshmallow (118)"
+  },
+  {
+    "id": 119,
+    "name": "Lonely Single (119)"
+  },
+  {
+    "id": 120,
+    "name": "Violetta's Charming (120)"
+  },
+  {
+    "id": 121,
+    "name": "Mashmellow (121)"
+  },
+  {
+    "id": 122,
+    "name": "Remnant of the Goddess (122)"
+  },
+  {
+    "id": 123,
+    "name": "Irena's Band (123)"
+  },
+  {
+    "id": 124,
+    "name": "Damien's Band (124)"
+  },
+  {
+    "id": 125,
+    "name": "Autumn Festival Full Moon (125)"
+  },
+  {
+    "id": 126,
+    "name": "Singapore Night (126)"
+  },
+  {
+    "id": 127,
+    "name": "Scribbler (127)"
+  },
+  {
+    "id": 128,
+    "name": "Sunny (128)"
+  },
+  {
+    "id": 129,
+    "name": "Gourmet (129)"
+  },
+  {
+    "id": 130,
+    "name": "Invisible (130)"
+  },
+  {
+    "id": 131,
+    "name": "MVP Special (131)"
+  },
+  {
+    "id": 132,
+    "name": "Christmas Lights (132)"
+  },
+  {
+    "id": 133,
+    "name": "Soft-serve (133)"
+  },
+  {
+    "id": 134,
+    "name": "Explosion (134)"
+  },
+  {
+    "id": 135,
+    "name": "Miho (135)"
+  },
+  {
+    "id": 136,
+    "name": "Antique Gold (136)"
+  },
+  {
+    "id": 137,
+    "name": "Random (137)"
+  },
+  {
+    "id": 138,
+    "name": "Musical Score (138)"
+  },
+  {
+    "id": 139,
+    "name": "Valentine Chocolate (139)"
+  },
+  {
+    "id": 140,
+    "name": "Forest of Tenacity (140)"
+  },
+  {
+    "id": 141,
+    "name": "Krakian (141)"
+  },
+  {
+    "id": 142,
+    "name": "Crimson Knight (142)"
+  },
+  {
+    "id": 143,
+    "name": "Corrupted Magician (143)"
+  },
+  {
+    "id": 144,
+    "name": "Antellion (144)"
+  },
+  {
+    "id": 145,
+    "name": "Festival Tortoise (145)"
+  },
+  {
+    "id": 146,
+    "name": "April Fools' (146)"
+  },
+  {
+    "id": 147,
+    "name": "Blackheart Day (147)"
+  },
+  {
+    "id": 148,
+    "name": "Haste (148)"
+  },
+  {
+    "id": 149,
+    "name": "Bubble April Fools' (149)"
+  },
+  {
+    "id": 150,
+    "name": "Retro April Fools' (150)"
+  },
+  {
+    "id": 152,
+    "name": "Monochrome April Fools' (152)"
+  },
+  {
+    "id": 153,
+    "name": "Sparkling April Fools' (153)"
+  },
+  {
+    "id": 154,
+    "name": "Candles (154)"
+  },
+  {
+    "id": 155,
+    "name": "Cupcakes (155)"
+  },
+  {
+    "id": 156,
+    "name": "Monkey (156)"
+  },
+  {
+    "id": 157,
+    "name": "Secret Music (157)"
+  },
+  {
+    "id": 158,
+    "name": "Math Symbol (158)"
+  },
+  {
+    "id": 159,
+    "name": "Secret Sign (159)"
+  },
+  {
+    "id": 160,
+    "name": "Secret Question Mark (160)"
+  },
+  {
+    "id": 161,
+    "name": "12th Anniversary Maple Leaf (161)"
+  },
+  {
+    "id": 162,
+    "name": "12th Anniversary Random (162)"
+  },
+  {
+    "id": 163,
+    "name": "Henesys (163)"
+  },
+  {
+    "id": 164,
+    "name": "Leafre (164)"
+  },
+  {
+    "id": 165,
+    "name": "Cosmic (165)"
+  },
+  {
+    "id": 166,
+    "name": "Choco Donut (166)"
+  },
+  {
+    "id": 167,
+    "name": "Blue Flame (167)"
+  },
+  {
+    "id": 168,
+    "name": "Algebraic (168)"
+  },
+  {
+    "id": 169,
+    "name": "Purple (169)"
+  },
+  {
+    "id": 170,
+    "name": "Nanopixel (170)"
+  },
+  {
+    "id": 171,
+    "name": "TuTu (171)"
+  },
+  {
+    "id": 172,
+    "name": "Nenne (172)"
+  },
+  {
+    "id": 173,
+    "name": "Lingling (173)"
+  },
+  {
+    "id": 174,
+    "name": "Sheriff (174)"
+  },
+  {
+    "id": 175,
+    "name": "Monster Balloon (175)"
+  },
+  {
+    "id": 176,
+    "name": "Crystal (176)"
+  },
+  {
+    "id": 177,
+    "name": "Chocolate (177)"
+  },
+  {
+    "id": 178,
+    "name": "Spark (178)"
+  },
+  {
+    "id": 179,
+    "name": "Epic Lulz (179)"
+  },
+  {
+    "id": 180,
+    "name": "Summer (180)"
+  },
+  {
+    "id": 181,
+    "name": "Blaster (181)"
+  },
+  {
+    "id": 182,
+    "name": "Heroes Aran (182)"
+  },
+  {
+    "id": 183,
+    "name": "Heroes Luminous (183)"
+  },
+  {
+    "id": 184,
+    "name": "Heroes Evan (184)"
+  },
+  {
+    "id": 185,
+    "name": "Heroes Shade (185)"
+  },
+  {
+    "id": 186,
+    "name": "Cygnus Water Warrior (186)"
+  },
+  {
+    "id": 187,
+    "name": "Resistance Water Warrior (187)"
+  },
+  {
+    "id": 188,
+    "name": "Dragon Fireworks (188)"
+  },
+  {
+    "id": 189,
+    "name": "Neon Lights (189)"
+  },
+  {
+    "id": 190,
+    "name": "Gilded (190)"
+  },
+  {
+    "id": 191,
+    "name": "Batty (191)"
+  },
+  {
+    "id": 192,
+    "name": "V-Random (192)"
+  },
+  {
+    "id": 193,
+    "name": "Cat Paw (193)"
+  },
+  {
+    "id": 194,
+    "name": "Cat Face (194)"
+  },
+  {
+    "id": 195,
+    "name": "Halloween Town (195)"
+  },
+  {
+    "id": 196,
+    "name": "Too Spooky (196)"
+  },
+  {
+    "id": 197,
+    "name": "Floofy Bichon (197)"
+  },
+  {
+    "id": 198,
+    "name": "Masque's Puzzle (198)"
+  },
+  {
+    "id": 199,
+    "name": "Wandering Soul (199)"
+  },
+  {
+    "id": 200,
+    "name": "War of Roses (200)"
+  },
+  {
+    "id": 201,
+    "name": "Snow Monster (201)"
+  },
+  {
+    "id": 202,
+    "name": "Snowfield Monster (202)"
+  },
+  {
+    "id": 203,
+    "name": "Vanishing Journey (203)"
+  },
+  {
+    "id": 204,
+    "name": "Chu Chu (204)"
+  },
+  {
+    "id": 205,
+    "name": "Lachelein (205)"
+  },
+  {
+    "id": 206,
+    "name": "Poison Flame (206)"
+  },
+  {
+    "id": 207,
+    "name": "Blue Shock (207)"
+  },
+  {
+    "id": 209,
+    "name": "Music Power (209)"
+  },
+  {
+    "id": 210,
+    "name": "Ransom Note (210)"
+  },
+  {
+    "id": 211,
+    "name": "Starlight Aurora (211)"
+  },
+  {
+    "id": 212,
+    "name": "Twilight (212)"
+  },
+  {
+    "id": 213,
+    "name": "Unyielding Fury (213)"
+  },
+  {
+    "id": 214,
+    "name": "Chestnut (214)"
+  },
+  {
+    "id": 215,
+    "name": "Highlighter (215)"
+  },
+  {
+    "id": 216,
+    "name": "Moon Festival Random (216)"
+  },
+  {
+    "id": 217,
+    "name": "Gilded Moonlight (217)"
+  },
+  {
+    "id": 218,
+    "name": "Hangul Day Traditional (218)"
+  },
+  {
+    "id": 219,
+    "name": "Prism (219)"
+  },
+  {
+    "id": 221,
+    "name": "Chick (221)"
+  },
+  {
+    "id": 222,
+    "name": "Gingko Leaf (222)"
+  },
+  {
+    "id": 223,
+    "name": "Silly Ghost (223)"
+  },
+  {
+    "id": 224,
+    "name": "Detective (224)"
+  },
+  {
+    "id": 225,
+    "name": "Hallowkitty (225)"
+  },
+  {
+    "id": 227,
+    "name": "Lucid Butterfly (227)"
+  },
+  {
+    "id": 228,
+    "name": "Cozy Christmas (228)"
+  },
+  {
+    "id": 229,
+    "name": "Relic (229)"
+  },
+  {
+    "id": 230,
+    "name": "Hieroglyph (230)"
+  },
+  {
+    "id": 231,
+    "name": "Steamed Bun (231)"
+  },
+  {
+    "id": 232,
+    "name": "Sweetheart Choco (232)"
+  },
+  {
+    "id": 233,
+    "name": "Breakthrough (233)"
+  },
+  {
+    "id": 234,
+    "name": "XOXO (234)"
+  },
+  {
+    "id": 235,
+    "name": "Full of Hearts (235)"
+  },
+  {
+    "id": 236,
+    "name": "Full of Stars (236)"
+  },
+  {
+    "id": 237,
+    "name": "Override (237)"
+  },
+  {
+    "id": 238,
+    "name": "Snowstorm (238)"
+  },
+  {
+    "id": 239,
+    "name": "Returned Legend (239)"
+  },
+  {
+    "id": 240,
+    "name": "Mecha (240)"
+  },
+  {
+    "id": 241,
+    "name": "Rocket (241)"
+  },
+  {
+    "id": 242,
+    "name": "Foamy Friends (242)"
+  },
+  {
+    "id": 243,
+    "name": "Crystalline (243)"
+  },
+  {
+    "id": 244,
+    "name": "Magpie's Feather (244)"
+  },
+  {
+    "id": 245,
+    "name": "Persimmon Tree (245)"
+  },
+  {
+    "id": 246,
+    "name": "Color Pop (246)"
+  },
+  {
+    "id": 247,
+    "name": "Intense (247)"
+  },
+  {
+    "id": 248,
+    "name": "Reverse (248)"
+  },
+  {
+    "id": 249,
+    "name": "Neon Easter Egg (249)"
+  },
+  {
+    "id": 250,
+    "name": "Watercolor (250)"
+  },
+  {
+    "id": 251,
+    "name": "Arcana (251)"
+  },
+  {
+    "id": 252,
+    "name": "Imperial (252)"
+  },
+  {
+    "id": 253,
+    "name": "Fafnir (253)"
+  },
+  {
+    "id": 254,
+    "name": "AbsoLab (254)"
+  },
+  {
+    "id": 255,
+    "name": "Japanese Kanji Character (255)"
+  },
+  {
+    "id": 256,
+    "name": "Chinese Text (256)"
+  },
+  {
+    "id": 257,
+    "name": "Roman Numeral (257)"
+  },
+  {
+    "id": 258,
+    "name": "Knife Wound (258)"
+  },
+  {
+    "id": 259,
+    "name": "Honeybee (259)"
+  },
+  {
+    "id": 260,
+    "name": "Aspire Industries (260)"
+  },
+  {
+    "id": 261,
+    "name": "Evolution (261)"
+  },
+  {
+    "id": 262,
+    "name": "Gifts of the Ryuul (262)"
+  },
+  {
+    "id": 266,
+    "name": "Petal (266)"
+  },
+  {
+    "id": 267,
+    "name": "Happy Anniversary (267)"
+  },
+  {
+    "id": 268,
+    "name": "13th Anniversary Random (268)"
+  },
+  {
+    "id": 269,
+    "name": "Constellation (269)"
+  },
+  {
+    "id": 270,
+    "name": "Extraterrestrial (270)"
+  },
+  {
+    "id": 271,
+    "name": "Frozen Treat (271)"
+  },
+  {
+    "id": 273,
+    "name": "Treasures of Eluna (273)"
+  },
+  {
+    "id": 274,
+    "name": "Solar Eclipse (274)"
+  },
+  {
+    "id": 275,
+    "name": "Starry Sky (275)"
+  },
+  {
+    "id": 276,
+    "name": "Summer Sands (276)"
+  },
+  {
+    "id": 277,
+    "name": "Tropical Sunset (277)"
+  },
+  {
+    "id": 278,
+    "name": "Runes of Eluna (278)"
+  },
+  {
+    "id": 279,
+    "name": "Cadena (279)"
+  },
+  {
+    "id": 280,
+    "name": "Note (280)"
+  },
+  {
+    "id": 281,
+    "name": "Crayon (281)"
+  },
+  {
+    "id": 282,
+    "name": "Nova Random (282)"
+  },
+  {
+    "id": 283,
+    "name": "Black Rose (283)"
+  },
+  {
+    "id": 284,
+    "name": "Puzzle (284)"
+  },
+  {
+    "id": 285,
+    "name": "Embroidery (285)"
+  },
+  {
+    "id": 286,
+    "name": "Dice Master (286)"
+  },
+  {
+    "id": 287,
+    "name": "Illium (287)"
+  },
+  {
+    "id": 288,
+    "name": "Custom Kitty (288)"
+  },
+  {
+    "id": 289,
+    "name": "Kitty Face (289)"
+  },
+  {
+    "id": 290,
+    "name": "Ribbon (290)"
+  },
+  {
+    "id": 291,
+    "name": "Acorn (291)"
+  },
+  {
+    "id": 292,
+    "name": "Stormcloud (292)"
+  },
+  {
+    "id": 293,
+    "name": "Drizzly (293)"
+  },
+  {
+    "id": 294,
+    "name": "Ostentation (294)"
+  },
+  {
+    "id": 295,
+    "name": "Palm Frond (295)"
+  },
+  {
+    "id": 296,
+    "name": "Christmas Cane (296)"
+  },
+  {
+    "id": 297,
+    "name": "Snow Crystal (297)"
+  },
+  {
+    "id": 298,
+    "name": "Selectable (298)"
+  },
+  {
+    "id": 299,
+    "name": "Kaleidoscope (299)"
+  },
+  {
+    "id": 301,
+    "name": "MapleStory (301)"
+  },
+  {
+    "id": 302,
+    "name": "Spring Spree Random (302)"
+  },
+  {
+    "id": 304,
+    "name": "Random Snack (304)"
+  },
+  {
+    "id": 305,
+    "name": "Popcorn (305)"
+  },
+  {
+    "id": 1001,
+    "name": "Pew Pew (1001)"
+  },
+  {
+    "id": 1003,
+    "name": "Frigid Ice (1003)"
+  },
+  {
+    "id": 1004,
+    "name": "Master Crimson (1004)"
+  },
+  {
+    "id": 1006,
+    "name": "Hong Bao (1006)"
+  },
+  {
+    "id": 1008,
+    "name": "Nyen (1008)"
+  },
+  {
+    "id": 1010,
+    "name": "Vengeful Nyen (1010)"
+  },
+  {
+    "id": 1017,
+    "name": "Zodiac Dog (1017)"
+  },
+  {
+    "id": 1019,
+    "name": "Red-Orange (1019)"
+  },
+  {
+    "id": 1020,
+    "name": "Ark Random (1020)"
+  },
+  {
+    "id": 1022,
+    "name": "Transcendent of Time (1022)"
+  },
+  {
+    "id": 1023,
+    "name": "Superstar (1023)"
+  },
+  {
+    "id": 1025,
+    "name": "Christmas Jubilation (1025)"
+  },
+  {
+    "id": 1026,
+    "name": "Kritias (1026)"
+  },
+  {
+    "id": 1029,
+    "name": "Club Henesys (1029)"
+  },
+  {
+    "id": 1030,
+    "name": "Nene Chicken (1030)"
+  },
+  {
+    "id": 1031,
+    "name": "Cookie Pop (1031)"
+  },
+  {
+    "id": 1034,
+    "name": "Teddy Ursus (1034)"
+  },
+  {
+    "id": 1035,
+    "name": "Scorching Heat (1035)"
+  },
+  {
+    "id": 1036,
+    "name": "Spades (1036)"
+  },
+  {
+    "id": 1038,
+    "name": "Luxe (1038)"
+  },
+  {
+    "id": 1044,
+    "name": "Tweed (1044)"
+  },
+  {
+    "id": 1046,
+    "name": "Baseball Jacket (1046)"
+  },
+  {
+    "id": 1047,
+    "name": "Woof Woof (1047)"
+  },
+  {
+    "id": 1048,
+    "name": "Heartthrob (1048)"
+  },
+  {
+    "id": 1052,
+    "name": "Discovery (1052)"
+  },
+  {
+    "id": 1057,
+    "name": "Esfera (1057)"
+  },
+  {
+    "id": 1058,
+    "name": "Heavenly (1058)"
+  },
+  {
+    "id": 1059,
+    "name": "Hybrid (1059)"
+  },
+  {
+    "id": 1060,
+    "name": "Red Circuit (1060)"
+  },
+  {
+    "id": 1062,
+    "name": "Graffiti (1062)"
+  },
+  {
+    "id": 1063,
+    "name": "Skull (1063)"
+  },
+  {
+    "id": 1064,
+    "name": "Valentine's Day (1064)"
+  },
+  {
+    "id": 1065,
+    "name": "White Chocolate (1065)"
+  },
+  {
+    "id": 1069,
+    "name": "Pastel Easter Egg (1069)"
+  },
+  {
+    "id": 1071,
+    "name": "Choco Bonbon (1071)"
+  },
+  {
+    "id": 1072,
+    "name": "Twelve Branches (1072)"
+  },
+  {
+    "id": 1073,
+    "name": "Round 'n' Round (1073)"
+  },
+  {
+    "id": 1074,
+    "name": "Garden (1074)"
+  },
+  {
+    "id": 1078,
+    "name": "Cake Icing (1078)"
+  },
+  {
+    "id": 1079,
+    "name": "Doodle (1079)"
+  },
+  {
+    "id": 1080,
+    "name": "Ostentatious (1080)"
+  },
+  {
+    "id": 1124,
+    "name": "Stamp (1124)"
+  },
+  {
+    "id": 1126,
+    "name": "Mustache (1126)"
+  },
+  {
+    "id": 1134,
+    "name": "Maple Japan (1134)"
+  },
+  {
+    "id": 1135,
+    "name": "Maple Taiwan (1135)"
+  },
+  {
+    "id": 1136,
+    "name": "Maple China (1136)"
+  },
+  {
+    "id": 1137,
+    "name": "High Noon (1137)"
+  },
+  {
+    "id": 1159,
+    "name": "Funky Fools (1159)"
+  },
+  {
+    "id": 1160,
+    "name": "Soccer Uniform (1160)"
+  },
+  {
+    "id": 1161,
+    "name": "Cross (1161)"
+  },
+  {
+    "id": 1186,
+    "name": "Nyanta (1186)"
+  },
+  {
+    "id": 1230,
+    "name": "12th Anniversary (1230)"
+  },
+  {
+    "id": 1231,
+    "name": "Luminous (1231)"
+  },
+  {
+    "id": 1233,
+    "name": "Rare Master Thief (1233)"
+  },
+  {
+    "id": 1234,
+    "name": "Cold Flame (1234)"
+  },
+  {
+    "id": 1287,
+    "name": "KEKEKE (1287)"
+  },
+  {
+    "id": 1290,
+    "name": "Hinamatsuri (1290)"
+  },
+  {
+    "id": 1291,
+    "name": "Random Job (1291)"
+  },
+  {
+    "id": 1299,
+    "name": "14th Street (1299)"
+  },
+  {
+    "id": 1302,
+    "name": "Droplet (1302)"
+  },
+  {
+    "id": 1303,
+    "name": "Gummy Bear (1303)"
+  },
+  {
+    "id": 1304,
+    "name": "14th Anniversary (1304)"
+  },
+  {
+    "id": 1305,
+    "name": "Surfing (1305)"
+  },
+  {
+    "id": 1306,
+    "name": "Sweet Peach (1306)"
+  },
+  {
+    "id": 1307,
+    "name": "Summer Sea (1307)"
+  },
+  {
+    "id": 1308,
+    "name": "Popsicle (1308)"
+  },
+  {
+    "id": 1309,
+    "name": "Abrup's Snowstorm (1309)"
+  },
+  {
+    "id": 1310,
+    "name": "Fembris (1310)"
+  },
+  {
+    "id": 1311,
+    "name": "Shinsoo (1311)"
+  },
+  {
+    "id": 1313,
+    "name": "Mysterious (1313)"
+  },
+  {
+    "id": 1314,
+    "name": "Foggy (1314)"
+  },
+  {
+    "id": 1322,
+    "name": "Alliance (1322)"
+  },
+  {
+    "id": 1330,
+    "name": "Labyrinth Random (1330)"
+  },
+  {
+    "id": 1343,
+    "name": "Bitty Baby Feet (1343)"
+  },
+  {
+    "id": 1394,
+    "name": "Pink Princess (1394)"
+  },
+  {
+    "id": 1395,
+    "name": "Master Stellar (1395)"
+  },
+  {
+    "id": 1398,
+    "name": "Labyrinth Flame (1398)"
+  },
+  {
+    "id": 1402,
+    "name": "Living Chain (1402)"
+  },
+  {
+    "id": 1403,
+    "name": "Custom Puppy (1403)"
+  },
+  {
+    "id": 1404,
+    "name": "8-Bit (1404)"
+  },
+  {
+    "id": 1405,
+    "name": "Devil Font (1405)"
+  },
+  {
+    "id": 1407,
+    "name": "Trick or Treat (1407)"
+  },
+  {
+    "id": 1408,
+    "name": "Challenge (1408)"
+  },
+  {
+    "id": 1409,
+    "name": "Harvest (1409)"
+  },
+  {
+    "id": 1410,
+    "name": "Harvest Random (1410)"
+  },
+  {
+    "id": 1411,
+    "name": "3D Effect (1411)"
+  },
+  {
+    "id": 1412,
+    "name": "Jolly Holiday (1412)"
+  },
+  {
+    "id": 1413,
+    "name": "Golden Tinsel (1413)"
+  },
+  {
+    "id": 1414,
+    "name": "New Year Message (1414)"
+  },
+  {
+    "id": 1415,
+    "name": "New Year Golden Piggy (1415)"
+  },
+  {
+    "id": 1416,
+    "name": "Lunar New Year (1416)"
+  },
+  {
+    "id": 1417,
+    "name": "Valentine (1417)"
+  },
+  {
+    "id": 1418,
+    "name": "Detective Yettson and Peplock (1418)"
+  },
+  {
+    "id": 1419,
+    "name": "Dazzling Ruby (1419)"
+  },
+  {
+    "id": 1421,
+    "name": "Sugar Cookie (1421)"
+  },
+  {
+    "id": 1422,
+    "name": "Adventure (1422)"
+  },
+  {
+    "id": 1423,
+    "name": "Coral Reef (1423)"
+  },
+  {
+    "id": 1424,
+    "name": "Shimmerlight (1424)"
+  },
+  {
+    "id": 1427,
+    "name": "Origami (1427)"
+  },
+  {
+    "id": 1428,
+    "name": "Pathfinder (1428)"
+  },
+  {
+    "id": 1429,
+    "name": "Brawlosseum (1429)"
+  },
+  {
+    "id": 1430,
+    "name": "Motley Random (1430)"
+  },
+  {
+    "id": 1432,
+    "name": "Serpent (1432)"
+  },
+  {
+    "id": 1433,
+    "name": "Little Oinkers (1433)"
+  },
+  {
+    "id": 1434,
+    "name": "Bunny Cakes (1434)"
+  },
+  {
+    "id": 1435,
+    "name": "Bunny Blossom (1435)"
+  },
+  {
+    "id": 1436,
+    "name": "Rock Spirit (1436)"
+  },
+  {
+    "id": 1437,
+    "name": "Sleek Slither (1437)"
+  },
+  {
+    "id": 1438,
+    "name": "Bingo (1438)"
+  },
+  {
+    "id": 1439,
+    "name": "Momentum (1439)"
+  },
+  {
+    "id": 1440,
+    "name": "Drowsy Rabbit (1440)"
+  },
+  {
+    "id": 1441,
+    "name": "Spring Day Pup (1441)"
+  },
+  {
+    "id": 1442,
+    "name": "Toben Hair Trend (1442)"
+  },
+  {
+    "id": 1443,
+    "name": "Cold Drink (1443)"
+  },
+  {
+    "id": 1444,
+    "name": "Watermelon Symbol (1444)"
+  },
+  {
+    "id": 1445,
+    "name": "Pixel Starry (1445)"
+  },
+  {
+    "id": 1449,
+    "name": "Pixel Nine-Tailed Fox (1449)"
+  },
+  {
+    "id": 1450,
+    "name": "Pixel Basic (1450)"
+  },
+  {
+    "id": 1451,
+    "name": "Pixel Snowstorm (1451)"
+  },
+  {
+    "id": 1452,
+    "name": "Pixel Neon Lights (1452)"
+  },
+  {
+    "id": 1453,
+    "name": "Superstar Pink Bean (1453)"
+  },
+  {
+    "id": 1454,
+    "name": "Kanna Reborn (1454)"
+  },
+  {
+    "id": 1456,
+    "name": "Pixel Star Planet (1456)"
+  },
+  {
+    "id": 1457,
+    "name": "Pixel Scorching Heat (1457)"
+  },
+  {
+    "id": 1459,
+    "name": "Pixel Full of Hearts (1459)"
+  },
+  {
+    "id": 1460,
+    "name": "Pixel Crow (1460)"
+  },
+  {
+    "id": 1462,
+    "name": "Pixel 12th Anniversary Maple Leaf (1462)"
+  },
+  {
+    "id": 1463,
+    "name": "Lightbulb (1463)"
+  },
+  {
+    "id": 1464,
+    "name": "Starry Light (1464)"
+  },
+  {
+    "id": 1465,
+    "name": "Extreme Breakthrough (1465)"
+  },
+  {
+    "id": 1466,
+    "name": "Job (1466)"
+  },
+  {
+    "id": 1467,
+    "name": "Hoyoung (1467)"
+  },
+  {
+    "id": 1468,
+    "name": "Celestial (1468)"
+  },
+  {
+    "id": 1470,
+    "name": "Ash (1470)"
+  },
+  {
+    "id": 1471,
+    "name": "Dawn (1471)"
+  },
+  {
+    "id": 1472,
+    "name": "Red Flame (1472)"
+  },
+  {
+    "id": 1473,
+    "name": "Glory Guard (1473)"
+  },
+  {
+    "id": 1474,
+    "name": "Scribbled Note (1474)"
+  },
+  {
+    "id": 1475,
+    "name": "Firework Burst (1475)"
+  }
+]

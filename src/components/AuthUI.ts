@@ -177,67 +177,28 @@ export class AuthUI {
     const health = await spacetime.checkHealth();
     this.dbConnected = health.ok;
 
+    if (spacetime.currentUser === "guest" || spacetime.currentUser === "default") {
+      spacetime.logout();
+    }
+
     // Check if user explicitly opted to skip auto-login (e.g. clicked Switch Character or Logout)
     const skipAutoLogin = sessionStorage.getItem("ms_skip_autologin") === "1";
     if (skipAutoLogin) {
       sessionStorage.removeItem("ms_skip_autologin");
-    } else {
+    } else if (spacetime.currentUser) {
       const lastSavedName = localStorage.getItem("ms_current_character") || localStorage.getItem("ms_player_name");
-
-      // 1) If logged into SpacetimeDB user account, auto-login to matching character or first character
-      if (spacetime.currentUser) {
-        try {
-          const res = await spacetime.getCharacters();
-          if (res.ok && res.characters.length > 0) {
-            const target = (lastSavedName ? res.characters.find((c) => c.name === lastSavedName) : null) || res.characters[0];
-            if (target) {
-              this.selectAndPlay(target);
-              return;
-            }
+      try {
+        const res = await spacetime.getCharacters();
+        if (res.ok && res.characters.length > 0) {
+          const target = (lastSavedName
+            ? res.characters.find((c) => c.name.toLowerCase() === lastSavedName.toLowerCase())
+            : null) || res.characters[0];
+          if (target) {
+            this.selectAndPlay(target);
+            return;
           }
-        } catch {}
-      }
-
-      // 2) If played previously in guest or local mode with a saved character
-      if (lastSavedName) {
-        let sv: any = null;
-        try {
-          sv = JSON.parse(localStorage.getItem(`maple-wayfarer-save-${lastSavedName}`) ?? "null")
-            ?? JSON.parse(localStorage.getItem("maple-wayfarer-save") ?? "null");
-        } catch {}
-
-        let lastPos: any = null;
-        try {
-          lastPos = JSON.parse(localStorage.getItem("ms_last_saved_pos") ?? "null");
-        } catch {}
-
-        if (sv || lastSavedName) {
-          const charObj: SpacetimeCharacter = {
-            name: sv?.stats?.name || lastSavedName,
-            username: spacetime.currentUser || "guest",
-            classId: sv?.stats?.classId || "beginner",
-            gender: "male",
-            level: sv?.stats?.level || 1,
-            exp: sv?.stats?.exp || 0,
-            hp: sv?.stats?.hp || 50,
-            maxHp: sv?.stats?.maxHp || 50,
-            mp: sv?.stats?.mp || 20,
-            maxMp: sv?.stats?.maxMp || 20,
-            meso: sv?.stats?.meso || 1000,
-            mapId: sv?.map ?? lastPos?.mapId ?? 910000000,
-            x: sv?.p?.x ?? (lastPos && (lastPos.mapId === sv?.map || !sv?.map) ? lastPos.x : 0),
-            y: sv?.p?.y ?? (lastPos && (lastPos.mapId === sv?.map || !sv?.map) ? lastPos.y : 0),
-            look: sv?.look || [2000, 12000, 20000, 30030, 1040002, 1060002, 1072001, 1302000],
-            stats: sv?.stats || {},
-            inventory: sv?.bag || [],
-            equipment: { eq: sv?.eq, visualEq: sv?.visualEq },
-            skills: { skillLv: sv?.skillLv, quick: sv?.quick },
-            updatedAt: Date.now(),
-          };
-          this.selectAndPlay(charObj);
-          return;
         }
-      }
+      } catch {}
     }
 
     // Default flow: If no auto-login occurred
@@ -259,7 +220,9 @@ export class AuthUI {
       this.characters = res.characters;
       // Default selection to first character or saved character
       const lastSavedName = localStorage.getItem("ms_current_character");
-      const idx = this.characters.findIndex((c) => c.name === lastSavedName);
+      const idx = lastSavedName
+        ? this.characters.findIndex((c) => c.name.toLowerCase() === lastSavedName.toLowerCase())
+        : -1;
       this.selectedCharacterIndex = idx >= 0 ? idx : 0;
     } else {
       this.characters = [];
@@ -326,14 +289,14 @@ export class AuthUI {
             </div>
             <div class="flex items-center gap-2 mt-0.5">
               <span class="inline-block w-2 h-2 rounded-full ${this.dbConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}"></span>
-              <span class="text-[11px] font-semibold text-slate-400">${this.dbConnected ? "Server Online" : "Connecting to Server…"}</span>
+              <span class="text-[11px] font-semibold text-zinc-400">${this.dbConnected ? "Server Online" : "Connecting to Server…"}</span>
             </div>
           </div>
         </div>
         ${spacetime.currentUser ? `
           <div class="flex items-center gap-3">
             <div class="text-right">
-              <div class="text-[11px] text-slate-400">Maple Account</div>
+              <div class="text-[11px] text-zinc-400">Maple Account</div>
               <div class="text-xs font-bold text-amber-400">${spacetime.currentUser}</div>
             </div>
             <button type="button" class="ms-btn-subtle text-xs" id="header-logout">Logout</button>
@@ -423,45 +386,11 @@ export class AuthUI {
       <button type="submit" class="ms-btn-primary w-full mt-3 py-2.5 text-sm cursor-pointer" ${this.loading ? "disabled" : ""}>
         ${this.loading ? "Connecting…" : this.mode === "login" ? "Log In" : "Create Account"}
       </button>
-      <div class="flex items-center my-3 gap-2 opacity-60">
-        <div class="flex-1 h-[1px] bg-slate-600"></div>
-        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">or</span>
-        <div class="flex-1 h-[1px] bg-slate-600"></div>
-      </div>
-      <button type="button" id="btn-guest-play" class="w-full py-2 px-3 text-xs font-bold text-slate-200 bg-slate-800/90 hover:bg-slate-700/90 border border-slate-600 rounded cursor-pointer transition-colors flex items-center justify-center gap-2">
-        <span>🍁</span> <span>Instant Play (Guest Mode)</span>
-      </button>
     `;
-
-    form.querySelector("#btn-guest-play")?.addEventListener("click", () => {
-      this.destroy();
-      this.onCharacterSelected({
-        name: "Wayfarer",
-        username: "guest",
-        classId: "beginner",
-        gender: "male",
-        level: 1,
-        exp: 0,
-        hp: 50,
-        maxHp: 50,
-        mp: 20,
-        maxMp: 20,
-        meso: 1000,
-        mapId: 910000000,
-        x: 0,
-        y: 0,
-        look: [2000, 12000, 20000, 30030, 1040002, 1060002, 1072001, 1302000],
-        stats: {},
-        inventory: [],
-        equipment: {},
-        skills: {},
-        updatedAt: Date.now(),
-      });
-    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const u = (form.querySelector("#auth-username") as HTMLInputElement)?.value.trim();
+      const u = (form.querySelector("#auth-username") as HTMLInputElement)?.value.trim().toLowerCase();
       const p = (form.querySelector("#auth-password") as HTMLInputElement)?.value;
       if (!u || !p) return;
 
@@ -598,9 +527,9 @@ export class AuthUI {
     } else {
       spotlight.innerHTML = `
         <div class="ms-spotlight-empty">
-          <div class="text-4xl text-slate-500 mb-2">★</div>
-          <div class="text-sm font-bold text-slate-300">No Characters Yet</div>
-          <p class="text-xs text-slate-400 mt-1 max-w-xs text-center">Create your first Maple Adventurer to start exploring the world!</p>
+          <div class="text-4xl text-zinc-500 mb-2">★</div>
+          <div class="text-sm font-bold text-zinc-300">No Characters Yet</div>
+          <p class="text-xs text-zinc-400 mt-1 max-w-xs text-center">Create your first Maple Adventurer to start exploring the world!</p>
           <button type="button" class="ms-btn-primary mt-4 py-2 px-5" id="btn-empty-create">Create Character</button>
         </div>
       `;
@@ -616,7 +545,7 @@ export class AuthUI {
     const rosterHeader = document.createElement("div");
     rosterHeader.className = "ms-roster-header";
     rosterHeader.innerHTML = `
-      <div class="text-xs font-bold uppercase tracking-wider text-slate-400">
+      <div class="text-xs font-bold uppercase tracking-wider text-zinc-400">
         Adventurer Roster <span class="text-cyan-400">(${this.characters.length} / 6)</span>
       </div>
       <button type="button" class="ms-btn-secondary text-xs px-2.5 py-1" id="btn-create-roster-header">
@@ -645,7 +574,7 @@ export class AuthUI {
             <span class="ms-badge-level text-[10px]">Lv. ${ch.level}</span>
           </div>
           <div class="flex items-center justify-between mt-1">
-            <span class="text-[11px] font-semibold text-slate-400">${ch.classId.toUpperCase()}</span>
+            <span class="text-[11px] font-semibold text-zinc-400">${ch.classId.toUpperCase()}</span>
             <span class="text-[11px] text-amber-400 font-mono">${ch.meso.toLocaleString()} ⛃</span>
           </div>
         </div>
@@ -673,7 +602,7 @@ export class AuthUI {
         <div class="ms-new-char-icon">+</div>
         <div>
           <div class="text-xs font-bold text-cyan-300">Create New Adventurer</div>
-          <div class="text-[10px] text-slate-400">Step into the Maple World</div>
+          <div class="text-[10px] text-zinc-400">Step into the Maple World</div>
         </div>
       `;
       newCard.addEventListener("click", () => {
@@ -772,7 +701,7 @@ export class AuthUI {
     wrap.innerHTML = `
       <div class="ms-step-header text-center mb-4">
         <h2 class="text-xl font-black text-white tracking-wide">SELECT YOUR CLASS ARCHETYPE</h2>
-        <p class="text-xs text-slate-400 mt-1">Each class offers distinct combat styles, mobility, and signature skills.</p>
+        <p class="text-xs text-zinc-400 mt-1">Each class offers distinct combat styles, mobility, and signature skills.</p>
       </div>
 
       <!-- Archetype Grid -->
@@ -800,7 +729,7 @@ export class AuthUI {
           </div>
           <div>
             <div class="text-xs font-bold text-white">${currentArch.name} Selected</div>
-            <div class="text-[11px] text-slate-400">Starter Weapon: <span class="text-cyan-300 font-semibold">${currentArch.weaponName}</span></div>
+            <div class="text-[11px] text-zinc-400">Starter Weapon: <span class="text-cyan-300 font-semibold">${currentArch.weaponName}</span></div>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -902,7 +831,7 @@ export class AuthUI {
             `).join("")}
           </div>
 
-          <div class="text-xs text-slate-400 text-center mt-3">
+          <div class="text-xs text-zinc-400 text-center mt-3">
             Class: <span class="text-emerald-400 font-bold uppercase">${this.draft.classId}</span>
           </div>
         </div>
@@ -911,7 +840,7 @@ export class AuthUI {
         <div class="ms-salon-controls-col">
           <!-- Gender -->
           <div class="field mb-3">
-            <span class="block text-xs font-semibold text-slate-300 mb-1">Gender</span>
+            <span class="block text-xs font-semibold text-zinc-300 mb-1">Gender</span>
             <div class="flex gap-2">
               <button type="button" class="ms-btn-choice flex-1 ${this.draft.gender === "male" ? "active" : ""}" data-gender="male">♂ Male</button>
               <button type="button" class="ms-btn-choice flex-1 ${this.draft.gender === "female" ? "active" : ""}" data-gender="female">♀ Female</button>
@@ -920,7 +849,7 @@ export class AuthUI {
 
           <!-- Skin Tone Swatches -->
           <div class="field mb-3">
-            <span class="block text-xs font-semibold text-slate-300 mb-1">Skin Tone</span>
+            <span class="block text-xs font-semibold text-zinc-300 mb-1">Skin Tone</span>
             <div class="flex gap-2 flex-wrap">
               ${skins.map((s) => `
                 <button type="button" class="ms-skin-swatch ${this.draft.skin === s.id ? "active" : ""}" data-skin="${s.id}" title="${s.name}" style="background-color: ${s.color};">
@@ -932,7 +861,7 @@ export class AuthUI {
 
           <!-- Hair Style -->
           <div class="field mb-3">
-            <span class="block text-xs font-semibold text-slate-300 mb-1">Hair Style</span>
+            <span class="block text-xs font-semibold text-zinc-300 mb-1">Hair Style</span>
             <div class="flex gap-1.5 flex-wrap">
               ${hairs.map((h) => `
                 <button type="button" class="ms-btn-choice text-xs px-2.5 py-1 ${this.draft.hair === h.id ? "active" : ""}" data-hair="${h.id}">${h.name}</button>
@@ -942,7 +871,7 @@ export class AuthUI {
 
           <!-- Face Expression -->
           <div class="field mb-3">
-            <span class="block text-xs font-semibold text-slate-300 mb-1">Face Expression</span>
+            <span class="block text-xs font-semibold text-zinc-300 mb-1">Face Expression</span>
             <div class="flex gap-1.5 flex-wrap">
               ${faces.map((f) => `
                 <button type="button" class="ms-btn-choice text-xs px-2.5 py-1 ${this.draft.face === f.id ? "active" : ""}" data-face="${f.id}">${f.name}</button>
@@ -952,7 +881,7 @@ export class AuthUI {
 
           <!-- Starter Outfit -->
           <div class="field mb-4">
-            <span class="block text-xs font-semibold text-slate-300 mb-1">Starter Clothing</span>
+            <span class="block text-xs font-semibold text-zinc-300 mb-1">Starter Clothing</span>
             <div class="flex gap-1.5 flex-wrap">
               ${outfits.map((o) => `
                 <button type="button" class="ms-btn-choice text-xs px-2.5 py-1 ${this.draft.top === o.top ? "active" : ""}" data-top="${o.top}" data-bottom="${o.bottom}">${o.name}</button>
@@ -963,7 +892,7 @@ export class AuthUI {
       </div>
 
       <!-- Navigation Bar -->
-      <div class="flex items-center justify-between mt-4 pt-3 border-t border-slate-800">
+      <div class="flex items-center justify-between mt-4 pt-3 border-t border-zinc-800">
         <button type="button" class="ms-btn-subtle px-4 py-2 text-xs" id="btn-back-step-1">
           ← Back to Archetype
         </button>
@@ -1085,7 +1014,7 @@ export class AuthUI {
         <!-- Right: Name Entry & Passport Summary -->
         <div class="ms-identity-form-col">
           <div class="field mb-3">
-            <span class="block text-xs font-semibold text-slate-300 mb-1">Character Name</span>
+            <span class="block text-xs font-semibold text-zinc-300 mb-1">Character Name</span>
             <div class="flex gap-2">
               <input id="identity-name-input" type="text" maxlength="12" placeholder="2-12 alphanumeric characters" value="${this.draft.name}" class="flex-1" />
               <button type="button" id="btn-check-name" class="ms-btn-secondary whitespace-nowrap" ${this.checkingName ? "disabled" : ""}>
@@ -1102,7 +1031,7 @@ export class AuthUI {
           <div class="ms-passport-card">
             <div class="ms-passport-header">
               <span class="text-xs font-bold text-amber-300">ADVENTURER PASSPORT</span>
-              <span class="text-[10px] text-slate-400 font-mono">MAPLE ID #001</span>
+              <span class="text-[10px] text-zinc-400 font-mono">MAPLE ID #001</span>
             </div>
             <div class="ms-passport-grid">
               <div class="row">
@@ -1127,47 +1056,47 @@ export class AuthUI {
               </div>
               <div class="row">
                 <span class="k">Starter Weapon</span>
-                <span class="v text-slate-300">${currentArch.weaponName}</span>
+                <span class="v text-zinc-300">${currentArch.weaponName}</span>
               </div>
             </div>
           </div>
 
           <!-- Post-Creation First Steps & Roadmap Card -->
-          <div class="ms-roadmap-card mt-3 p-3 bg-slate-900/80 border border-sky-500/30 rounded-lg text-left shadow-md">
+          <div class="ms-roadmap-card mt-3 p-3 bg-zinc-900/80 border border-sky-500/30 rounded-lg text-left shadow-md">
             <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10">
               <span class="text-[11px] font-black text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
                 <span class="inline-block w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span>
                 First Steps & Progression Roadmap
               </span>
-              <span class="text-[9.5px] font-mono text-slate-400">Press 'G' for Codex</span>
+              <span class="text-[9.5px] font-mono text-zinc-400">Press 'G' for Codex</span>
             </div>
             <div class="grid grid-cols-2 gap-2 text-[10.5px]">
-              <div class="flex items-start gap-1.5 bg-slate-950/60 p-2 rounded border border-white/5">
+              <div class="flex items-start gap-1.5 bg-zinc-950/60 p-2 rounded border border-white/5">
                 <span class="font-bold text-sky-400 font-mono">1.</span>
                 <div>
                   <b class="text-white">Spawn & Gear:</b>
-                  <p class="text-slate-300 text-[10px] mt-0.5 leading-snug">Spawn in Free Market safe zone. Open Inventory (<b>I</b>/<b>E</b>) to equip starter gear in free grid.</p>
+                  <p class="text-zinc-300 text-[10px] mt-0.5 leading-snug">Spawn in Free Market safe zone. Open Inventory (<b>I</b>/<b>E</b>) to equip starter gear in free grid.</p>
                 </div>
               </div>
-              <div class="flex items-start gap-1.5 bg-slate-950/60 p-2 rounded border border-white/5">
+              <div class="flex items-start gap-1.5 bg-zinc-950/60 p-2 rounded border border-white/5">
                 <span class="font-bold text-emerald-400 font-mono">2.</span>
                 <div>
                   <b class="text-white">Hunt Victoria:</b>
-                  <p class="text-slate-300 text-[10px] mt-0.5 leading-snug">Take portals (<b>↑</b>). Attack (<b>Ctrl</b>/<b>X</b>) Snails/Slimes. Loot (<b>Z</b>) or Auto Battle (<b>B</b>).</p>
+                  <p class="text-zinc-300 text-[10px] mt-0.5 leading-snug">Take portals (<b>↑</b>). Attack (<b>Ctrl</b>/<b>X</b>) Snails/Slimes. Loot (<b>Z</b>) or Auto Battle (<b>B</b>).</p>
                 </div>
               </div>
-              <div class="flex items-start gap-1.5 bg-slate-950/60 p-2 rounded border border-white/5">
+              <div class="flex items-start gap-1.5 bg-zinc-950/60 p-2 rounded border border-white/5">
                 <span class="font-bold text-amber-400 font-mono">3.</span>
                 <div>
                   <b class="text-white">25-Kill Bosses:</b>
-                  <p class="text-slate-300 text-[10px] mt-0.5 leading-snug">Every 25 kills summons Stage Boss! Toggle <b>AUTO BOSS</b> for guaranteed rare gear & cubes.</p>
+                  <p class="text-zinc-300 text-[10px] mt-0.5 leading-snug">Every 25 kills summons Stage Boss! Toggle <b>AUTO BOSS</b> for guaranteed rare gear & cubes.</p>
                 </div>
               </div>
-              <div class="flex items-start gap-1.5 bg-slate-950/60 p-2 rounded border border-white/5">
+              <div class="flex items-start gap-1.5 bg-zinc-950/60 p-2 rounded border border-white/5">
                 <span class="font-bold text-purple-400 font-mono">4.</span>
                 <div>
                   <b class="text-white">Jobs & Stars:</b>
-                  <p class="text-slate-300 text-[10px] mt-0.5 leading-snug">1st/2nd/3rd/4th Job at Lv. 10/30/70/120. Enhance gear up to 15 Stars (<b>J</b>) & re-roll potentials.</p>
+                  <p class="text-zinc-300 text-[10px] mt-0.5 leading-snug">1st/2nd/3rd/4th Job at Lv. 10/30/70/120. Enhance gear up to 15 Stars (<b>J</b>) & re-roll potentials.</p>
                 </div>
               </div>
             </div>
@@ -1182,7 +1111,7 @@ export class AuthUI {
       </div>
 
       <!-- Navigation Bar -->
-      <div class="flex items-center justify-between mt-4 pt-3 border-t border-slate-800">
+      <div class="flex items-center justify-between mt-4 pt-3 border-t border-zinc-800">
         <button type="button" class="ms-btn-subtle px-4 py-2 text-xs" id="btn-back-step-2">
           ← Back to Appearance
         </button>

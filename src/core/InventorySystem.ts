@@ -2,6 +2,17 @@
 import type { Game } from "../game.ts";
 import {
   GEAR,
+  GEAR_TYPE_ORDER,
+  gearCombatPower,
+  canClassEquipWeapon,
+  getWeaponType,
+  WEAPON_TYPE_NAME,
+  getWeaponAllowedClassesDesc,
+  canClassEquipItem,
+  getItemAllowedClassesDesc,
+  isOverallItem,
+  getItemGender,
+  canGenderEquip,
   MATS,
   RARITY,
   cubeCost,
@@ -28,6 +39,41 @@ export class InventorySystem {
       game.onChat("system", `You need to be Lv. ${b.req} to equip ${b.name}.`);
       return false;
     }
+    // Gender lock enforcement
+    const itemGender = b.gender ?? getItemGender(b.id, b.name);
+    if (!canGenderEquip(game.stats.gender, itemGender)) {
+      const reqGender = itemGender.charAt(0).toUpperCase() + itemGender.slice(1);
+      const charG = (game.stats.gender ?? "male").charAt(0).toUpperCase() + (game.stats.gender ?? "male").slice(1);
+      game.onChat("system", `❌ ${charG} characters cannot equip ${reqGender}-only items (${b.name}).`);
+      return false;
+    }
+    // Class / Job requirement enforcement (weapons, armors, accessories)
+    if (!canClassEquipItem(game.stats.classId, b)) {
+      const allowed = getItemAllowedClassesDesc(b);
+      const playerClass = game.stats.classId.charAt(0).toUpperCase() + game.stats.classId.slice(1);
+      game.onChat("system", `❌ ${playerClass} cannot equip ${b.name}. Required Job: ${allowed}.`);
+      return false;
+    }
+
+    // Overall / Pants mutual exclusion
+    if (isOverallItem(b.id)) {
+      // Overalls take the 'top' slot and unequip any equipped pants/bottom
+      if (game.eq.bottom) {
+        const bot = game.eq.bottom;
+        delete game.eq.bottom;
+        InventorySystem.addGear(game, bot);
+        game.onChat("notice", "Unequipped pants: overalls cover both top and bottom.");
+      }
+    } else if (b.slot === "bottom") {
+      // Equipping pants unequips any equipped overall in the top slot
+      if (game.eq.top && isOverallItem(game.eq.top.id)) {
+        const ov = game.eq.top;
+        delete game.eq.top;
+        InventorySystem.addGear(game, ov);
+        game.onChat("notice", "Unequipped overall to wear pants.");
+      }
+    }
+
     const sockets = game.socketsFor(b.slot);
     let target: Slot | null = null;
     for (const s of sockets) {
@@ -59,6 +105,32 @@ export class InventorySystem {
     if (!b.cosmetic && !b.cash) {
       return InventorySystem.equip(game, uid);
     }
+    // Gender lock enforcement
+    const itemGender = b.gender ?? getItemGender(b.id, b.name);
+    if (!canGenderEquip(game.stats.gender, itemGender)) {
+      const reqGender = itemGender.charAt(0).toUpperCase() + itemGender.slice(1);
+      const charG = (game.stats.gender ?? "male").charAt(0).toUpperCase() + (game.stats.gender ?? "male").slice(1);
+      game.onChat("system", `❌ ${charG} characters cannot equip ${reqGender}-only items (${b.name}).`);
+      return false;
+    }
+
+    // Visual Overall / Pants mutual exclusion
+    if (isOverallItem(b.id)) {
+      if (game.visualEq.bottom) {
+        const bot = game.visualEq.bottom;
+        delete game.visualEq.bottom;
+        InventorySystem.addGear(game, bot);
+        game.onChat("notice", "Unequipped visual pants: overalls cover both top and bottom.");
+      }
+    } else if (b.slot === "bottom") {
+      if (game.visualEq.top && isOverallItem(game.visualEq.top.id)) {
+        const ov = game.visualEq.top;
+        delete game.visualEq.top;
+        InventorySystem.addGear(game, ov);
+        game.onChat("notice", "Unequipped visual overall to wear pants.");
+      }
+    }
+
     const sockets = game.socketsFor(b.slot);
     let target: Slot | null = null;
     for (const s of sockets) {
@@ -137,6 +209,7 @@ export class InventorySystem {
     }
     itemA.slot = toSlot;
     game.onChange();
+    InventorySystem.persist(game);
   }
 
   static sortBag(game: Game, isCash = false) {
@@ -144,9 +217,266 @@ export class InventorySystem {
       const b = GEAR.get(x.id);
       return isCash ? Boolean(b?.cosmetic || b?.cash) : (!b?.cosmetic && !b?.cash);
     });
-    pool.sort((a, b) => b.rarity - a.rarity || (GEAR.get(b.id)?.req ?? 0) - (GEAR.get(a.id)?.req ?? 0));
-    pool.forEach((g, i) => { g.slot = i; });
+
+    pool.sort((a, b) => {
+      const bA = GEAR.get(a.id);
+      const bB = GEAR.get(b.id);
+
+      // 1. Sort by Type (canonical equipment slot category order: weapon, hat, top, bottom, shoes, etc.)
+      const slotA = bA?.slot ?? "";
+      const slotB = bB?.slot ?? "";
+      const typeA = GEAR_TYPE_ORDER[slotA] ?? 999;
+      const typeB = GEAR_TYPE_ORDER[slotB] ?? 999;
+      if (typeA !== typeB) return typeA - typeB;
+
+      // 2. Sort by Level (required level descending: highest level gear first)
+      const reqA = bA?.req ?? 0;
+      const reqB = bB?.req ?? 0;
+      if (reqB !== reqA) return reqB - reqA;
+
+      // 3. Sort by Combat Power (CP descending: highest battle prowess first)
+      const cpA = gearCombatPower(a);
+      const cpB = gearCombatPower(b);
+      if (cpB !== cpA) return cpB - cpA;
+
+      // Tie-breakers: rarity, star force, and name
+      if (b.rarity !== a.rarity) return b.rarity - a.rarity;
+      if (b.star !== a.star) return b.star - a.star;
+      return (bA?.name ?? "").localeCompare(bB?.name ?? "");
+    });
+
+    pool.forEach((g, i) => {
+      g.slot = i;
+    });
+
+    // Re-order game.bag array to match the sorted slots as well
+    const otherItems = game.bag.filter((x) => !pool.includes(x));
+    game.bag = [...pool, ...otherItems];
+
+    game.onChat("notice", "📦 Inventory organized: sorted by Type, Level, and Combat Power (CP).");
     game.onChange();
+    InventorySystem.persist(game);
+  }
+
+  /** Automatically selects and equips the highest Combat Power (CP) gear for the character's class */
+  static autoEquipBest(game: Game): { equippedCount: number; oldCp: number; newCp: number } {
+    const oldCp = game.combatPower();
+    let equippedCount = 0;
+
+    const singleSlots: Slot[] = [
+      "weapon", "hat", "shoes", "gloves", "shield", "cape",
+      "earrings", "pendant", "shoulder", "belt", "pocket", "emblem", "badge",
+      "face", "eye",
+    ];
+
+    const compareGear = (a: Gear, b: Gear): number => {
+      const cpA = gearCombatPower(a);
+      const cpB = gearCombatPower(b);
+      if (cpA !== cpB) return cpB - cpA; // Higher CP first
+      if (a.rarity !== b.rarity) return b.rarity - a.rarity;
+      if (a.star !== b.star) return b.star - a.star;
+      const baseA = GEAR.get(a.id);
+      const baseB = GEAR.get(b.id);
+      return (baseB?.req ?? 0) - (baseA?.req ?? 0);
+    };
+
+    // Helper to test if gear is valid for character's level, gender, and class
+    const isValidGear = (g: Gear | undefined, targetSlot: string): boolean => {
+      if (!g || g.cosmetic || g.cash) return false;
+      const b = GEAR.get(g.id);
+      if (!b || b.cosmetic || b.cash) return false;
+      if (b.slot !== targetSlot) return false;
+      if (game.stats.level < b.req) return false;
+      const itemGender = b.gender ?? getItemGender(b.id, b.name);
+      if (!canGenderEquip(game.stats.gender, itemGender)) return false;
+      if (!canClassEquipItem(game.stats.classId, b)) return false;
+      return true;
+    };
+
+    // 1. Process non-torso single equipment sockets
+    for (const slot of singleSlots) {
+      const current = game.eq[slot];
+      const currentValid = isValidGear(current, slot);
+
+      const bagCandidates = game.bag.filter((g) => isValidGear(g, slot));
+      const allCandidates = currentValid && current ? [current, ...bagCandidates] : [...bagCandidates];
+
+      if (allCandidates.length === 0) {
+        if (current && !currentValid) {
+          delete game.eq[slot];
+          InventorySystem.addGear(game, current);
+          equippedCount++;
+        }
+        continue;
+      }
+
+      allCandidates.sort(compareGear);
+      const best = allCandidates[0];
+
+      if (!current || current.uid !== best.uid) {
+        const bagIdx = game.bag.findIndex((x) => x.uid === best.uid);
+        if (bagIdx >= 0) {
+          game.bag.splice(bagIdx, 1);
+        }
+        if (current) {
+          InventorySystem.addGear(game, current);
+        }
+        game.eq[slot] = best;
+        equippedCount++;
+      }
+    }
+
+    // 2. Torso & Bottoms: Compare Overalls vs (Top + Bottom)
+    const curTop = game.eq.top;
+    const curBottom = game.eq.bottom;
+    const curTopValid = isValidGear(curTop, "top");
+    const curBottomValid = isValidGear(curBottom, "bottom");
+
+    // Separate Tops candidates (no overalls)
+    const separateTopCandidates = game.bag.filter((g) => isValidGear(g, "top") && !isOverallItem(g.id));
+    if (curTop && curTopValid && !isOverallItem(curTop.id)) separateTopCandidates.push(curTop);
+    separateTopCandidates.sort(compareGear);
+    const bestSeparateTop = separateTopCandidates[0] ?? null;
+
+    // Separate Bottoms candidates
+    const bottomCandidates = game.bag.filter((g) => isValidGear(g, "bottom"));
+    if (curBottom && curBottomValid) bottomCandidates.push(curBottom);
+    bottomCandidates.sort(compareGear);
+    const bestBottom = bottomCandidates[0] ?? null;
+
+    // Overall candidates (takes top slot)
+    const overallCandidates = game.bag.filter((g) => isValidGear(g, "top") && isOverallItem(g.id));
+    if (curTop && curTopValid && isOverallItem(curTop.id)) overallCandidates.push(curTop);
+    overallCandidates.sort(compareGear);
+    const bestOverall = overallCandidates[0] ?? null;
+
+    const separateCp = (bestSeparateTop ? gearCombatPower(bestSeparateTop) : 0) + (bestBottom ? gearCombatPower(bestBottom) : 0);
+    const overallCp = bestOverall ? gearCombatPower(bestOverall) : 0;
+
+    if (bestOverall && overallCp > separateCp) {
+      // Overalls win! Equip overall in top, unequip bottom
+      if (!curTop || curTop.uid !== bestOverall.uid) {
+        const bagIdx = game.bag.findIndex((x) => x.uid === bestOverall.uid);
+        if (bagIdx >= 0) game.bag.splice(bagIdx, 1);
+        if (curTop) InventorySystem.addGear(game, curTop);
+        game.eq.top = bestOverall;
+        equippedCount++;
+      }
+      if (curBottom) {
+        delete game.eq.bottom;
+        InventorySystem.addGear(game, curBottom);
+        equippedCount++;
+      }
+    } else {
+      // Separate top + bottom win!
+      if (bestSeparateTop) {
+        if (!curTop || curTop.uid !== bestSeparateTop.uid) {
+          const bagIdx = game.bag.findIndex((x) => x.uid === bestSeparateTop.uid);
+          if (bagIdx >= 0) game.bag.splice(bagIdx, 1);
+          if (curTop) InventorySystem.addGear(game, curTop);
+          game.eq.top = bestSeparateTop;
+          equippedCount++;
+        }
+      } else if (curTop && (!curTopValid || isOverallItem(curTop.id))) {
+        delete game.eq.top;
+        InventorySystem.addGear(game, curTop);
+        equippedCount++;
+      }
+
+      if (bestBottom) {
+        if (!curBottom || curBottom.uid !== bestBottom.uid) {
+          const bagIdx = game.bag.findIndex((x) => x.uid === bestBottom.uid);
+          if (bagIdx >= 0) game.bag.splice(bagIdx, 1);
+          if (curBottom) InventorySystem.addGear(game, curBottom);
+          game.eq.bottom = bestBottom;
+          equippedCount++;
+        }
+      } else if (curBottom && !curBottomValid) {
+        delete game.eq.bottom;
+        InventorySystem.addGear(game, curBottom);
+        equippedCount++;
+      }
+    }
+
+    // 3. Process Rings (up to 4 ring sockets: ring1, ring2, ring3, ring4)
+    const ringSlots: Slot[] = ["ring1", "ring2", "ring3", "ring4"];
+    const currentRings = ringSlots.map((s) => game.eq[s]).filter((r): r is Gear => {
+      if (!r || r.cosmetic || r.cash) return false;
+      const b = GEAR.get(r.id);
+      return Boolean(b && !b.cosmetic && !b.cash && game.stats.level >= b.req && canGenderEquip(game.stats.gender, b.gender ?? getItemGender(b.id, b.name)) && canClassEquipItem(game.stats.classId, b));
+    });
+
+    const bagRings = game.bag.filter((g) => {
+      const b = GEAR.get(g.id);
+      return Boolean(b && b.slot === "ring" && !b.cosmetic && !b.cash && !g.cosmetic && !g.cash && game.stats.level >= b.req && canGenderEquip(game.stats.gender, b.gender ?? getItemGender(b.id, b.name)) && canClassEquipItem(game.stats.classId, b));
+    });
+
+    const allRings = [...currentRings, ...bagRings];
+    const uniqueRingsMap = new Map<string, Gear>();
+    for (const r of allRings) uniqueRingsMap.set(r.uid, r);
+    const uniqueRings = [...uniqueRingsMap.values()];
+    uniqueRings.sort(compareGear);
+
+    const bestRings = uniqueRings.slice(0, 4);
+    const currentRingUids = new Set(currentRings.map((r) => r.uid));
+    const bestRingUids = new Set(bestRings.map((r) => r.uid));
+
+    let ringsChanged = currentRings.length !== bestRings.length;
+    if (!ringsChanged) {
+      for (const r of bestRings) {
+        if (!currentRingUids.has(r.uid)) {
+          ringsChanged = true;
+          break;
+        }
+      }
+    }
+
+    if (ringsChanged) {
+      for (const s of ringSlots) {
+        const r = game.eq[s];
+        if (r) {
+          delete game.eq[s];
+          if (!bestRingUids.has(r.uid)) {
+            InventorySystem.addGear(game, r);
+          }
+        }
+      }
+      for (let i = 0; i < bestRings.length; i++) {
+        const ring = bestRings[i];
+        const bIdx = game.bag.findIndex((x) => x.uid === ring.uid);
+        if (bIdx >= 0) {
+          game.bag.splice(bIdx, 1);
+        }
+        game.eq[ringSlots[i]] = ring;
+      }
+      equippedCount += bestRings.length;
+    }
+
+    if (equippedCount > 0) {
+      game.recalc();
+      game.refreshLook();
+      game.onChange();
+      InventorySystem.persist(game);
+      const newCp = game.combatPower();
+      const diff = newCp - oldCp;
+      game.onChat("system", `⚡ Equipped best Combat Power gear! Total CP: ${newCp.toLocaleString()} (${diff >= 0 ? "+" : ""}${diff.toLocaleString()}).`);
+      return { equippedCount, oldCp, newCp };
+    } else {
+      game.onChat("notice", "You already have the highest Combat Power gear equipped for your class!");
+      return { equippedCount: 0, oldCp, newCp: oldCp };
+    }
+  }
+
+  static persist(game: Game) {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const full = game.save();
+      const charSaveKey = game.stats.name ? `maple-wayfarer-save-${game.stats.name}` : "maple-wayfarer-save";
+      localStorage.setItem(charSaveKey, JSON.stringify(full));
+      localStorage.setItem("maple-wayfarer-save", JSON.stringify(full));
+    } catch (e) {
+      console.warn("Failed to persist save:", e);
+    }
   }
 
   static dropGear(game: Game, uid: string): boolean {

@@ -13,6 +13,7 @@ export interface SpacetimeCharacter {
   mp: number;
   maxMp: number;
   meso: number;
+  nx?: number;
   mapId: number;
   x: number;
   y: number;
@@ -32,7 +33,13 @@ export class SpacetimeClient {
   constructor(baseUrl = "") {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     try {
-      this.currentUser = localStorage.getItem("ms_current_user") || null;
+      const stored = (localStorage.getItem("ms_current_user") || "").trim().toLowerCase();
+      if (stored && stored !== "guest" && stored !== "default") {
+        this.currentUser = stored;
+      } else {
+        this.currentUser = null;
+        localStorage.removeItem("ms_current_user");
+      }
     } catch {}
   }
 
@@ -50,18 +57,20 @@ export class SpacetimeClient {
 
   /** Register account in SpacetimeDB */
   async register(username: string, password: string): Promise<{ ok: boolean; error?: string }> {
+    const cleanUser = username.trim().toLowerCase();
     try {
       const res = await fetch(`${this.baseUrl}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: cleanUser, password }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
         return { ok: false, error: data.error || "Registration failed" };
       }
-      this.currentUser = data.username;
-      try { localStorage.setItem("ms_current_user", data.username); } catch {}
+      const normUser = String(data.username || cleanUser).trim().toLowerCase();
+      this.currentUser = normUser;
+      try { localStorage.setItem("ms_current_user", normUser); } catch {}
       return { ok: true };
     } catch (e: any) {
       return { ok: false, error: e?.message || "Network error" };
@@ -70,18 +79,20 @@ export class SpacetimeClient {
 
   /** Login to account */
   async login(username: string, password: string): Promise<{ ok: boolean; error?: string }> {
+    const cleanUser = username.trim().toLowerCase();
     try {
       const res = await fetch(`${this.baseUrl}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: cleanUser, password }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
         return { ok: false, error: data.error || "Invalid username or password" };
       }
-      this.currentUser = data.username;
-      try { localStorage.setItem("ms_current_user", data.username); } catch {}
+      const normUser = String(data.username || cleanUser).trim().toLowerCase();
+      this.currentUser = normUser;
+      try { localStorage.setItem("ms_current_user", normUser); } catch {}
       return { ok: true };
     } catch (e: any) {
       return { ok: false, error: e?.message || "Network error" };
@@ -100,9 +111,10 @@ export class SpacetimeClient {
 
   /** Fetch all characters for user from SpacetimeDB */
   async getCharacters(username = this.currentUser): Promise<{ ok: boolean; characters: SpacetimeCharacter[]; error?: string }> {
-    if (!username) return { ok: false, characters: [], error: "Not logged in" };
+    const cleanUser = (username || "").trim().toLowerCase();
+    if (!cleanUser || cleanUser === "guest") return { ok: false, characters: [], error: "Not logged in" };
     try {
-      const res = await fetch(`${this.baseUrl}/api/characters?username=${encodeURIComponent(username)}`);
+      const res = await fetch(`${this.baseUrl}/api/characters?username=${encodeURIComponent(cleanUser)}`);
       const data = await res.json();
       if (!res.ok || !data.ok) {
         return { ok: false, characters: [], error: data.error || "Failed to fetch characters" };
@@ -134,8 +146,8 @@ export class SpacetimeClient {
     stats?: any;
     equipment?: any;
   }): Promise<{ ok: boolean; name?: string; error?: string }> {
-    const user = char.username || this.currentUser;
-    if (!user) return { ok: false, error: "Not logged in" };
+    const user = (char.username || this.currentUser || "").trim().toLowerCase();
+    if (!user || user === "guest") return { ok: false, error: "Not logged in" };
     try {
       const res = await fetch(`${this.baseUrl}/api/characters/create`, {
         method: "POST",
@@ -154,12 +166,13 @@ export class SpacetimeClient {
 
   /** Delete character from SpacetimeDB */
   async deleteCharacter(name: string, username = this.currentUser): Promise<{ ok: boolean; error?: string }> {
-    if (!username) return { ok: false, error: "Not logged in" };
+    const cleanUser = (username || "").trim().toLowerCase();
+    if (!cleanUser || cleanUser === "guest") return { ok: false, error: "Not logged in" };
     try {
       const res = await fetch(`${this.baseUrl}/api/characters/delete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, name }),
+        body: JSON.stringify({ username: cleanUser, name }),
       });
       const data = await res.json();
       return { ok: res.ok && data.ok, error: data.error };

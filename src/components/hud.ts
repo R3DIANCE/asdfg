@@ -1,5 +1,5 @@
 // Modern MapleStory Bottom HUD Controller — Orillusion Component architecture (https://www.orillusion.com/en/guide/core/component.html)
-// Pure Tailwind CSS modern stylish glassmorphism architecture
+// Shadcn UI Architecture & Tailwind styling
 import { ComponentBase } from "@orillusion/core";
 import { el } from "../util.ts";
 
@@ -68,72 +68,117 @@ export class StatusCapsule extends ComponentBase {
   }
 
   private initComponent() {
-    // Modern Translucent Status Panel (HP/MP)
+    // Status Panel (HP/MP) — Unified Modern Shadcn Glass Card
     this.root = el(
       "div",
-      "ms-status-capsule flex flex-col gap-1.5 p-2 bg-slate-950/80 border border-white/10 rounded-lg backdrop-blur-[14px] shadow-[0_8px_32px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.08)] w-[270px] pointer-events-auto select-none transition-all",
+      "ms-status-capsule flex flex-col justify-between p-2 bg-zinc-950/85 hover:bg-zinc-950/95 border border-white/10 hover:border-white/20 rounded-lg backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.08)] w-[240px] h-[62px] box-border pointer-events-auto select-none transition-all overflow-hidden",
       this.parentEl
     );
 
-    // 1. Top Identity Row
-    const topRow = el("div", "flex items-center justify-between px-0.5", this.root);
-    const leftIdentity = el("div", "flex items-center gap-1.5 min-w-0", topRow);
-    this.levelBadge = el("span", "ms-status-lv px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold text-[10px] border border-amber-500/30 flex-shrink-0", leftIdentity);
-    this.levelBadge.textContent = "Lv. 1";
-    this.nameLabel = el("span", "ms-status-name font-bold text-[11.5px] text-white truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]", leftIdentity);
-    this.nameLabel.textContent = "Adventurer";
-    this.jobLabel = el("span", "ms-status-job text-[10px] text-sky-300/90 font-semibold truncate flex-shrink-0", topRow);
-    this.jobLabel.textContent = "Beginner";
+    // 1. Top Identity Row (Level, Name)
+    const topRow = el("div", "flex items-center justify-between px-0.5 h-[16px]", this.root);
+    const leftIdentity = el("div", "flex items-center gap-2 min-w-0", topRow);
 
-    // 2. Dual Gauges Container
-    const gaugesContainer = el("div", "flex flex-col gap-1", this.root);
+    // Shadcn Gold Level Badge
+    this.levelBadge = el(
+      "span",
+      "ms-status-lv inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/15 text-amber-300 font-mono font-black text-[9.5px] px-2 py-0.2 leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] tracking-tight flex-shrink-0 shadow-sm",
+      leftIdentity
+    );
+    this.levelBadge.textContent = "Lv. 1";
+
+    // Player IGN
+    this.nameLabel = el(
+      "span",
+      "ms-status-name font-bold text-[11.5px] text-white truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] tracking-wide leading-none",
+      leftIdentity
+    );
+    this.nameLabel.textContent = "Adventurer";
+
+    // Subtle Job Indicator (hidden by default unless set)
+    this.jobLabel = el(
+      "span",
+      "ms-status-job font-mono text-[9px] text-zinc-400 truncate leading-none hidden",
+      topRow
+    );
+
+    // 2. Dual Gauges Container (Sleek Rectangular Shadcn Progress Bars)
+    const gaugesContainer = el("div", "flex flex-col gap-1.5 h-[34px] justify-center", this.root);
 
     // HP Gauge
-    const hpTrack = el("div", "relative h-[18px] w-full bg-slate-900/90 rounded border border-white/10 overflow-hidden shadow-inner cursor-pointer group", gaugesContainer);
+    const hpTrack = el(
+      "div",
+      "relative h-[15px] w-full bg-zinc-950/90 rounded-[3px] border border-white/10 overflow-hidden shadow-[inset_0_1px_3px_rgba(0,0,0,0.8)] cursor-pointer group",
+      gaugesContainer
+    );
     hpTrack.title = "Hit Points (HP)";
-    this.hpFill = el("div", "ms-hp-fill h-full bg-gradient-to-r from-rose-600 via-rose-500 to-rose-400 rounded transition-all duration-300 relative shadow-[0_0_10px_rgba(244,63,94,0.35)]", hpTrack);
+    this.hpFill = el(
+      "div",
+      "ms-hp-fill h-full bg-gradient-to-r from-rose-600 via-rose-500 to-rose-400 rounded-[2px] relative shadow-[0_0_8px_rgba(244,63,94,0.35)] transition-all duration-300",
+      hpTrack
+    );
     this.hpFill.style.width = "100%";
-    el("div", "absolute top-0 left-0 right-0 h-[35%] bg-gradient-to-b from-white/25 to-transparent pointer-events-none", this.hpFill);
-    const hpOverlay = el("div", "absolute inset-0 flex items-center justify-between px-2 font-mono font-bold text-[9.5px] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] pointer-events-none select-none", hpTrack);
-    el("span", "text-rose-200 font-black text-[8.5px] tracking-wider", hpOverlay).textContent = "HP";
-    this.hpValText = el("span", "ms-hp-val", hpOverlay);
+    el("div", "absolute top-0 left-0 right-0 h-[40%] bg-gradient-to-b from-white/30 to-transparent pointer-events-none", this.hpFill);
+
+    const hpOverlay = el(
+      "div",
+      "absolute inset-0 flex items-center justify-between px-2 font-mono font-bold text-[8px] text-white drop-shadow-[0_1px_2px_#000] pointer-events-none select-none tabular-nums leading-none",
+      hpTrack
+    );
+    const hpLeft = el("span", "flex items-center gap-1.5", hpOverlay);
+    el("span", "text-rose-200 font-black text-[7.5px] bg-rose-500/25 px-1 py-0.2 rounded-[2px] border border-rose-400/30 leading-none", hpLeft).textContent = "HP";
+    this.hpValText = el("span", "ms-hp-val", hpLeft);
     this.hpValText.textContent = "50 / 50";
-    this.hpPctText = el("span", "ms-hp-pct text-rose-100 text-[8.5px]", hpOverlay);
+    this.hpPctText = el("span", "ms-hp-pct text-rose-200 font-bold text-[8px] tabular-nums", hpOverlay);
     this.hpPctText.textContent = "100%";
 
     // MP Gauge
-    const mpTrack = el("div", "relative h-[18px] w-full bg-slate-900/90 rounded border border-white/10 overflow-hidden shadow-inner cursor-pointer group", gaugesContainer);
+    const mpTrack = el(
+      "div",
+      "relative h-[15px] w-full bg-zinc-950/90 rounded-[3px] border border-white/10 overflow-hidden shadow-[inset_0_1px_3px_rgba(0,0,0,0.8)] cursor-pointer group",
+      gaugesContainer
+    );
     mpTrack.title = "Mana Points (MP)";
-    this.mpFill = el("div", "ms-mp-fill h-full bg-gradient-to-r from-sky-600 via-cyan-500 to-sky-400 rounded transition-all duration-300 relative shadow-[0_0_10px_rgba(14,165,233,0.35)]", mpTrack);
+    this.mpFill = el(
+      "div",
+      "ms-mp-fill h-full bg-gradient-to-r from-sky-600 via-sky-500 to-cyan-400 rounded-[2px] relative shadow-[0_0_8px_rgba(56,189,248,0.35)] transition-all duration-300",
+      mpTrack
+    );
     this.mpFill.style.width = "100%";
-    el("div", "absolute top-0 left-0 right-0 h-[35%] bg-gradient-to-b from-white/25 to-transparent pointer-events-none", this.mpFill);
-    const mpOverlay = el("div", "absolute inset-0 flex items-center justify-between px-2 font-mono font-bold text-[9.5px] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] pointer-events-none select-none", mpTrack);
-    el("span", "text-cyan-200 font-black text-[8.5px] tracking-wider", mpOverlay).textContent = "MP";
-    this.mpValText = el("span", "ms-mp-val", mpOverlay);
+    el("div", "absolute top-0 left-0 right-0 h-[40%] bg-gradient-to-b from-white/30 to-transparent pointer-events-none", this.mpFill);
+
+    const mpOverlay = el(
+      "div",
+      "absolute inset-0 flex items-center justify-between px-2 font-mono font-bold text-[8px] text-white drop-shadow-[0_1px_2px_#000] pointer-events-none select-none tabular-nums leading-none",
+      mpTrack
+    );
+    const mpLeft = el("span", "flex items-center gap-1.5", mpOverlay);
+    el("span", "text-cyan-200 font-black text-[7.5px] bg-cyan-500/25 px-1 py-0.2 rounded-[2px] border border-cyan-400/30 leading-none", mpLeft).textContent = "MP";
+    this.mpValText = el("span", "ms-mp-val", mpLeft);
     this.mpValText.textContent = "5 / 5";
-    this.mpPctText = el("span", "ms-mp-pct text-cyan-100 text-[8.5px]", mpOverlay);
+    this.mpPctText = el("span", "ms-mp-pct text-cyan-200 font-bold text-[8px] tabular-nums", mpOverlay);
     this.mpPctText.textContent = "100%";
 
-    // 3. Screen Bottom Translucent EXP Bar (Governed by UI Mode)
+    // 3. Screen Bottom Static Translucent EXP Bar (Always visible 9px height, tabular numbers never shifting)
     document.querySelectorAll(".ms-screen-exp-bar").forEach((e) => e.remove());
     this.expBarRoot = el(
       "div",
-      "ms-screen-exp-bar fixed left-0 right-0 bottom-0 h-4 bg-slate-950/85 backdrop-blur-[10px] border-t border-white/10 z-[20] pointer-events-auto flex items-center justify-center select-none overflow-hidden cursor-default shadow-lg",
+      "ms-screen-exp-bar fixed left-0 right-0 bottom-0 h-[9px] bg-zinc-950/95 backdrop-blur-md border-t border-white/10 z-[20] pointer-events-auto flex items-center justify-center select-none overflow-hidden cursor-pointer shadow-lg",
       document.body
     );
     this.expFill = el(
       "div",
-      "ms-exp-fill absolute left-0 top-0 bottom-0 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 transition-all duration-300 shadow-[0_0_12px_rgba(52,211,153,0.4)]",
+      "ms-exp-fill absolute left-0 top-0 bottom-0 bg-gradient-to-r from-emerald-600 via-teal-400 to-emerald-400 transition-all duration-300 shadow-[0_0_10px_rgba(52,211,153,0.4)]",
       this.expBarRoot
     );
     this.expFill.style.width = "0%";
-    el("div", "absolute top-0 left-0 right-0 h-[35%] bg-gradient-to-b from-white/30 to-transparent pointer-events-none", this.expFill);
+    el("div", "absolute top-0 left-0 right-0 h-[40%] bg-gradient-to-b from-white/35 to-transparent pointer-events-none", this.expFill);
     this.expText = el(
       "span",
-      "ms-exp-text relative z-10 font-mono font-bold text-[9.5px] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]",
+      "ms-exp-text relative z-10 font-mono font-bold text-[7.5px] leading-none text-emerald-100 drop-shadow-[0_1px_2px_rgba(0,0,0,1)] tracking-normal tabular-nums select-none",
       this.expBarRoot
     );
-    this.expText.textContent = "EXP 0 / 15 [0.00%]";
+    this.expText.textContent = "0 / 15 [0.00%]";
   }
 
   update(d: StatusUpdateData) {
@@ -147,7 +192,10 @@ export class StatusCapsule extends ComponentBase {
 
     if (this.levelBadge) this.levelBadge.textContent = `Lv. ${d.level}`;
     if (this.nameLabel) this.nameLabel.textContent = d.name || "Adventurer";
-    if (this.jobLabel && d.job) this.jobLabel.textContent = d.job;
+    if (this.jobLabel && d.job) {
+      this.jobLabel.textContent = d.job;
+      this.jobLabel.classList.remove("hidden");
+    }
 
     if (this.hpFill) this.hpFill.style.width = `${hpPct}%`;
     if (this.hpValText) this.hpValText.textContent = `${d.hp.toLocaleString()} / ${safeMaxHp.toLocaleString()}`;
@@ -159,11 +207,11 @@ export class StatusCapsule extends ComponentBase {
 
     if (this.expFill) this.expFill.style.width = `${expPct}%`;
     if (this.expText) {
-      this.expText.textContent = `EXP ${d.exp.toLocaleString()} / ${safeNeedExp.toLocaleString()} [${expPct.toFixed(2)}%]`;
+      this.expText.textContent = `${d.exp.toLocaleString()} / ${safeNeedExp.toLocaleString()} [${expPct.toFixed(2)}%]`;
     }
     if (this.expBarRoot) {
       const remaining = Math.max(0, safeNeedExp - d.exp);
-      this.expBarRoot.title = `EXP: ${d.exp.toLocaleString()} / ${safeNeedExp.toLocaleString()} (${expPct.toFixed(2)}%)\nRemaining to Level Up: ${remaining.toLocaleString()} (${(100 - expPct).toFixed(2)}%)`;
+      this.expBarRoot.title = `${d.exp.toLocaleString()} / ${safeNeedExp.toLocaleString()} (${expPct.toFixed(2)}%)\nRemaining to Level Up: ${remaining.toLocaleString()} (${(100 - expPct).toFixed(2)}%)`;
     }
   }
 }
@@ -212,11 +260,11 @@ export class PlayerStatusTag extends ComponentBase {
   private initComponent() {
     this.root = el(
       "div",
-      "ms-player-bar flex items-center h-[28px] bg-slate-950/80 border border-white/10 rounded-[6px] px-2.5 gap-2 backdrop-blur-[14px] shadow-[0_4px_16px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.08)] pointer-events-auto select-none",
+      "ms-player-bar flex items-center h-[28px] bg-zinc-950/80 border border-white/10 rounded-[6px] px-2.5 gap-2 backdrop-blur-[14px] shadow-[0_4px_16px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.08)] pointer-events-auto select-none",
       this.parentEl
     );
     const lvBadge = el("div", "ms-player-lv flex items-baseline gap-0.5", this.root);
-    el("span", "text-slate-400 font-bold text-[10.5px] leading-none", lvBadge).textContent = "Lv.";
+    el("span", "text-zinc-400 font-bold text-[10.5px] leading-none", lvBadge).textContent = "Lv.";
     this.levelVal = el("span", "text-amber-300 font-black text-[12px] leading-none font-mono", lvBadge);
     this.nameVal = el("span", "ms-player-ign font-bold text-[12px] leading-none text-white tracking-[0.2px] drop-shadow-[0_1px_2px_#000]", this.root);
   }
@@ -262,7 +310,7 @@ export class MenuButtonComponent extends ComponentBase {
     const item = this.item;
     this.root = el(
       "button",
-      "ms-menu-btn relative w-8 h-8 rounded-md bg-white/5 hover:bg-white/15 active:translate-y-[1px] border border-white/10 hover:border-sky-400/50 flex items-center justify-center text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm group",
+      "ms-menu-btn relative w-[29px] h-[29px] rounded-md bg-zinc-900/80 hover:bg-zinc-800 active:translate-y-[1px] border border-white/10 hover:border-sky-400/50 flex items-center justify-center text-zinc-300 hover:text-white transition-all cursor-pointer backdrop-blur-sm shadow-[0_2px_6px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.06)] group select-none",
       parent
     ) as HTMLButtonElement;
     this.root.type = "button";
@@ -271,7 +319,7 @@ export class MenuButtonComponent extends ComponentBase {
     this.root.setAttribute("aria-label", item.title);
     this.root.innerHTML = `
       <span class="flex items-center justify-center group-hover:scale-110 transition-transform">${item.iconSvg}</span>
-      ${item.shortcut ? `<span class="absolute -bottom-1 -right-0.5 px-0.5 font-mono text-[7px] font-bold bg-black/85 rounded border border-white/15 text-slate-400 group-hover:text-slate-200 pointer-events-none leading-none">${item.shortcut}</span>` : ""}
+      ${item.shortcut ? `<span class="slot-key absolute left-[2px] top-[1.5px] font-mono text-[7px] font-bold text-zinc-400 group-hover:text-zinc-200 drop-shadow-[0_1px_2px_#000] pointer-events-none leading-none z-[3]">${item.shortcut}</span>` : ""}
     `;
     this.root.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -280,7 +328,7 @@ export class MenuButtonComponent extends ComponentBase {
     if (item.badge) {
       this.badgeEl = el(
         "span",
-        "ms-badge-dot absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 border border-black shadow-[0_0_6px_#f59e0b] animate-pulse hidden pointer-events-none",
+        "ms-badge-dot absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 border border-zinc-950 shadow-[0_0_6px_#f59e0b] animate-pulse hidden pointer-events-none",
         this.root
       );
     }
@@ -294,9 +342,9 @@ export class MenuButtonComponent extends ComponentBase {
 
   public setActive(active: boolean) {
     if (this.root) {
-      this.root.classList.toggle("ring-1", active);
-      this.root.classList.toggle("ring-sky-400", active);
-      this.root.classList.toggle("bg-white/20", active);
+      this.root.classList.toggle("border-sky-400", active);
+      this.root.classList.toggle("bg-zinc-800", active);
+      this.root.classList.toggle("shadow-[0_0_8px_rgba(56,189,248,0.4)]", active);
     }
   }
 
@@ -304,19 +352,19 @@ export class MenuButtonComponent extends ComponentBase {
     this.item?.onClick(this.root);
   }
 
-  public override start(): void {}
-  public override onUpdate(): void {}
+  public override start(): void { }
+  public override onUpdate(): void { }
   public override destroy(force?: boolean): void {
     super.destroy(force);
     this.root?.remove();
   }
 }
 
-export class ChatMenuButton extends MenuButtonComponent {}
-export class InventoryMenuButton extends MenuButtonComponent {}
-export class EquipmentMenuButton extends MenuButtonComponent {}
-export class StatsMenuButton extends MenuButtonComponent {}
-export class PartyMenuButton extends MenuButtonComponent {}
+export class ChatMenuButton extends MenuButtonComponent { }
+export class InventoryMenuButton extends MenuButtonComponent { }
+export class EquipmentMenuButton extends MenuButtonComponent { }
+export class StatsMenuButton extends MenuButtonComponent { }
+export class PartyMenuButton extends MenuButtonComponent { }
 
 export class MenuButtons extends ComponentBase {
   root!: HTMLElement;
@@ -372,7 +420,7 @@ export class MenuButtons extends ComponentBase {
   private initComponent() {
     this.root = el(
       "div",
-      "dock-menu flex items-center gap-1 p-1.5 bg-slate-950/80 border border-white/10 rounded-lg backdrop-blur-[14px] shadow-[0_8px_32px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.08)] pointer-events-auto select-none",
+      "dock-menu grid grid-cols-5 grid-rows-2 gap-1 h-[62px] p-0 bg-transparent border-0 shadow-none pointer-events-auto select-none",
       this.parentEl
     );
 
@@ -427,4 +475,3 @@ export class MenuButtons extends ComponentBase {
     this.buttonComponents.get(key)?.setActive(active);
   }
 }
-

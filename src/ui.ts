@@ -30,12 +30,26 @@ import { lucideIcon } from "./lucide.ts";
 export type UiData = Record<string, any>;
 
 export function createUIEntity<T extends ComponentBase>(
-  _name: string,
+  name: string,
   comp: new (...args: any[]) => T,
   param: any,
-  _container?: Object3D[],
-  _canUseOrillusion = false
+  container?: Object3D[],
+  canUseOrillusion = false
 ): T {
+  if (canUseOrillusion) {
+    try {
+      const obj = new Object3D();
+      obj.name = name;
+      const inst = obj.addComponent(comp);
+      if (container) container.push(obj);
+      if (typeof (inst as any).init === "function" && !(inst as any).root) {
+        (inst as any).init(param);
+      }
+      return inst;
+    } catch {
+      // Graceful fallback to regular instantiation
+    }
+  }
   const inst = new comp(param);
   if (typeof (inst as any).init === "function" && !(inst as any).root) {
     (inst as any).init(param);
@@ -66,7 +80,7 @@ export class Hud extends ComponentBase {
   partyComp!: PartyComponent;
   wins!: Windows;
   gain!: HTMLElement;
-  noticeBanner!: HTMLElement;
+  noticeBanner?: HTMLElement;
   lastSig = "";
 
   childEntities: Object3D[] = [];
@@ -93,9 +107,9 @@ export class Hud extends ComponentBase {
     this.root = el("div", "hud", document.body);
 
     // Floating Bottom Dock (Governed dynamically by UI Mode)
-    this.dock = el("div", "dock fixed left-0 right-0 bottom-[18px] min-h-[64px] flex items-end justify-between px-3 pb-0.5 pointer-events-none select-none z-[12]", this.root);
-    this.dockLeft = el("div", "dock-left pointer-events-auto flex items-end gap-2 min-w-0 mb-0.5", this.dock);
-    this.dockCenter = el("div", "dock-center pointer-events-auto flex items-center justify-center gap-2 min-w-0", this.dock);
+    this.dock = el("div", "dock fixed left-0 right-0 bottom-[14px] min-h-[58px] flex items-end justify-between px-3 pointer-events-none select-none z-[12]", this.root);
+    this.dockLeft = el("div", "dock-left pointer-events-auto flex items-end gap-2 min-w-0", this.dock);
+    this.dockCenter = el("div", "dock-center pointer-events-none fixed left-1/2 bottom-[15px] -translate-x-1/2 flex items-center gap-2 z-[12]", this.root);
     this.dockRight = el("div", "dock-right pointer-events-auto flex flex-col items-end gap-1 min-w-0", this.dock);
 
     // Windows Manager initialized before slots & menus
@@ -193,23 +207,24 @@ export class Hud extends ComponentBase {
         shortcut: "H",
         onClick: () => this.wins.ext.open("ah"),
       },
-      menu: {
-        iconSvg: lucideIcon("menu", 13),
-        title: "Game Menu (ESC)",
-        shortcut: "ESC",
-        onClick: (btn: HTMLElement) => this.wins.ext.toggleMenu(btn),
+      cashshop: {
+        iconSvg: lucideIcon("gem", 13, "text-pink-400"),
+        title: "Cash Shop (NX)",
+        shortcut: "CS",
+        onClick: () => this.wins.ext.openCashShop(),
       },
     };
 
-    this.menu = createUIEntity("MenuButtons", MenuButtons, { parent: this.dockCenter, items: menuItems }, this.childEntities, canOrillusion);
+    const menuSlot = el("div", "menu-slot pointer-events-auto flex items-center whitespace-nowrap", this.dockCenter);
+    this.menu = createUIEntity("MenuButtons", MenuButtons, { parent: menuSlot, items: menuItems }, this.childEntities, canOrillusion);
     this.perfContainer = el("div", "dock-perf-container select-none pointer-events-none fixed top-2.5 right-4 z-50", this.root);
 
     // Right: Action Controls Header + Quick Slots Keyboard
     const ctrlRow = el("div", "dock-controls-row flex items-center justify-end w-full mb-1 px-0.5 gap-2", this.dockRight);
 
     const autoGroup = el("div", "dock-auto-btns flex items-center gap-1.5", ctrlRow);
-    autoGroup.appendChild(this.wins.autoBossBtn);
     autoGroup.appendChild(this.wins.autoBtn);
+    autoGroup.appendChild(this.wins.autoBossBtn);
 
     this.quickWrap = el("div", "dock-quick-wrap", this.dockRight);
     this.quick = createUIEntity(
@@ -237,13 +252,7 @@ export class Hud extends ComponentBase {
     this.gain = el("div", "gains", this.root);
     this.gain.style.display = "none";
 
-    // 7. GM Notice Banner (MapleStory top banner)
-    this.noticeBanner = el("div", "gm-notice-banner hidden", document.body);
-    addEventListener("gm-broadcast-notice", (e: any) => {
-      this.showNoticeBanner(e.detail?.text ?? "");
-    });
-
-    // 8. GM Online Count & Player List with Quick Action Menu (WebGPU Collapsible Side Panel)
+    // 7. GM Online Count & Player List with Quick Action Menu (WebGPU Collapsible Side Panel)
     this.gmPanel = createUIEntity(
       "GmOnlinePanel",
       GmOnlinePanel,
@@ -252,7 +261,7 @@ export class Hud extends ComponentBase {
       canOrillusion
     );
 
-    // 9. Dedicated On-Screen Party UI Widget
+    // 8. Dedicated On-Screen Party UI Widget
     this.partyWidget = createUIEntity(
       "PartyWidget",
       PartyWidget,
@@ -261,22 +270,20 @@ export class Hud extends ComponentBase {
       canOrillusion
     );
 
+    if (canOrillusion && (this.game as any)?.r?.scene) {
+      for (const obj of this.childEntities) {
+        try {
+          (this.game as any).r.scene.addChild(obj);
+        } catch {}
+      }
+    }
+
     this.layout();
     addEventListener("resize", () => this.layout());
   }
 
-  showNoticeBanner(text: string) {
-    if (!this.noticeBanner) return;
-    this.noticeBanner.innerHTML = `<span class="notice-prefix">[GM Notice]</span> <span class="notice-text">${esc(text)}</span>`;
-    this.noticeBanner.classList.remove("hidden");
-    this.noticeBanner.classList.remove("banner-active");
-    void this.noticeBanner.offsetWidth; // re-flow
-    this.noticeBanner.classList.add("banner-active");
-    clearTimeout((this.noticeBanner as any)._timer);
-    (this.noticeBanner as any)._timer = setTimeout(() => {
-      this.noticeBanner.classList.remove("banner-active");
-      setTimeout(() => this.noticeBanner.classList.add("hidden"), 400);
-    }, 7000);
+  showNoticeBanner(_text: string) {
+    // Chat notices are kept inside the chat window only
   }
 
   get chatInput() {
@@ -315,7 +322,6 @@ export class Hud extends ComponentBase {
   setMap(m: MapData) {
     if (!this.game) return;
     this.mini.setMap(m, this.game.portals);
-    this.addChat("notice", `Welcome to ${m.name || "Maple Road"}.`);
     this.layout();
   }
 

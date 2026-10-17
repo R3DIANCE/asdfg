@@ -31,27 +31,16 @@ export function DebugPanel() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  // Ping tracking: read WebSocket ping or measure active roundtrip
+  // Ping tracking: read WebSocket ping heartbeat
   useEffect(() => {
     const checkPing = () => {
       const g = (window as any).__game;
-      if (g && typeof g.wsPing === "number" && g.wsPing > 0) {
+      if (g && typeof g.wsPing === "number" && g.wsPing >= 0) {
         setPing(g.wsPing);
-      } else {
-        // Fallback HTTP roundtrip measurement
-        const start = performance.now();
-        fetch("/wz/status", { cache: "no-store" })
-          .then((r) => {
-            if (r.ok) {
-              const diff = Math.round(performance.now() - start);
-              setPing(Math.max(1, diff));
-            }
-          })
-          .catch(() => {});
       }
     };
     checkPing();
-    const t = setInterval(checkPing, 800);
+    const t = setInterval(checkPing, 500);
     return () => clearInterval(t);
   }, []);
 

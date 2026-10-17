@@ -1,5 +1,5 @@
 import type { Renderer, Tex } from "../gpu.ts";
-import type { Assets, Sprite } from "../assets.ts";
+import { json, type Assets, type Sprite } from "../assets.ts";
 import type { Game } from "../game.ts";
 import {
   type Back,
@@ -9,6 +9,8 @@ import {
   type ItemEffFrame,
   type Mob,
   type RemotePlayer,
+  type ActiveRune,
+  type RuneType,
   charUrlFor,
   DEFAULT_LOOK,
   expToLevel,
@@ -18,6 +20,7 @@ import { PetSystem } from "./pet-system.ts";
 import { type GuildEmblem, EMBLEM_COLORS, guildEmblemUrl } from "../guild.ts";
 import { getWeaponType } from "../items.ts";
 import { DamageSkinSystem } from "./damage-skin-system.ts";
+import { CharacterRendererComponent } from "./CharacterRendererComponent.ts";
 
 const textTexCache = new Map<string, Tex>();
 const textTexPending = new Set<string>();
@@ -37,7 +40,7 @@ export function renderLabelTexture(r: Renderer, text: string, fontSize = 8, colo
       return null;
     }
 
-    ctx.font = `bold ${fontSize}px Tahoma, 'Segoe UI', Arial, sans-serif`;
+    ctx.font = `bold ${fontSize}px 'Inter', -apple-system, sans-serif`;
     const tm = ctx.measureText(text);
     const tw = Math.ceil(tm.width);
     const w = tw + 4;
@@ -45,7 +48,7 @@ export function renderLabelTexture(r: Renderer, text: string, fontSize = 8, colo
     canvas.width = w;
     canvas.height = h;
 
-    ctx.font = `bold ${fontSize}px Tahoma, 'Segoe UI', Arial, sans-serif`;
+    ctx.font = `bold ${fontSize}px 'Inter', -apple-system, sans-serif`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
     ctx.imageSmoothingEnabled = false;
@@ -89,10 +92,10 @@ export function renderTooltipTexture(r: Renderer, title: string, subtitle?: stri
       return null;
     }
 
-    ctx.font = "bold 11px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.font = "bold 11px 'Inter', -apple-system, sans-serif";
     const titleW = Math.ceil(ctx.measureText(title).width);
 
-    ctx.font = "bold 9px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.font = "bold 9px 'Inter', -apple-system, sans-serif";
     const subW = subtitle ? Math.ceil(ctx.measureText(subtitle).width) : 0;
 
     const padX = 10;
@@ -100,7 +103,7 @@ export function renderTooltipTexture(r: Renderer, title: string, subtitle?: stri
 
     const descLines: string[] = [];
     if (desc) {
-      ctx.font = "9.5px Tahoma, 'Segoe UI', Arial, sans-serif";
+      ctx.font = "9.5px 'Inter', -apple-system, sans-serif";
       const words = desc.split(" ");
       let curLine = "";
       for (const word of words) {
@@ -149,7 +152,7 @@ export function renderTooltipTexture(r: Renderer, title: string, subtitle?: stri
     let curY = padY + 8;
 
     // Title
-    ctx.font = "bold 11px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.font = "bold 11px 'Inter', -apple-system, sans-serif";
     ctx.fillStyle = "#facc15";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
@@ -158,7 +161,7 @@ export function renderTooltipTexture(r: Renderer, title: string, subtitle?: stri
 
     // Subtitle
     if (subtitle) {
-      ctx.font = "bold 9px Tahoma, 'Segoe UI', Arial, sans-serif";
+      ctx.font = "bold 9px 'Inter', -apple-system, sans-serif";
       ctx.fillStyle = "#38bdf8";
       ctx.fillText(subtitle, padX, curY);
       curY += 12;
@@ -166,7 +169,7 @@ export function renderTooltipTexture(r: Renderer, title: string, subtitle?: stri
 
     // Description lines
     if (descLines.length > 0) {
-      ctx.font = "9.5px Tahoma, 'Segoe UI', Arial, sans-serif";
+      ctx.font = "9.5px 'Inter', -apple-system, sans-serif";
       ctx.fillStyle = "#cbd5e1";
       for (const line of descLines) {
         ctx.fillText(line, padX, curY);
@@ -231,7 +234,7 @@ export function renderTextTexture(r: Renderer, text: string, type: "name" | "bal
     if (!ctx) return null;
 
     if (type === "name") {
-      ctx.font = "bold 11px Tahoma, Arial, sans-serif";
+      ctx.font = "11px 'Inter', -apple-system, sans-serif";
       const tm = ctx.measureText(text);
       const tw = Math.ceil(tm.width);
       const padX = 6;
@@ -240,16 +243,17 @@ export function renderTextTexture(r: Renderer, text: string, type: "name" | "bal
       canvas.width = w;
       canvas.height = h;
 
-      ctx.font = "bold 11px Tahoma, Arial, sans-serif";
+      ctx.font = "11px 'Inter', -apple-system, sans-serif";
       ctx.textBaseline = "middle";
       ctx.textAlign = "center";
 
-      ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+      ctx.fillStyle = "rgba(0, 0, 0, 0.76)";
       ctx.beginPath();
       if ((ctx as any).roundRect) (ctx as any).roundRect(0, 0, w, h, 3);
       else ctx.rect(0, 0, w, h);
       ctx.fill();
 
+      // MapleStory player character nametag: clean subtle border, never affected by guild beam
       ctx.strokeStyle = "rgba(60, 60, 60, 0.8)";
       ctx.lineWidth = 1;
       ctx.stroke();
@@ -257,7 +261,7 @@ export function renderTextTexture(r: Renderer, text: string, type: "name" | "bal
       ctx.fillStyle = "#ffffff";
       ctx.fillText(text, w / 2, h / 2 + 0.5);
     } else {
-      ctx.font = "bold 12px Arial, Tahoma, sans-serif";
+      ctx.font = "bold 12px 'Inter', Arial, sans-serif";
       const tm = ctx.measureText(text);
       const tw = Math.ceil(tm.width);
 
@@ -265,18 +269,19 @@ export function renderTextTexture(r: Renderer, text: string, type: "name" | "bal
       const contentW = Math.max(28, tw + padX * 2);
       const contentH = 14;
 
-      const cornerW = balloonSlices.nw ? balloonSlices.nw.naturalWidth : 4;
-      const cornerH = balloonSlices.nw ? balloonSlices.nw.naturalHeight : 4;
-      const arrowH = balloonSlices.arrow ? balloonSlices.arrow.naturalHeight : 4;
+      const cornerW = balloonSlices.nw ? balloonSlices.nw.naturalWidth : 6;
+      const cornerH = balloonSlices.nw ? balloonSlices.nw.naturalHeight : 6;
+      const arrowH = balloonSlices.arrow ? balloonSlices.arrow.naturalHeight : 13;
+      const arrowOverlap = cornerH;
 
       const totalW = contentW + cornerW * 2;
       const bubbleH = contentH + cornerH * 2;
-      const totalH = bubbleH + arrowH;
+      const totalH = bubbleH + Math.max(0, arrowH - arrowOverlap);
 
       canvas.width = totalW;
       canvas.height = totalH;
 
-      if (balloonSlicesLoaded && balloonSlices.c) {
+      if (balloonSlicesLoaded && balloonSlices.c && balloonSlices.arrow) {
         ctx.drawImage(balloonSlices.nw, 0, 0);
         ctx.drawImage(balloonSlices.n, cornerW, 0, contentW, cornerH);
         ctx.drawImage(balloonSlices.ne, cornerW + contentW, 0);
@@ -291,7 +296,7 @@ export function renderTextTexture(r: Renderer, text: string, type: "name" | "bal
 
         const arrowW = balloonSlices.arrow.naturalWidth;
         const arrowX = Math.round((totalW - arrowW) / 2);
-        ctx.drawImage(balloonSlices.arrow, arrowX, bubbleH);
+        ctx.drawImage(balloonSlices.arrow, arrowX, bubbleH - arrowOverlap);
       } else {
         ctx.fillStyle = "#ffffff";
         ctx.strokeStyle = "#2b2b2b";
@@ -300,9 +305,25 @@ export function renderTextTexture(r: Renderer, text: string, type: "name" | "bal
         else ctx.rect(1, 1, totalW - 2, bubbleH - 2);
         ctx.fill();
         ctx.stroke();
+
+        // Connected tail pointing downward
+        const tailW = 10;
+        const tailH = 6;
+        const tailX = Math.round((totalW - tailW) / 2);
+        ctx.beginPath();
+        ctx.moveTo(tailX, bubbleH - 1.5);
+        ctx.lineTo(tailX + tailW / 2, bubbleH + tailH);
+        ctx.lineTo(tailX + tailW, bubbleH - 1.5);
+        ctx.closePath();
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(tailX + 1, bubbleH - 3, tailW - 2, 3);
       }
 
-      ctx.font = "bold 12px Arial, Tahoma, sans-serif";
+      ctx.font = "bold 12px 'Inter', Arial, sans-serif";
       ctx.textBaseline = "middle";
       ctx.textAlign = "center";
       ctx.fillStyle = "#000000";
@@ -323,15 +344,24 @@ export function renderTextTexture(r: Renderer, text: string, type: "name" | "bal
   return null;
 }
 
+export function clearGuildTagCache() {
+  for (const k of Array.from(textTexCache.keys())) {
+    if (k.startsWith("guildtag_")) {
+      textTexCache.delete(k);
+    }
+  }
+  textTexPending.clear();
+}
+
 export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: GuildEmblem): Tex | null {
-  const emblemKey = emblem ? `${emblem.bgShape}_${emblem.bgColor}_${emblem.symbolShape}_${emblem.symbolColor}` : "0";
-  const key = `guildtag:${guildName}:${emblemKey}`;
+  const embKey = emblem ? `${emblem.bgShape}_${emblem.bgColor}_${emblem.symbolShape}_${emblem.symbolColor}` : "default";
+  const key = `guildtag_out:${guildName}:${embKey}`;
   const hit = textTexCache.get(key);
   if (hit) return hit;
   if (textTexPending.has(key)) return null;
   textTexPending.add(key);
 
-  const buildTag = (emblemImg: HTMLImageElement | null) => {
+  const drawTag = (embImg?: HTMLImageElement) => {
     try {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
@@ -340,54 +370,46 @@ export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: G
         return;
       }
 
-      ctx.font = "bold 10px Tahoma, Arial, sans-serif";
+      ctx.font = "11px 'Inter', -apple-system, sans-serif";
       const tm = ctx.measureText(guildName);
       const tw = Math.ceil(tm.width);
 
-      const hasEmblem = Boolean(emblem);
-      const emblemW = hasEmblem ? 16 : 0;
-      const padX = 5;
-      const w = Math.max(28, tw + emblemW + padX * 2);
-      const h = 17;
-      canvas.width = w;
-      canvas.height = h;
+      const padX = 6;
+      const panelW = Math.max(24, tw + padX * 2);
+      const h = 16;
+      const embSize = 15;
+      const gap = 3;
+      const sidePad = embSize + gap;
+      const w = panelW + sidePad * 2;
+      const canvasPad = 6;
 
-      ctx.font = "bold 10px Tahoma, Arial, sans-serif";
-      ctx.textBaseline = "middle";
-      ctx.imageSmoothingEnabled = false;
+      canvas.width = w + canvasPad * 2;
+      canvas.height = h + canvasPad * 2;
+      ctx.translate(canvasPad, canvasPad);
 
-      // Tag background
-      ctx.fillStyle = "rgba(10, 15, 25, 0.78)";
+      // Draw Guild Emblem OUTSIDE the panel on the left (no panel/background behind emblem)
+      if (embImg) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(embImg, 0, Math.round((h - embSize) / 2), embSize, embSize);
+      }
+
+      // Draw Guild Name panel centered under the character name panel
+      const panelX = sidePad;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
       ctx.beginPath();
-      if ((ctx as any).roundRect) (ctx as any).roundRect(0, 0, w, h, 3);
-      else ctx.rect(0, 0, w, h);
+      if ((ctx as any).roundRect) (ctx as any).roundRect(panelX, 0, panelW, h, 3);
+      else ctx.rect(panelX, 0, panelW, h);
       ctx.fill();
 
-      ctx.strokeStyle = "rgba(100, 116, 139, 0.5)";
+      ctx.strokeStyle = "rgba(45, 45, 45, 0.85)";
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      let textStartX = padX;
-
-      // Draw authentic WZ guild emblem (or fallback color crest)
-      if (hasEmblem && emblem) {
-        if (emblemImg && emblemImg.naturalWidth > 0) {
-          ctx.drawImage(emblemImg, padX - 1, 1, 15, 15);
-        } else {
-          const bgHex = EMBLEM_COLORS[emblem.bgColor % 16]?.hex ?? "#ee1111";
-          const symHex = EMBLEM_COLORS[emblem.symbolColor % 16]?.hex ?? "#eeeeee";
-          ctx.fillStyle = bgHex;
-          ctx.fillRect(padX, 2, 13, 13);
-          ctx.fillStyle = symHex;
-          ctx.fillRect(padX + 4, 6, 5, 5);
-        }
-        textStartX += 16;
-      }
-
-      // Guild text
-      ctx.textAlign = "left";
-      ctx.fillStyle = "#fef08a"; // Warm Maple guild gold
-      ctx.fillText(guildName, textStartX, h / 2 + 0.5);
+      ctx.font = "11px 'Inter', -apple-system, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(guildName, panelX + panelW / 2, h / 2 + 0.5);
 
       createImageBitmap(canvas).then((bmp) => {
         const tex = r.texture(bmp);
@@ -401,13 +423,14 @@ export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: G
     }
   };
 
-  if (emblem && typeof Image !== "undefined") {
+  if (typeof Image !== "undefined" && emblem) {
     const img = new Image();
-    img.onload = () => buildTag(img);
-    img.onerror = () => buildTag(null);
+    img.crossOrigin = "anonymous";
+    img.onload = () => drawTag(img);
+    img.onerror = () => drawTag(undefined);
     img.src = guildEmblemUrl(emblem);
   } else {
-    buildTag(null);
+    drawTag(undefined);
   }
 
   return null;
@@ -428,7 +451,7 @@ export function renderPlayerNameTexture(r: Renderer, name: string): Tex | null {
       return null;
     }
 
-    ctx.font = "bold 11px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.font = "11px 'Inter', -apple-system, sans-serif";
     const tm = ctx.measureText(name);
     const tw = Math.ceil(tm.width);
     const w = tw + 6;
@@ -436,7 +459,7 @@ export function renderPlayerNameTexture(r: Renderer, name: string): Tex | null {
     canvas.width = w;
     canvas.height = h;
 
-    ctx.font = "bold 11px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.font = "11px 'Inter', -apple-system, sans-serif";
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
     ctx.imageSmoothingEnabled = false;
@@ -483,7 +506,7 @@ export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number)
     }
 
     const text = `${fps} FPS · ${ping}ms`;
-    ctx.font = "bold 9px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.font = "bold 9px 'Inter', -apple-system, sans-serif";
     const tm = ctx.measureText(text);
     const tw = Math.ceil(tm.width);
     const w = tw + 10;
@@ -491,7 +514,7 @@ export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number)
     canvas.width = w;
     canvas.height = h;
 
-    ctx.font = "bold 9px Tahoma, 'Segoe UI', Arial, sans-serif";
+    ctx.font = "bold 9px 'Inter', -apple-system, sans-serif";
     ctx.textBaseline = "middle";
     ctx.textAlign = "center";
     ctx.imageSmoothingEnabled = false;
@@ -651,7 +674,7 @@ export class WebGpuMenuInput {
   static activeSubmenu: string | null = null;
   static hoveredSubmenuItem: string | null = null;
   static hoveredQuickKey: string | null = null;
-  static hoveredAutoBtn: "battle" | "boss" | null = null;
+  static hoveredAutoBtn: "boss" | null = null;
   static hoveredHp = false;
   static hoveredMp = false;
   static hoveredLevel = false;
@@ -769,8 +792,11 @@ export class WebGpuMenuInput {
       if (game.uiMode === "old") return;
       if (this.hoveredQuickKey && game.quick[this.hoveredQuickKey]) {
         e.preventDefault();
-        delete game.quick[this.hoveredQuickKey];
-        game.onChange();
+        const a = game.quick[this.hoveredQuickKey];
+        if (!game.toggleActionAuto(a)) {
+          delete game.quick[this.hoveredQuickKey];
+          game.onChange();
+        }
       }
     });
   }
@@ -782,16 +808,8 @@ export class WebGpuMenuInput {
       win = win.wins;
     }
 
-    if (this.hoveredAutoBtn === "battle") {
-      game.auto.battle = !game.auto.battle;
-      game.onChat("notice", game.auto.battle ? "Auto Combat is ON" : "Auto Combat is OFF");
-      game.onChange();
-      return;
-    }
-
     if (this.hoveredAutoBtn === "boss") {
       game.auto.boss = !game.auto.boss;
-      game.onChat("notice", game.auto.boss ? "Auto Boss is ON. Stage boss will be challenged automatically." : "Auto Boss is OFF.");
       game.onChange();
       return;
     }
@@ -875,6 +893,97 @@ export class WebGpuMenuInput {
   }
 }
 
+export const BEAM_PALETTES: Record<string, {
+  glow: [number, number, number];
+  core: [number, number, number];
+  accent: [number, number, number];
+  tip: [number, number, number];
+}> = {
+  gold: {
+    glow: [0.98, 0.75, 0.14],
+    core: [0.99, 0.88, 0.35],
+    accent: [0.85, 0.47, 0.02],
+    tip: [1.0, 1.0, 0.92],
+  },
+  ocean: {
+    glow: [0.22, 0.74, 0.97],
+    core: [0.55, 0.88, 1.0],
+    accent: [0.01, 0.52, 0.78],
+    tip: [1.0, 1.0, 1.0],
+  },
+  cyan: {
+    glow: [0.22, 0.74, 0.97],
+    core: [0.55, 0.88, 1.0],
+    accent: [0.01, 0.52, 0.78],
+    tip: [1.0, 1.0, 1.0],
+  },
+  colorful: {
+    glow: [0.96, 0.25, 0.37],
+    core: [0.98, 0.80, 0.08],
+    accent: [0.65, 0.33, 0.97],
+    tip: [1.0, 1.0, 1.0],
+  },
+  rainbow: {
+    glow: [0.96, 0.25, 0.37],
+    core: [0.98, 0.80, 0.08],
+    accent: [0.65, 0.33, 0.97],
+    tip: [1.0, 1.0, 1.0],
+  },
+  sunset: {
+    glow: [1.0, 0.35, 0.21],
+    core: [0.99, 0.65, 0.35],
+    accent: [0.95, 0.25, 0.10],
+    tip: [1.0, 0.95, 0.85],
+  },
+  forest: {
+    glow: [0.13, 0.77, 0.37],
+    core: [0.45, 0.92, 0.55],
+    accent: [0.08, 0.50, 0.24],
+    tip: [0.90, 1.0, 0.92],
+  },
+  candy: {
+    glow: [0.93, 0.28, 0.60],
+    core: [0.98, 0.55, 0.85],
+    accent: [0.75, 0.15, 0.83],
+    tip: [1.0, 0.95, 0.98],
+  },
+  ice: {
+    glow: [0.40, 0.91, 0.98],
+    core: [0.75, 0.96, 1.0],
+    accent: [0.01, 0.52, 0.78],
+    tip: [1.0, 1.0, 1.0],
+  },
+  purple: {
+    glow: [0.75, 0.52, 0.99],
+    core: [0.88, 0.72, 1.0],
+    accent: [0.49, 0.13, 0.81],
+    tip: [1.0, 0.96, 1.0],
+  },
+};
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  let r: number, g: number, b: number;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p: number, q: number, t: number) => {
+      let v = t;
+      if (v < 0) v += 1;
+      if (v > 1) v -= 1;
+      if (v < 1 / 6) return p + (q - p) * 6 * v;
+      if (v < 1 / 2) return q;
+      if (v < 2 / 3) return p + (q - p) * (2 / 3 - v) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  return [r, g, b];
+}
+
 export class WorldRenderer {
   public static draw(game: Game) {
     const r = game.r;
@@ -952,6 +1061,11 @@ export class WorldRenderer {
         const prompt = `[↑] ${pt.label || "Secret Teleport"}`;
         WorldRenderer.drawNameTag(r, prompt, pt.x, pt.y - 48, cx, cy);
       }
+    }
+
+    // Active Field Rune
+    if (game.rune) {
+      WorldRenderer.drawRune(game, game.rune, cx, cy);
     }
 
     // Mobs
@@ -1642,34 +1756,61 @@ export class WorldRenderer {
       game.assets.load(QUICK_UI.cover);
     }
 
-    // 4. Auto Combat & Auto Boss Buttons directly above QuickSlots
-    const abY = qsY - 24;
+    // 3b. Animated Beam Border Effect for Active Auto-Skill / Auto-Buff QuickSlots
+    for (let row = 0; row < 2; row++) {
+      const keys = row === 0 ? row0Keys : row1Keys;
+      const sy = qsY + 3 + row * 35;
+      for (let col = 0; col < 16; col++) {
+        const k = keys[col];
+        const a = game.quick[k];
+        if (!a || !game.isActionAuto(a)) continue;
+        const sx = qsX + 2 + col * 35;
+        const isBuff = a.t === "skill" && SKILL[a.id]?.kind === "buff";
+        const baseGlow: [number, number, number, number] = isBuff
+          ? [0.22, 0.74, 0.97, 0.35]
+          : [0.98, 0.75, 0.14, 0.35];
+        r.rect(sx, sy, 32, 1, baseGlow);
+        r.rect(sx, sy + 31, 32, 1, baseGlow);
+        r.rect(sx, sy, 1, 32, baseGlow);
+        r.rect(sx + 31, sy, 1, 32, baseGlow);
 
-    // Auto Combat Button
-    const abX = qsX + 336;
-    const abW = 106;
-    const abH = 20;
-    const isAbHover = mx >= abX && mx < abX + abW && my >= abY && my < abY + abH;
-    if (isAbHover) {
-      WebGpuMenuInput.hoveredAutoBtn = "battle";
-      WebGpuMenuInput.activeTooltip = {
-        title: "Auto Combat System",
-        subtitle: game.auto.battle ? "STATUS: ACTIVE [ON]" : "STATUS: OFF",
-        desc: "Character hunts, loots, and recovers automatically. Hotkey: B",
-      };
+        // Two opposite travelling laser beams orbiting the 32x32 perimeter (120px loop around 30px edges)
+        const perim = 120;
+        for (let b = 0; b < 2; b++) {
+          const head = ((game.time * 80) + b * 60) % perim;
+          const segs = 12;
+          for (let s = 0; s < segs; s++) {
+            const pPos = (head - (segs - 1 - s) * 2.2 + perim) % perim;
+            const ratio = (s + 1) / segs;
+            let bx = sx;
+            let by = sy;
+            if (pPos < 30) {
+              bx = sx + pPos;
+              by = sy;
+            } else if (pPos < 60) {
+              bx = sx + 30;
+              by = sy + (pPos - 30);
+            } else if (pPos < 90) {
+              bx = sx + 30 - (pPos - 60);
+              by = sy + 30;
+            } else {
+              bx = sx;
+              by = sy + 30 - (pPos - 90);
+            }
+            const isTip = s >= segs - 2;
+            const colRgba: [number, number, number, number] = isTip
+              ? [1, 0.99, 0.92, 0.98]
+              : isBuff
+                ? [0.25 + ratio * 0.45, 0.78 + ratio * 0.2, 1.0, ratio * 0.9]
+                : [1.0, 0.68 + ratio * 0.28, 0.15 + ratio * 0.45, ratio * 0.9];
+            r.rect(Math.round(bx), Math.round(by), 2, 2, colRgba);
+          }
+        }
+      }
     }
 
-    // Pill container matching HUD glassmorphism
-    r.rect(abX, abY, abW, abH, game.auto.battle ? [0.08, 0.22, 0.14, 0.94] : [0.07, 0.10, 0.16, 0.9]);
-    const abBorder: [number, number, number, number] = isAbHover ? [0.35, 0.85, 0.55, 0.95] : game.auto.battle ? [0.25, 0.65, 0.4, 0.8] : [0.3, 0.4, 0.52, 0.6];
-    r.rect(abX, abY, abW, 1, abBorder);
-    r.rect(abX, abY + abH - 1, abW, 1, abBorder);
-    r.rect(abX, abY, 1, abH, abBorder);
-    r.rect(abX + abW - 1, abY, 1, abH, abBorder);
-
-    r.rect(abX + 7, abY + 6, 7, 7, game.auto.battle ? [0.2, 0.95, 0.4, 1] : [0.65, 0.2, 0.2, 0.75]);
-    const abLabel = renderLabelTexture(r, "AUTO COMBAT", 9, game.auto.battle ? "#4ade80" : "#94a3b8");
-    if (abLabel) r.draw(abLabel, abX + 18, abY + 4, abLabel.w, abLabel.h);
+    // 4. Auto Boss Button directly above QuickSlots
+    const abY = qsY - 24;
 
     // Auto Boss Button
     const bossX = qsX + 448;
@@ -1696,7 +1837,7 @@ export class WorldRenderer {
     const bossLabel = renderLabelTexture(r, "AUTO BOSS", 9, game.auto.boss ? "#4ade80" : "#94a3b8");
     if (bossLabel) r.draw(bossLabel, bossX + 18, abY + 4, bossLabel.w, bossLabel.h);
 
-    if (!isAbHover && !isBossHover && !WebGpuMenuInput.hoveredBtnId && !WebGpuMenuInput.hoveredSubmenuItem && !WebGpuMenuInput.hoveredQuickKey) {
+    if (!isBossHover && !WebGpuMenuInput.hoveredBtnId && !WebGpuMenuInput.hoveredSubmenuItem && !WebGpuMenuInput.hoveredQuickKey) {
       WebGpuMenuInput.hoveredAutoBtn = null;
     }
 
@@ -1706,10 +1847,11 @@ export class WorldRenderer {
       const label = KEY_LABEL[WebGpuMenuInput.hoveredQuickKey] || WebGpuMenuInput.hoveredQuickKey;
       if (a) {
         if (a.t === "attack") {
+          const isAuto = game.isActionAuto(a);
           WebGpuMenuInput.activeTooltip = {
             title: "Basic Attack",
-            subtitle: `Hotkey: [ ${label} ]`,
-            desc: "Strike nearby monsters with your equipped weapon. Drag to rebind.",
+            subtitle: `Hotkey: [ ${label} ] · Auto Skill: ${isAuto ? "ON" : "OFF"}`,
+            desc: "Strike nearby monsters with your equipped weapon. Right-click to toggle Auto Skill, drag off to remove.",
           };
         } else if (a.t === "item") {
           const item = ITEMS[a.id];
@@ -1724,10 +1866,12 @@ export class WorldRenderer {
           const d = SKILL[a.id];
           const lv = game.lv(a.id);
           const mpCost = d && d.kind !== "passive" ? d.mp(lv) : 0;
+          const isAuto = game.isActionAuto(a);
+          const autoKind = d?.kind === "buff" ? "Auto Buff" : "Auto Skill";
           WebGpuMenuInput.activeTooltip = {
             title: art?.name || `Skill ${a.id}`,
-            subtitle: `Mastery Lv. ${lv} · MP ${mpCost} · Hotkey: [ ${label} ]`,
-            desc: `${d?.summary(lv) || art?.desc || "Unleash combat technique."} Drag to move, right-click to clear.`,
+            subtitle: `Lv. ${lv} · MP ${mpCost} · [ ${label} ] · ${autoKind}: ${isAuto ? "ON" : "OFF"}`,
+            desc: `${d?.summary(lv) || art?.desc || "Unleash combat technique."} Right-click to toggle ${autoKind}, drag off to remove.`,
           };
         }
       } else {
@@ -1811,15 +1955,40 @@ export class WorldRenderer {
         }
         tRem -= d;
       }
-      if (!fr || fr.w <= 1 || fr.h <= 1) continue; // Skip blank strobe frames
-      const tex = game.assets.get(fr.url);
-      if (!tex) {
-        game.assets.load(fr.url);
+      // If the current frame is a dormant pause (e.g. 1x1 with delay >= 800 like firework pauses between launches)
+      const isDormantPause = fr && (fr.w <= 1 || fr.h <= 1) && (fr.delay ?? 100) >= 800;
+      if (isDormantPause) {
+        (obj as any).lastTex = null;
+        (obj as any).lastFr = null;
         continue;
       }
-      const drawX = obj.f ? obj.x - (fr.w - fr.ox) - cx : obj.x - fr.ox - cx;
-      const drawY = obj.y - fr.oy - cy;
-      r.draw(tex, Math.round(drawX), Math.round(drawY), fr.w, fr.h, { flip: obj.f });
+      let tex = fr ? game.assets.get(fr.url) : null;
+      if (!tex && fr) {
+        game.assets.load(fr.url);
+        // Fallback to last loaded frame or nearest loaded frame so waterfalls & fireworks NEVER blink or flicker
+        if ((obj as any).lastTex && (obj as any).lastFr) {
+          tex = (obj as any).lastTex;
+          fr = (obj as any).lastFr;
+        } else {
+          for (const altFr of obj.frames) {
+            if (altFr.w > 1 && altFr.h > 1) {
+              const altTex = game.assets.get(altFr.url);
+              if (altTex) {
+                tex = altTex;
+                fr = altFr;
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (tex && fr && fr.w > 1 && fr.h > 1) {
+        (obj as any).lastTex = tex;
+        (obj as any).lastFr = fr;
+        const drawX = obj.f ? obj.x - (fr.w - fr.ox) - cx : obj.x - fr.ox - cx;
+        const drawY = obj.y - fr.oy - cy;
+        r.draw(tex, Math.round(drawX), Math.round(drawY), fr.w, fr.h, { flip: obj.f });
+      }
     }
   }
 
@@ -1844,11 +2013,26 @@ export class WorldRenderer {
           tRem -= d;
         }
       }
-      const t = game.assets.get(s.url);
+      let t = game.assets.get(s.url);
       if (!t) {
         game.assets.load(s.url);
-        continue;
+        if ((b as any).lastTex && (b as any).lastSprite) {
+          t = (b as any).lastTex;
+          s = (b as any).lastSprite;
+        } else if (b.frames && b.frames.length > 0) {
+          for (const altFr of b.frames) {
+            const altTex = game.assets.get(altFr.url);
+            if (altTex && altFr.w > 1 && altFr.h > 1) {
+              t = altTex;
+              s = altFr;
+              break;
+            }
+          }
+        }
       }
+      if (!t || s.w <= 1 || s.h <= 1) continue;
+      (b as any).lastTex = t;
+      (b as any).lastSprite = s;
       const cxx = b.cx || s.w, cyy = b.cy || s.h;
       const hmove = b.type === 4 || b.type === 6, vmove = b.type === 5 || b.type === 7;
       const htile = [1, 3, 4, 6, 7].includes(b.type), vtile = [2, 3, 5, 6, 7].includes(b.type);
@@ -1876,11 +2060,140 @@ export class WorldRenderer {
       r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y + 2 - cy), tex.w, tex.h);
     }
   }
-
-  public static drawGuildTag(r: Renderer, guildName: string, emblem: GuildEmblem | undefined, x: number, y: number, cx: number, cy: number) {
+  public static drawGuildTag(
+    r: Renderer,
+    guildName: string,
+    emblem: GuildEmblem | undefined,
+    x: number,
+    y: number,
+    cx: number,
+    cy: number,
+    time = 0
+  ) {
     const tex = renderGuildTagTexture(r, guildName, emblem);
+    const approxW = Math.max(24, Math.ceil(guildName.length * 6.5) + 12);
+    const pw = tex ? tex.w - 48 : approxW;
+    const px = Math.round(x - cx - pw / 2);
+    const py = Math.round(y - cy + 19);
+    const ph = 16;
+
     if (tex) {
-      r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y + 19 - cy), tex.w, tex.h);
+      // Offset by 13 to account for 6px glow pad so text aligns at y + 19
+      r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y + 13 - cy), tex.w, tex.h);
+    } else {
+      // Fallback background pill while texture loads
+      r.rect(px, py, pw, ph, [0, 0, 0, 0.78]);
+    }
+
+    const beamEffect = emblem?.beamEffect || "gold";
+    const beamMotion = emblem?.beamMotion || "rotate";
+    WorldRenderer.drawGuildBorderBeam(r, px, py, pw, ph, time, beamEffect, beamMotion);
+  }
+
+  public static drawGuildBorderBeam(
+    r: Renderer,
+    px: number,
+    py: number,
+    pw: number,
+    ph: number,
+    time: number,
+    beamStyle = "gold",
+    beamMotion = "rotate"
+  ) {
+    if (!beamStyle || beamStyle === "none") return;
+
+    const pal = BEAM_PALETTES[beamStyle] || BEAM_PALETTES.gold;
+    const g = pal.glow;
+
+    // 1. Soft ambient breathing bloom around the perimeter (replicates .guild-beam-bloom)
+    const pulseT = 0.5 + 0.5 * Math.sin(time * 3.5);
+    const bloomAlpha = beamMotion === "pulse" ? 0.35 + 0.55 * pulseT : 0.5;
+    r.rect(px - 3, py - 3, pw + 6, ph + 6, [g[0], g[1], g[2], 0.08 * bloomAlpha]);
+    r.rect(px - 2, py - 2, pw + 4, ph + 4, [g[0], g[1], g[2], 0.18 * bloomAlpha]);
+    r.rect(px - 1, py - 1, pw + 2, ph + 2, [g[0], g[1], g[2], 0.35 * bloomAlpha]);
+
+    // 2. Base perimeter border track (1px)
+    r.rect(px, py, pw, 1, [g[0], g[1], g[2], 0.5]);
+    r.rect(px, py + ph - 1, pw, 1, [g[0], g[1], g[2], 0.5]);
+    r.rect(px, py, 1, ph, [g[0], g[1], g[2], 0.5]);
+    r.rect(px + pw - 1, py, 1, ph, [g[0], g[1], g[2], 0.5]);
+
+    // 3. Dynamic Motion Layer (replicates libraries.dev/beam)
+    if (beamMotion === "pulse") {
+      const lineAlpha = 0.55 + 0.45 * pulseT;
+      const core = pal.core;
+      r.rect(px, py, pw, 1.5, [core[0], core[1], core[2], lineAlpha]);
+      r.rect(px, py + ph - 1.5, pw, 1.5, [core[0], core[1], core[2], lineAlpha]);
+      r.rect(px, py, 1.5, ph, [core[0], core[1], core[2], lineAlpha]);
+      r.rect(px + pw - 1.5, py, 1.5, ph, [core[0], core[1], core[2], lineAlpha]);
+    } else if (beamMotion === "line") {
+      // Traveling laser streak shooting horizontally across top and bottom borders
+      const streakT = (time * 1.6) % 1;
+      const streakX = px - 25 + streakT * (pw + 50);
+      const streakLen = 14;
+      for (let i = 0; i < streakLen; i++) {
+        const segX = Math.round(streakX - i * 1.6);
+        const ratio = (streakLen - i) / streakLen;
+        if (segX >= px && segX < px + pw) {
+          const isTip = i <= 2;
+          const col = isTip ? pal.tip : pal.core;
+          // Top laser streak
+          r.rect(segX, py - 1, 2, 2.5, [col[0], col[1], col[2], ratio * 0.95]);
+          // Bottom laser streak
+          r.rect(segX, py + ph - 1.5, 2, 2.5, [col[0], col[1], col[2], ratio * 0.95]);
+        }
+      }
+      // Vertical corner flares
+      const flare = 0.45 + 0.45 * Math.sin(time * 5);
+      r.rect(px, py, 1.5, ph, [pal.core[0], pal.core[1], pal.core[2], flare]);
+      r.rect(px + pw - 1.5, py, 1.5, ph, [pal.core[0], pal.core[1], pal.core[2], flare]);
+    } else {
+      // Default: "rotate" mode — Orbiting dual laser beam sweep around the perimeter
+      const perim = 2 * (pw + ph);
+      const isRainbow = beamStyle === "colorful" || beamStyle === "rainbow";
+      for (let b = 0; b < 2; b++) {
+        const head = ((time * 95) + b * (perim / 2)) % perim;
+        const segs = 14;
+        for (let s = 0; s < segs; s++) {
+          const pPos = (head - (segs - 1 - s) * 1.8 + perim) % perim;
+          const ratio = (s + 1) / segs;
+          let bx = px;
+          let by = py;
+          if (pPos < pw) {
+            bx = px + pPos;
+            by = py;
+          } else if (pPos < pw + ph) {
+            bx = px + pw - 1;
+            by = py + (pPos - pw);
+          } else if (pPos < 2 * pw + ph) {
+            bx = px + pw - 1 - (pPos - (pw + ph));
+            by = py + ph - 1;
+          } else {
+            bx = px;
+            by = py + ph - 1 - (pPos - (2 * pw + ph));
+          }
+
+          const isTip = s >= segs - 2;
+          let col: [number, number, number] = pal.core;
+          if (isRainbow) {
+            const hue = (time * 1.2 + ratio * 0.5 + b * 0.5) % 1;
+            col = hslToRgb(hue, 1, isTip ? 0.92 : 0.65);
+          } else if (isTip) {
+            col = pal.tip;
+          } else {
+            col = [
+              pal.accent[0] + (pal.core[0] - pal.accent[0]) * ratio,
+              pal.accent[1] + (pal.core[1] - pal.accent[1]) * ratio,
+              pal.accent[2] + (pal.core[2] - pal.accent[2]) * ratio,
+            ];
+          }
+
+          // Outer bloom halo dot
+          r.rect(Math.round(bx - 1), Math.round(by - 1), 3, 3, [col[0], col[1], col[2], ratio * 0.35]);
+          // Bright inner laser core
+          r.rect(Math.round(bx), Math.round(by), 1.5, 1.5, [col[0], col[1], col[2], ratio * 0.95]);
+        }
+      }
     }
   }
 
@@ -1905,44 +2218,37 @@ export class WorldRenderer {
     maxHp: number,
     mp: number,
     maxMp: number,
-    isLeader: boolean,
+    _isLeader: boolean,
     x: number,
     y: number,
     cx: number,
     cy: number
   ) {
-    const barW = 40;
-    const barH = 4;
-    const mpH = 3;
+    const barW = 28;
+    const hpH = 2;
+    const mpH = 2;
     const drawX = Math.round(x - barW / 2 - cx);
-    const drawY = Math.round(y - 74 - cy);
+    const drawY = Math.round(y - 68 - cy);
 
     const safeMaxHp = Math.max(1, maxHp);
     const safeMaxMp = Math.max(1, maxMp);
     const hpRatio = Math.max(0, Math.min(1, hp / safeMaxHp));
     const mpRatio = Math.max(0, Math.min(1, mp / safeMaxMp));
 
-    // Outer frame/background with Maple translucent black
-    r.rect(drawX - 2, drawY - 2, barW + 4, barH + mpH + 5, [0.05, 0.05, 0.08, 0.85]);
+    // Minimal, compact 1px dark border around HP + MP micro bars
+    r.rect(drawX - 1, drawY - 1, barW + 2, hpH + mpH + 3, [0.04, 0.04, 0.06, 0.85]);
 
-    // Party leader crown jewel / member gem marker
-    if (isLeader) {
-      r.rect(drawX - 6, drawY - 1, 3, 5, [1, 0.82, 0.15, 1]); // Golden Leader Crown Jewel
-    } else {
-      r.rect(drawX - 6, drawY, 3, 4, [0.3, 0.85, 1, 0.9]); // Cyan Party Gem
-    }
-
-    // HP background & fill
-    r.rect(drawX, drawY, barW, barH, [0.25, 0.05, 0.05, 0.95]);
+    // HP background & fill (2px)
+    r.rect(drawX, drawY, barW, hpH, [0.22, 0.05, 0.06, 0.95]);
     if (hpRatio > 0) {
-      r.rect(drawX, drawY, Math.max(1, Math.round(barW * hpRatio)), barH, [0.95, 0.18, 0.22, 1]);
+      r.rect(drawX, drawY, Math.max(1, Math.round(barW * hpRatio)), hpH, [0.95, 0.22, 0.26, 1]);
     }
 
-    // MP background & fill
-    const mpY = drawY + barH + 1;
-    r.rect(drawX, mpY, barW, mpH, [0.05, 0.12, 0.3, 0.95]);
+    // MP background & fill (2px)
+    const mpY = drawY + hpH + 1;
+    r.rect(drawX, mpY, barW, mpH, [0.05, 0.12, 0.28, 0.95]);
     if (mpRatio > 0) {
-      r.rect(drawX, mpY, Math.max(1, Math.round(barW * mpRatio)), mpH, [0.2, 0.55, 1, 1]);
+      r.rect(drawX, mpY, Math.max(1, Math.round(barW * mpRatio)), mpH, [0.22, 0.58, 1, 1]);
     }
   }
 
@@ -1965,7 +2271,8 @@ export class WorldRenderer {
     } else {
       const candidate = eff.actions[anim] ?? eff.actions.default;
       if (candidate?.length) {
-        const isBack = (candidate[0]?.z ?? 0) < 0;
+        // Wizet GM overhead effect (1002140) is an overhead status badge that renders in front above head
+        const isBack = eff.id === 1002140 ? false : (candidate[0]?.z ?? 0) < 0;
         if ((layer === "back" && isBack) || (layer === "front" && !isBack)) {
           actionFrames = candidate;
         }
@@ -1993,6 +2300,35 @@ export class WorldRenderer {
     game.r.draw(tex, drawX, drawY, fr.w, fr.h, { flip });
   }
 
+  public static drawGmAura(game: Game, x: number, y: number, cx: number, cy: number) {
+    // 1. WZ Aura3 looping ground seal
+    const validFrames = [0, 1, 2, 9, 10, 11, 12, 13, 14, 15];
+    const frameIdx = Math.floor(game.time * 12) % validFrames.length;
+    const frNum = validFrames[frameIdx];
+    const auraUrl = `/wz/sprite/Effect/BasicEff.img/Aura3/${frNum}`;
+    const tex = game.assets.get(auraUrl);
+    if (tex) {
+      game.r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y - tex.h / 2 - 4 - cy), tex.w, tex.h, {
+        alpha: 0.85,
+      });
+    } else {
+      game.assets.load(auraUrl);
+    }
+
+    // 2. Divine golden particle halo rising from character
+    const t = game.time;
+    for (let i = 0; i < 5; i++) {
+      const angle = t * 2.5 + (i * Math.PI * 2) / 5;
+      const radius = 18 + Math.sin(t * 3 + i) * 6;
+      const px = Math.round(x + Math.cos(angle) * radius - cx);
+      const py = Math.round(y - 25 + Math.sin(angle) * 10 + Math.sin(t * 4 + i) * 6 - cy);
+      const alpha = 0.5 + 0.4 * Math.sin(t * 5 + i);
+      game.r.rect(px, py, 3, 3, [1, 0.88, 0.25, alpha]);
+      game.r.rect(px - 1, py, 5, 1, [1, 0.95, 0.5, alpha * 0.7]);
+      game.r.rect(px, py - 1, 1, 5, [1, 0.95, 0.5, alpha * 0.7]);
+    }
+  }
+
   public static drawRemotePlayer(game: Game, rp: RemotePlayer, cx: number, cy: number) {
     const isFloating = game.hasHoverEffect(rp.look) && rp.anim !== "jump" && rp.anim !== "ladder" && rp.anim !== "rope";
     const hoverY = isFloating ? Math.round(Math.sin(game.time * 3.2) * 5 - 10) : 0;
@@ -2006,10 +2342,12 @@ export class WorldRenderer {
     const drawPosY = rp.y + hoverY;
 
     const remoteEffs: ItemEffData[] = [];
-    for (const id of rp.look) {
+    const effIds = [...rp.look];
+    if (rp.gmEffect && !effIds.includes(1002140)) effIds.push(1002140);
+    for (const id of effIds) {
       if (!game.itemEffCache.has(id)) {
         game.itemEffCache.set(id, null);
-        fetch(`/wz/data/item-eff/${id}`).then((r) => r.ok ? r.json() : null).then((data) => {
+        json<ItemEffData>(`/wz/data/item-eff/${id}`).then((data) => {
           if (data) {
             game.itemEffCache.set(id, data);
             for (const act of Object.values(data.actions as Record<string, ItemEffFrame[]>)) {
@@ -2024,47 +2362,53 @@ export class WorldRenderer {
     for (const eff of remoteEffs) {
       WorldRenderer.drawItemEffect(game, eff, rp.x, drawPosY, rp.face, rp.anim, cx, cy, "back");
     }
-    let t = game.assets.get(charUrlFor(rp.look, rp.anim, rp.frame))
-      ?? game.assets.get(charUrlFor(rp.look, "stand1", 0));
+    if (!rp.charComp) {
+      rp.charComp = new CharacterRendererComponent({ game });
+    }
+    const t = rp.charComp.updateState(
+      rp.look,
+      rp.anim,
+      rp.frame,
+      "default",
+      0,
+      rp.face,
+      rp.x,
+      drawPosY
+    );
     if (t) {
       rp.lastTex = t;
-    } else if (rp.lastTex) {
-      t = rp.lastTex;
-    }
-    if (t) {
-      const ox = Math.round(t.w / 2);
-      const oy = t.w === 96 && t.h === 96 ? 88 : t.h === 384 ? 256 : Math.round(t.h * (256 / 384));
-      game.r.draw(t, Math.round(rp.x - ox - cx), Math.round(drawPosY - oy - cy), t.w, t.h, { flip: rp.face === 1 });
+      rp.charComp.draw(game, cx, cy, { flip: rp.face === 1 });
     }
     for (const eff of remoteEffs) {
       WorldRenderer.drawItemEffect(game, eff, rp.x, drawPosY, rp.face, rp.anim, cx, cy, "front");
     }
     WorldRenderer.drawNameTag(game.r, rp.name, rp.x, drawPosY, cx, cy);
     if (rp.guildName) {
-      WorldRenderer.drawGuildTag(game.r, rp.guildName, rp.guildEmblem, rp.x, drawPosY, cx, cy);
+      WorldRenderer.drawGuildTag(game.r, rp.guildName, rp.guildEmblem, rp.x, drawPosY, cx, cy, game.time);
     }
     if (game.isGm()) {
       WorldRenderer.drawGmTelemetryTag(game.r, rp.fps ?? 60, rp.ping ?? 20, rp.x, drawPosY, cx, cy, Boolean(rp.guildName));
     }
-    if (game.party && game.party.members) {
-      const mem = game.party.members.find(
-        (m) => m.name.toLowerCase() === rp.name.toLowerCase()
-      );
-      if (mem) {
-        WorldRenderer.drawPartyOverheadBar(
-          game.r,
-          mem.hp ?? 50,
-          mem.maxHp ?? 50,
-          mem.mp ?? 20,
-          mem.maxMp ?? 20,
-          mem.isLeader || mem.name.toLowerCase() === game.party.leaderName.toLowerCase(),
-          rp.x,
-          drawPosY,
-          cx,
-          cy
-        );
-      }
-    }
+
+    const partyMem = game.party?.members?.find(
+      (m) => m.name.toLowerCase() === (rp.name || "").toLowerCase()
+    );
+    const rpHp = rp.hp ?? partyMem?.hp ?? 100;
+    const rpMaxHp = rp.maxHp ?? partyMem?.maxHp ?? 100;
+    const rpMp = rp.mp ?? partyMem?.mp ?? 100;
+    const rpMaxMp = rp.maxMp ?? partyMem?.maxMp ?? 100;
+    WorldRenderer.drawPartyOverheadBar(
+      game.r,
+      rpHp,
+      rpMaxHp,
+      rpMp,
+      rpMaxMp,
+      false,
+      rp.x,
+      drawPosY,
+      cx,
+      cy
+    );
 
     if (rp.balloon && rp.balloon.t > 0 && rp.balloon.text) {
       WorldRenderer.drawSpeechBalloon(game.r, rp.balloon.text, rp.x, drawPosY, cx, cy);
@@ -2093,20 +2437,21 @@ export class WorldRenderer {
     if (!game.look || !game.look.length) {
       game.look = [...DEFAULT_LOOK];
     }
-    const currentUrl = charUrlFor(game.look, p.anim, p.frame, p.expr, p.exprFrame);
-    let t = game.assets.get(currentUrl)
-      ?? game.assets.get(charUrlFor(game.look, p.anim, p.frame))
-      ?? game.assets.get(charUrlFor(game.look, "stand1", 0))
-      ?? (game.prevLook.length ? game.assets.get(charUrlFor(game.prevLook, p.anim, p.frame)) : null);
-    if (!game.assets.get(currentUrl)) {
-      game.assets.load(currentUrl);
+    if (!game.charComp) {
+      game.charComp = new CharacterRendererComponent({ game });
     }
+    const t = game.charComp.updateState(
+      game.look,
+      p.anim,
+      p.frame,
+      p.expr,
+      p.exprFrame,
+      p.face,
+      p.x,
+      drawPosY
+    );
     if (t) {
       game.lastPlayerTex = t;
-    } else if (game.lastPlayerTex) {
-      t = game.lastPlayerTex;
-    }
-    if (t) {
       const invulnBlink = p.invuln > 0 && Math.floor(game.time * 16) % 2 === 0;
       const isDarkSight = !!game.buffs["4001003"];
       const baseAlpha = invulnBlink ? 0.35 : (isDarkSight || game.gmHide ? 0.45 : 1);
@@ -2142,17 +2487,14 @@ export class WorldRenderer {
           }
         }
         if (!drawn) {
-          let shadowTex = game.assets.get(charUrlFor(game.look, shadowAnim, shadowFrame, p.expr, p.exprFrame))
-            ?? game.assets.get(charUrlFor(game.look, shadowAnim, shadowFrame))
-            ?? t;
-          game.r.draw(shadowTex, Math.round(shadowDrawX - ox - cx), Math.round(shadowDrawY - oy - cy), shadowTex.w, shadowTex.h, {
+          game.r.draw(t, Math.round(shadowDrawX - ox - cx), Math.round(shadowDrawY - oy - cy), t.w, t.h, {
             flip: shadowFace === 1,
             alpha: baseAlpha,
           });
         }
       }
 
-      game.r.draw(t, Math.round(p.x - ox - cx), Math.round(drawPosY - oy - cy), t.w, t.h, {
+      game.charComp.draw(game, cx, cy, {
         flip: p.face === 1,
         alpha: baseAlpha,
       });
@@ -2165,23 +2507,7 @@ export class WorldRenderer {
 
     WorldRenderer.drawNameTag(game.r, game.stats.name, p.x, drawPosY, cx, cy);
     if (game.guildName) {
-      WorldRenderer.drawGuildTag(game.r, game.guildName, game.guildEmblem, p.x, drawPosY, cx, cy);
-    }
-
-    if (game.party) {
-      const isLeader = game.party.leaderName.toLowerCase() === game.stats.name.toLowerCase();
-      WorldRenderer.drawPartyOverheadBar(
-        game.r,
-        game.stats.hp,
-        game.stats.maxHp,
-        game.stats.mp,
-        game.stats.maxMp,
-        isLeader,
-        p.x,
-        drawPosY,
-        cx,
-        cy
-      );
+      WorldRenderer.drawGuildTag(game.r, game.guildName, game.guildEmblem, p.x, drawPosY, cx, cy, game.time);
     }
 
     if (game.balloon && game.balloon.t > 0 && game.balloon.text) {
@@ -2214,8 +2540,74 @@ export class WorldRenderer {
     m.lastTex = t;
     m.lastFr = useFr;
     const flip = m.dir === 1;
-    const left = flip ? m.x - (useFr.w - useFr.ox) : m.x - useFr.ox;
-    game.r.draw(t, Math.round(left - cx), Math.round(m.y - useFr.oy - cy), useFr.w, useFr.h, { flip, alpha: m.alpha });
+    const scale = m.elite ? 1.35 : 1.0;
+    const dw = Math.round(useFr.w * scale);
+    const dh = Math.round(useFr.h * scale);
+    const dox = Math.round(useFr.ox * scale);
+    const doy = Math.round(useFr.oy * scale);
+    const left = flip ? m.x - (dw - dox) : m.x - dox;
+
+    if (m.elite) {
+      // Ominous pulsing Elite Monster aura under feet
+      const auraPulse = 0.45 + 0.25 * Math.sin(game.time * 6);
+      game.r.rect(Math.round(m.x - dw / 2 - cx), Math.round(m.y - 4 - cy), dw, 6, [0.75, 0.1, 0.9, auraPulse]);
+    }
+
+    game.r.draw(t, Math.round(left - cx), Math.round(m.y - doy - cy), dw, dh, { flip, alpha: m.alpha });
+  }
+
+  public static drawRune(game: Game, rune: ActiveRune, cx: number, cy: number) {
+    const r = game.r;
+    const runeIdMap: Record<RuneType, { id: number; name: string }> = {
+      swiftness: { id: 0, name: "Swiftness" },
+      might: { id: 4, name: "Might" },
+      thunder: { id: 3, name: "Thunder" },
+      destruction: { id: 2, name: "Destruction" },
+    };
+    const runeDef = runeIdMap[rune.type] ?? runeIdMap.swiftness;
+    const frameIdx = Math.floor((game.time * 6.5) % 8);
+
+    // Authentic MapleStory Etc.wz/RuneStone.img origin offsets
+    const offsets = [
+      { ox: 43, oy: 116 },
+      { ox: 50, oy: 115 },
+      { ox: 50, oy: 116 },
+      { ox: 50, oy: 117 },
+      { ox: 49, oy: 118 },
+      { ox: 47, oy: 119 },
+      { ox: 34, oy: 118 },
+      { ox: 34, oy: 117 },
+    ];
+    const off = offsets[frameIdx] ?? { ox: 43, oy: 116 };
+
+    const url = `/wz/sprite/Etc/RuneStone/runeStone/0/${runeDef.id}/stay/${frameIdx}`;
+    const tex = game.assets.get(url);
+
+    // Authentic ground seal aura under rune
+    const pulse = 0.35 + 0.2 * Math.sin(game.time * 4);
+    r.rect(Math.round(rune.x - 28 - cx), Math.round(rune.y - 3 - cy), 56, 4, [0.35, 0.75, 1, pulse * 0.4]);
+
+    if (tex) {
+      // Draw authentic MapleStory WZ Rune stone sprite
+      r.draw(tex, Math.round(rune.x - off.ox - cx), Math.round(rune.y - off.oy - cy), tex.w, tex.h);
+    } else {
+      game.assets.load(url);
+      // Subtle pulse aura while frame is streaming
+      r.rect(Math.round(rune.x - 14 - cx), Math.round(rune.y - 65 - cy), 28, 40, [0.4, 0.8, 1, pulse]);
+    }
+
+    // Label & interactive prompt above the rune
+    const dist = Math.hypot(game.p.x - rune.x, game.p.y - rune.y);
+    const tagY = rune.y - 128;
+    if (dist < 90) {
+      if (game.runeCooldown > 0) {
+        WorldRenderer.drawNameTag(r, `Rune of ${runeDef.name} (${Math.ceil(game.runeCooldown)}s)`, rune.x, tagY, cx, cy);
+      } else {
+        WorldRenderer.drawNameTag(r, `[SPACE] Liberate Rune of ${runeDef.name}`, rune.x, tagY, cx, cy);
+      }
+    } else {
+      WorldRenderer.drawNameTag(r, `Rune of ${runeDef.name}`, rune.x, tagY, cx, cy);
+    }
   }
 
   public static drawLadders(_game: Game, _cx: number, _cy: number) {
@@ -2224,12 +2616,28 @@ export class WorldRenderer {
   }
 
   public static drawMobHp(game: Game, m: Mob, cx: number, cy: number) {
-    if (!m || !m.data || m.hpShow <= 0 || m.state === "dead" || m.state === "die1") return;
-    const b = game.mobBox(m);
-    const w = 50, x = Math.round(m.x - w / 2 - cx), y = Math.round(b.y0 - 14 - cy);
-    game.r.rect(x - 1, y - 1, w + 2, 7, [0.1, 0.1, 0.1, 0.85]);
-    game.r.rect(x, y, w, 5, [0.35, 0.05, 0.05, 1]);
-    game.r.rect(x, y, Math.max(0, (m.hp / m.maxHp) * w), 5, [0.95, 0.2, 0.25, 1]);
+    if (!m || !m.data || m.state === "dead" || m.state === "die1") return;
+    const showHpBar = m.hpShow > 0 || m.hp < m.maxHp || Boolean(m.elite) || Boolean(m.boss);
+    if (showHpBar) {
+      const w = m.elite ? 58 : 42;
+      const x = Math.round(m.x - w / 2 - cx);
+      const y = Math.round(m.y + 3 - cy);
+      if (m.elite) {
+        game.r.rect(x - 1, y - 1, w + 2, 6, [0.15, 0.05, 0.2, 0.95]);
+        game.r.rect(x, y, w, 4, [0.4, 0.1, 0.3, 1]);
+        game.r.rect(x, y, Math.max(0, (m.hp / m.maxHp) * w), 4, [0.85, 0.2, 0.9, 1]);
+      } else {
+        game.r.rect(x - 1, y - 1, w + 2, 6, [0.08, 0.08, 0.1, 0.85]);
+        game.r.rect(x, y, w, 4, [0.35, 0.05, 0.05, 1]);
+        game.r.rect(x, y, Math.max(0, (m.hp / m.maxHp) * w), 4, [0.95, 0.2, 0.25, 1]);
+      }
+    }
+
+    const mobTitle = m.elite
+      ? `${m.elitePrefix ? `${m.elitePrefix} ` : ""}${m.data.name}`
+      : m.data.name;
+    const nameY = showHpBar ? m.y + 9 : m.y + 2;
+    WorldRenderer.drawNameTag(game.r, mobTitle, m.x, nameY, cx, cy);
   }
 
   public static drawFx(game: Game, f: Fx, cx: number, cy: number) {
@@ -2309,17 +2717,23 @@ export class WorldRenderer {
     }
 
     const str = String(d.value);
-    const isCritical = Boolean(d.critical && !d.hurt);
+    const isCritical = Boolean(d.critical && !d.hurt && !d.heal && !d.poison);
 
-    // Get glyph URLs based on hit type and skin
-    const glyphUrls: string[] = [...str].map((c, i) => {
+    // Get glyph URLs based on hit type and skin (NoRed1 / NoCri1 are the full-size standard digit fonts)
+    const glyphUrls: string[] = [...str].map((c) => {
+      if (d.heal) {
+        return `/wz/sprite/Effect/BasicEff/NoBlue1/${c}`;
+      }
+      if (d.poison) {
+        return `/wz/sprite/Effect/BasicEff/NoGreen1/${c}`;
+      }
       if (d.hurt) {
-        return (i === 0 ? fx?.hurtFirst?.[c]?.url : fx?.hurt?.[c]?.url) || `/wz/sprite/Effect/BasicEff/NoViolet${i === 0 ? "0" : "1"}/${c}`;
+        return fx?.hurt?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoViolet1/${c}`;
       }
       if (isCritical) {
-        return (i === 0 ? skin.criFirst[c] : skin.cri[c]) || (i === 0 ? fx?.dmgFirst?.[c]?.url : fx?.dmg?.[c]?.url) || `/wz/sprite/Effect/BasicEff/NoCri${i === 0 ? "0" : "1"}/${c}`;
+        return skin.cri[c] || skin.criFirst[c] || fx?.dmg?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoCri1/${c}`;
       }
-      return (i === 0 ? skin.dmgFirst[c] : skin.dmg[c]) || (i === 0 ? fx?.dmgFirst?.[c]?.url : fx?.dmg?.[c]?.url) || `/wz/sprite/Effect/BasicEff/NoRed${i === 0 ? "0" : "1"}/${c}`;
+      return skin.dmg[c] || skin.dmgFirst[c] || fx?.dmg?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoRed1/${c}`;
     });
 
     const glyphTexs = glyphUrls.map((u) => {

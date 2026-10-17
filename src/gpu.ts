@@ -1,4 +1,15 @@
-import { Engine3D, Scene3D, View3D, Camera3D, Object3D } from "@orillusion/core";
+import {
+  Engine3D,
+  Scene3D,
+  View3D,
+  Camera3D,
+  Object3D,
+  Sprite,
+  SpriteRenderer,
+  BitmapTexture2D,
+  Color,
+  Vector2,
+} from "@orillusion/core";
 
 const SHADER = /* wgsl */ `
 struct View { size: vec2<f32>, pad: vec2<f32> };
@@ -37,6 +48,8 @@ export interface Tex {
   glTex?: WebGLTexture;
   w: number;
   h: number;
+  bitmapTexture?: BitmapTexture2D;
+  orillusionSprite?: Sprite;
 }
 
 const FLOATS = 12;
@@ -79,9 +92,12 @@ export class Renderer {
   clear = { r: 0.6, g: 0.8, b: 1, a: 1 };
 
   // Orillusion 3D Engine objects (available in WebGPU mode)
+  engine?: Engine3D;
   scene?: Scene3D;
   view?: View3D;
   camera?: Camera3D;
+  spriteContainer?: Object3D;
+  activeSpriteRenderers = new Map<Tex, SpriteRenderer>();
 
   constructor(public canvas: HTMLCanvasElement) {}
 
@@ -129,13 +145,33 @@ export class Renderer {
   private async initWebGPU() {
     this.backend = "webgpu";
 
-    const adapter = await navigator.gpu.requestAdapter();
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
     if (!adapter) throw new Error("No WebGPU adapter available.");
     this.device = await adapter.requestDevice();
     this.ctx = this.canvas.getContext("webgpu") as GPUCanvasContext;
     if (!this.ctx) throw new Error("Could not acquire WebGPU canvas context.");
     const format = navigator.gpu.getPreferredCanvasFormat();
     this.ctx.configure({ device: this.device, format, alphaMode: "opaque" });
+
+    try {
+      this.scene = new Scene3D();
+      const cameraObj = new Object3D();
+      cameraObj.name = "OrillusionCamera";
+      this.camera = cameraObj.addComponent(Camera3D);
+      this.camera.orthoOffCenter(0, this.width, this.height, 0, -1000, 1000);
+      this.scene.addChild(cameraObj);
+
+      this.spriteContainer = new Object3D();
+      this.spriteContainer.name = "SpriteContainer";
+      this.scene.addChild(this.spriteContainer);
+
+      this.view = new View3D();
+      this.view.scene = this.scene;
+      this.view.camera = this.camera;
+    } catch (e) {
+      console.warn("Orillusion scene hierarchy setup note:", e);
+    }
+
     const module = this.device.createShaderModule({ code: SHADER });
     this.pipeline = this.device.createRenderPipeline({
       layout: "auto",
@@ -293,6 +329,7 @@ export class Renderer {
         layout: this.pipeline.getBindGroupLayout(1),
         entries: [{ binding: 0, resource: this.sampler }, { binding: 1, resource: tex.createView() }],
       });
+
       return { tex, bind, w: bmp.width, h: bmp.height };
     } else {
       const gl = this.gl!;
@@ -307,6 +344,44 @@ export class Renderer {
       return { glTex, w: bmp.width, h: bmp.height };
     }
   }
+
+  /** Create or retrieve an Orillusion SpriteRenderer component bound to this asset texture */
+  getOrCreateSpriteRenderer(t: Tex, size?: { w: number; h: number }): SpriteRenderer | null {
+    if (!this.scene || !t.orillusionSprite) return null;
+    let sr = this.activeSpriteRenderers.get(t);
+    if (!sr) {
+      const obj = new Object3D();
+      obj.name = `Sprite_${t.w}x${t.h}`;
+      sr = obj.addComponent(SpriteRenderer);
+      sr.sprite = t.orillusionSprite;
+      sr.size = new Vector2(size?.w ?? t.w, size?.h ?? t.h);
+      if (this.spriteContainer) {
+        this.spriteContainer.addChild(obj);
+      } else {
+        this.scene.addChild(obj);
+      }
+      this.activeSpriteRenderers.set(t, sr);
+    }
+    return sr;
+  }
+
+  /** Render or update an asset using Orillusion's SpriteRenderer */
+  renderSpriteAsset(t: Tex, x: number, y: number, w = t.w, h = t.h, opts?: { flip?: boolean; alpha?: number; tint?: [number, number, number] }) {
+    const sr = this.getOrCreateSpriteRenderer(t, { w, h });
+    if (sr && sr.object3D) {
+      sr.object3D.x = x + w / 2;
+      sr.object3D.y = y + h / 2;
+      sr.size = new Vector2(w, h);
+      if (opts?.tint || opts?.alpha !== undefined) {
+        const r = opts?.tint ? opts.tint[0] : 1;
+        const g = opts?.tint ? opts.tint[1] : 1;
+        const b = opts?.tint ? opts.tint[2] : 1;
+        const a = opts?.alpha ?? 1;
+        sr.color = new Color(r, g, b, a);
+      }
+    }
+  }
+
 
   resize() {
     const dpr = Math.min(2, devicePixelRatio || 1);

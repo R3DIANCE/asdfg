@@ -113,7 +113,7 @@ export class ItemBrowser {
       let html = "";
       if (kind === "gear") {
         const b = GEAR.get(id);
-        if (b) html = renderBaseGearTooltip(b, "Click to claim into inventory", playerLevel);
+        if (b) html = renderBaseGearTooltip(b, "Click to claim into inventory", playerLevel, this.parent.game?.stats?.classId, this.parent.game?.stats?.gender);
       } else if (kind === "use") {
         html = renderUseTooltip(id, this.parent.game?.inv?.[id] ?? 0, "Click to claim 10x into inventory");
       } else if (kind === "mat") {

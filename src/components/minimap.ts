@@ -81,8 +81,10 @@ export class MinimapComponent extends ComponentBase {
     const titles = el("div", "mini-titles", head);
     this.streetText = el("div", "mini-street", titles);
     this.nameText = el("div", "mini-name", titles);
+    head.title = "Click to toggle Minimap (or press M)";
+    head.addEventListener("click", () => this.toggle());
 
-    // Viewport frame
+    // Viewport frame (Static Solid Map Box with faded corners)
     const viewFrame = el("div", "mini-viewframe", this.root);
     this.body = el("div", "mini-body", viewFrame);
 
@@ -125,14 +127,21 @@ export class MinimapComponent extends ComponentBase {
 
     const maxW = 220;
     const aspect = info.width / (info.height || 1);
-    const cw = Math.min(maxW, Math.max(80, Math.round(info.width / 16)));
-    const chh = Math.round(cw / aspect);
+    const cw = Math.min(maxW, Math.max(120, Math.round(info.width / 16)));
+    const chh = Math.max(65, Math.min(140, Math.round(cw / aspect)));
     this.scale = cw / (info.width || 1);
+
+    const viewFrame = this.root.querySelector(".mini-viewframe") as HTMLElement;
+    if (viewFrame) {
+      viewFrame.style.width = `${cw}px`;
+      viewFrame.style.height = `${chh}px`;
+    }
 
     this.img = el("div", "mini-img", this.body);
     Object.assign(this.img.style, { width: `${cw}px`, height: `${chh}px` });
     this.body.style.width = `${cw}px`;
     this.body.style.height = `${chh}px`;
+    this.body.style.transform = "none";
     bg(this.img, info.url);
 
     // Portals
@@ -162,6 +171,7 @@ export class MinimapComponent extends ComponentBase {
   updatePlayer(px: number, py: number, remotes?: Map<string, { x: number; y: number; name: string }>) {
     if (this.info && this.dot) {
       const [x, y] = this.toMiniCoords(px, py);
+      // Static minimap: map does not move; player dot moves across the static solid map
       this.dot.style.transform = `translate(${x}px, ${y}px)`;
     }
 

@@ -1,8 +1,45 @@
 // Authentic 1:1 MapleStory Tooltip Generator (Image 2 standard)
-import { GEAR, MATS, RARITY, RARITY_COLOR, SLOT_NAME, gearIcon, gearStats, gearValue, isHoverItem, isWizetHat, type Gear, type GearBase, type Slot } from "./items.ts";
-import { ITEMS, itemIcon } from "./skills.ts";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { BorderBeam, type BorderBeamColorVariant } from "border-beam";
+import {
+  GEAR,
+  MATS,
+  RARITY,
+  RARITY_COLOR,
+  SLOT_NAME,
+  gearCombatPower,
+  gearIcon,
+  gearStats,
+  gearValue,
+  isHoverItem,
+  isWizetHat,
+  canClassEquipWeapon,
+  getWeaponType,
+  WEAPON_TYPE_NAME,
+  getWeaponAllowedClassesDesc,
+  canClassEquipItem,
+  getItemAllowedClassesDesc,
+  isOverallItem,
+  getItemGender,
+  canGenderEquip,
+  type Gear,
+  type GearBase,
+  type Slot,
+} from "./items.ts";
+import { ITEMS, itemIcon, type ClassId } from "./skills.ts";
 import { esc, fmt } from "./util.ts";
 import { lucideIcon } from "./lucide.ts";
+
+export function getRarityBeamVariant(rarity: number): BorderBeamColorVariant {
+  switch (rarity) {
+    case 1: return "ocean";     // Rare: Blue / Aqua glow
+    case 2: return "sunset";    // Epic: Violet / Purple / Magenta glow
+    case 3: return "gold";      // Unique: Amber / Gold glow
+    case 4: return "colorful";  // Legendary: Full rainbow spectrum
+    default: return "mono";
+  }
+}
 
 /** Renders a 25-star row with 5-star groups matching MapleStory */
 function renderStarsRow(stars: number, maxStars = 25): string {
@@ -25,15 +62,39 @@ function statRow(label: string, total: number, base: number, bonus = 0): string 
 }
 
 /** Tooltip for an owned / equipped Gear instance */
-export function renderGearTooltip(g: Gear, isEquipped = false, note = "", playerLevel = 200): string {
+export function renderGearTooltip(g: Gear, isEquipped = false, note = "", playerLevel = 200, playerClassId?: ClassId, playerGender?: string): string {
   const b = GEAR.get(g.id);
   if (!b) return "";
   const st = gearStats(g);
   const rarityName = RARITY[g.rarity] ?? "Normal";
   const rarityColor = RARITY_COLOR[g.rarity] ?? "#ffffff";
-  const slotName = SLOT_NAME[b.slot as Slot] ?? b.slot;
+  const isOverall = isOverallItem(b.id);
+  const slotName = isOverall ? "Overall" : (SLOT_NAME[b.slot as Slot] ?? b.slot);
   const isAcc = ["ring", "ring1", "ring2", "ring3", "ring4", "earrings", "pendant", "shoulder", "belt", "pocket", "emblem", "badge"].includes(b.slot);
   const catLabel = isAcc ? "Accessory" : b.slot === "weapon" ? "Weapon" : "Armor";
+  const isWeapon = b.slot === "weapon";
+  const wType = getWeaponType(b.id);
+  const weaponTypeName = isWeapon && !b.cosmetic && !b.cash ? (WEAPON_TYPE_NAME[wType] ?? "Weapon") : null;
+  const isClassAllowed = !playerClassId || canClassEquipItem(playerClassId, b);
+  const allowedDesc = getItemAllowedClassesDesc(b);
+
+  // Gender requirement
+  const itemGender = b.gender ?? getItemGender(b.id, b.name);
+  const isGenderAllowed = canGenderEquip(playerGender, itemGender);
+  const genderLabel = itemGender === "male" ? "Male" : itemGender === "female" ? "Female" : "Shared";
+
+  // Deduplicated tags (prevents "Weapon Weapon" duplication)
+  const tagList: string[] = [];
+  if (isWeapon) {
+    tagList.push("Weapon");
+    if (weaponTypeName && weaponTypeName !== "Weapon") tagList.push(weaponTypeName);
+  } else if (isOverall) {
+    tagList.push("Armor", "Overall");
+  } else {
+    tagList.push(catLabel);
+    if (slotName && slotName !== catLabel) tagList.push(slotName);
+  }
+  const uniqueTags = [...new Set(tagList)];
 
   // Stars
   const starsHtml = renderStarsRow(g.star);
@@ -50,12 +111,30 @@ export function renderGearTooltip(g: Gear, isEquipped = false, note = "", player
     statRow("Defense", st.def, b.def, st.def - b.def),
   ].filter(Boolean).join("");
 
-  // Potential lines
+  // Potential lines with BorderBeam glowing border animation (libraries.dev/beam standard)
   let potHtml = "";
   if (g.pot && g.pot.length > 0) {
-    const potHead = `<div class="tt-pot-head" style="color:${rarityColor}"><span class="tt-pot-box" style="background:${rarityColor}"></span> Potential : ${rarityName}</div>`;
-    const potLines = g.pot.map((p) => `<div class="tt-pot-line">▪ ${p.stat.toUpperCase()}: +${p.pct}%</div>`).join("");
-    potHtml = `<div class="tt-divider"></div><div class="tt-pot-section">${potHead}${potLines}</div>`;
+    const potHead = `<div class="tt-pot-head font-bold flex items-center gap-1.5 text-[11px] mb-1" style="color:${rarityColor}"><span class="tt-pot-box w-2 h-2 rounded-full inline-block" style="background:${rarityColor}; box-shadow: 0 0 6px ${rarityColor}"></span> Potential : ${rarityName}</div>`;
+    const potLines = g.pot.map((p) => `<div class="tt-pot-line font-mono text-[9.5px] text-zinc-200">▪ ${p.stat.toUpperCase()}: +${p.pct}%</div>`).join("");
+
+    const potCard = createElement("div", {
+      className: "p-2 bg-zinc-950/85 rounded-[6px] border border-white/10 backdrop-blur-sm",
+      dangerouslySetInnerHTML: { __html: potHead + potLines },
+    });
+
+    const beamWrap = createElement(
+      BorderBeam,
+      {
+        children: potCard,
+        size: "sm",
+        colorVariant: getRarityBeamVariant(g.rarity),
+        borderRadius: 6,
+        strength: 0.95,
+        duration: 2.4,
+      }
+    );
+
+    potHtml = `<div class="tt-divider"></div><div class="tt-pot-section my-1.5">${renderToString(beamWrap)}</div>`;
   }
 
   const reqMet = playerLevel >= b.req;
@@ -73,25 +152,25 @@ export function renderGearTooltip(g: Gear, isEquipped = false, note = "", player
         <div class="tt-meta-info">
           <div class="tt-combat-label">${isEquipped ? "Currently Equipped" : "Equipment Inventory"}</div>
           <div class="tt-tags">
-            <span class="tt-tag">${catLabel}</span>
-            <span class="tt-tag">${slotName}</span>
+            ${uniqueTags.map((t) => `<span class="tt-tag">${t}</span>`).join("")}
             ${isHoverItem(g.id) ? `<span class="tt-tag" style="background: rgba(14, 165, 233, 0.25); color: #38bdf8; border: 1px solid #0284c7;">Hovering Effect</span>` : ""}
             ${isWizetHat(g.id) ? `<span class="tt-tag" style="background: rgba(239, 68, 68, 0.25); color: #f87171; border: 1px solid #dc2626;">Wizet GM Hat</span>` : ""}
           </div>
         </div>
       </div>
       <div class="tt-req-row">
-        <div class="tt-req-item"><span>Required Job</span> <b>Shared</b></div>
+        <div class="tt-req-item"><span>Required Job</span> <b class="${!b.cosmetic && !b.cash && allowedDesc !== "Shared" ? (isClassAllowed ? "tt-good" : "tt-bad") : ""}">${allowedDesc}</b></div>
+        ${itemGender !== "both" ? `<div class="tt-req-item"><span>Gender</span> <b class="${isGenderAllowed ? "tt-good" : "tt-bad"}">${genderLabel}</b></div>` : ""}
         <div class="tt-req-item"><span>Required Level</span> <b class="${reqMet ? "tt-good" : "tt-bad"}">Lv. ${b.req}</b></div>
+        ${!b.cosmetic && !b.cash ? `<div class="tt-req-item"><span>Combat Power</span> <b class="tt-good">+${fmt(gearCombatPower(g))} CP</b></div>` : ""}
       </div>
       <div class="tt-divider"></div>
-      <div class="tt-stats">${statsHtml}</div>
-      ${potHtml}
+      ${b.cosmetic || b.cash || g.cosmetic || g.cash ? `<div class="tt-stats"><div class="tt-stat-row" style="color:#a1a1aa; font-style:italic; padding: 4px 0; justify-content:center;">Pure Visual Cosmetic · No Combat Stats</div></div>` : `<div class="tt-stats">${statsHtml}</div>${potHtml}`}
       <div class="tt-divider"></div>
       <div class="tt-footer-meta">
         <div class="tt-value">Estimated Value ≈ ${fmt(gearValue(g))} mesos</div>
         ${isHoverItem(g.id) ? `<div class="tt-note highlight">${lucideIcon("sparkles", 13)} Special: Only Raven Persona hats grant graceful levitation & hovering effect when equipped.</div>` : ""}
-        ${isWizetHat(g.id) ? `<div class="tt-note highlight" style="color:#f87171; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.1);">${lucideIcon("shield-alert", 13)} GM Power: Official Wizet GameMaster hat. Grants divine invulnerability and glowing GM aura when equipped.</div>` : ""}
+        ${isWizetHat(g.id) ? `<div class="tt-note highlight" style="color:#f87171; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.1);">${lucideIcon("shield-alert", 13)} GM Power: Official Wizet GameMaster hat. Iconic developer headwear.</div>` : ""}
         ${note ? `<div class="tt-note">${note}</div>` : ""}
       </div>
     </div>
@@ -99,11 +178,35 @@ export function renderGearTooltip(g: Gear, isEquipped = false, note = "", player
 }
 
 /** Tooltip for an uninstantiated GearBase (e.g. All Items browser) */
-export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into inventory", playerLevel = 200): string {
-  const slotName = SLOT_NAME[b.slot as Slot] ?? b.slot;
+export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into inventory", playerLevel = 200, playerClassId?: ClassId, playerGender?: string): string {
+  const isOverall = isOverallItem(b.id);
+  const slotName = isOverall ? "Overall" : (SLOT_NAME[b.slot as Slot] ?? b.slot);
   const isAcc = ["ring", "ring1", "ring2", "ring3", "ring4", "earrings", "pendant", "shoulder", "belt", "pocket", "emblem", "badge"].includes(b.slot);
   const catLabel = isAcc ? "Accessory" : b.slot === "weapon" ? "Weapon" : "Armor";
   const reqMet = playerLevel >= b.req;
+  const isWeapon = b.slot === "weapon";
+  const wType = getWeaponType(b.id);
+  const weaponTypeName = isWeapon && !b.cosmetic && !b.cash ? (WEAPON_TYPE_NAME[wType] ?? "Weapon") : null;
+  const isClassAllowed = !playerClassId || canClassEquipItem(playerClassId, b);
+  const allowedDesc = getItemAllowedClassesDesc(b);
+
+  // Gender requirement
+  const itemGender = b.gender ?? getItemGender(b.id, b.name);
+  const isGenderAllowed = canGenderEquip(playerGender, itemGender);
+  const genderLabel = itemGender === "male" ? "Male" : itemGender === "female" ? "Female" : "Shared";
+
+  // Deduplicated tags (prevents "Weapon Weapon" duplication)
+  const tagList: string[] = [];
+  if (isWeapon) {
+    tagList.push("Weapon");
+    if (weaponTypeName && weaponTypeName !== "Weapon") tagList.push(weaponTypeName);
+  } else if (isOverall) {
+    tagList.push("Armor", "Overall");
+  } else {
+    tagList.push(catLabel);
+    if (slotName && slotName !== catLabel) tagList.push(slotName);
+  }
+  const uniqueTags = [...new Set(tagList)];
 
   const statsHtml = [
     statRow("STR", b.str, b.str),
@@ -127,24 +230,24 @@ export function renderBaseGearTooltip(b: GearBase, note = "Click to claim into i
         <div class="tt-meta-info">
           <div class="tt-combat-label">Maple Catalog</div>
           <div class="tt-tags">
-            <span class="tt-tag">${catLabel}</span>
-            <span class="tt-tag">${slotName}</span>
+            ${uniqueTags.map((t) => `<span class="tt-tag">${t}</span>`).join("")}
             ${isHoverItem(b.id) ? `<span class="tt-tag" style="background: rgba(14, 165, 233, 0.25); color: #38bdf8; border: 1px solid #0284c7;">Hovering Effect</span>` : ""}
             ${isWizetHat(b.id) ? `<span class="tt-tag" style="background: rgba(239, 68, 68, 0.25); color: #f87171; border: 1px solid #dc2626;">Wizet GM Hat</span>` : ""}
           </div>
         </div>
       </div>
       <div class="tt-req-row">
-        <div class="tt-req-item"><span>Required Job</span> <b>Shared</b></div>
+        <div class="tt-req-item"><span>Required Job</span> <b class="${!b.cosmetic && !b.cash && allowedDesc !== "Shared" ? (isClassAllowed ? "tt-good" : "tt-bad") : ""}">${allowedDesc}</b></div>
+        ${itemGender !== "both" ? `<div class="tt-req-item"><span>Gender</span> <b class="${isGenderAllowed ? "tt-good" : "tt-bad"}">${genderLabel}</b></div>` : ""}
         <div class="tt-req-item"><span>Required Level</span> <b class="${reqMet ? "tt-good" : "tt-bad"}">Lv. ${b.req}</b></div>
       </div>
       <div class="tt-divider"></div>
-      <div class="tt-stats">${statsHtml || '<div class="tt-stat-line"><span>Status</span> <b>Cosmetic decoration</b></div>'}</div>
+      ${b.cosmetic || b.cash ? `<div class="tt-stats"><div class="tt-stat-row" style="color:#a1a1aa; font-style:italic; padding: 4px 0; justify-content:center;">Pure Visual Cosmetic · No Combat Stats</div></div>` : `<div class="tt-stats">${statsHtml}</div>`}
       <div class="tt-divider"></div>
       <div class="tt-footer-meta">
         <div class="tt-value">Base Price: ${fmt(b.price)} mesos</div>
         ${isHoverItem(b.id) ? `<div class="tt-note highlight">${lucideIcon("sparkles", 13)} Special: Only Raven Persona hats grant graceful levitation & hovering effect when equipped.</div>` : ""}
-        ${isWizetHat(b.id) ? `<div class="tt-note highlight" style="color:#f87171; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.1);">${lucideIcon("shield-alert", 13)} GM Power: Official Wizet GameMaster hat. Grants divine invulnerability and glowing GM aura when equipped.</div>` : ""}
+        ${isWizetHat(b.id) ? `<div class="tt-note highlight" style="color:#f87171; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.1);">${lucideIcon("shield-alert", 13)} GM Power: Official Wizet GameMaster hat. Iconic developer headwear.</div>` : ""}
         <div class="tt-note highlight">${note}</div>
       </div>
     </div>

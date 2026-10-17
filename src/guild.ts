@@ -6,6 +6,8 @@ export interface GuildEmblem {
   bgColor: number; // 0-15 background color (1..16 in WZ)
   symbolShape: number; // 0-112 foreground icon from UI.wz/GuildMark.img/Mark (Animal, Plant, Pattern, Letter, Etc)
   symbolColor: number; // 0-15 symbol color (1..16 in WZ)
+  beamEffect?: string; // Border beam palette: "gold" | "ocean" | "colorful" | "sunset" | "forest" | "candy" | "ice" | "purple" | "none"
+  beamMotion?: string; // Border beam motion: "rotate" | "pulse" | "line"
 }
 
 export interface GuildMember {
@@ -263,6 +265,19 @@ export class GuildClient {
       return await res.json();
     } catch (e: any) {
       return { ok: false, error: e?.message || "Failed to leave guild" };
+    }
+  }
+
+  static async disbandGuild(masterName: string, guildId: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch("/api/guild/disband", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ masterName, guildId }),
+      });
+      return await res.json();
+    } catch (e: any) {
+      return { ok: false, error: e?.message || "Failed to disband guild" };
     }
   }
 

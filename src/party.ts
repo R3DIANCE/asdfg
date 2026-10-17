@@ -13,6 +13,7 @@ export interface PartyMember {
   online: boolean;
   isLeader: boolean;
   look?: number[];
+  buffs?: string[];
 }
 
 export interface Party {
