@@ -31,6 +31,13 @@ export interface WzHeader {
 const MAX_PARSED_IMAGES = 250;
 const parsedImagesLru = new Map<WzImage, WzSubProperty>();
 
+export function clearParsedImagesCache(): void {
+  for (const img of parsedImagesLru.keys()) {
+    img.root = null;
+  }
+  parsedImagesLru.clear();
+}
+
 /** One .img inside a container — parsed lazily. */
 export class WzImage {
   root: WzSubProperty | null = null;

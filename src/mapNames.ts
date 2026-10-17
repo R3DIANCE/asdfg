@@ -1,3 +1,5 @@
+import { json } from "./assets.ts";
+
 // Shared Map Names Dictionary & Dynamic Resolver
 export const MAP_NAMES_FALLBACK: Record<number, string> = {
   // Town & Special Maps
@@ -90,8 +92,7 @@ export function getMapDisplayName(
   // 5. Query server-side map data API
   if (typeof window !== "undefined" && !fetchingMapNames.has(mapId)) {
     fetchingMapNames.add(mapId);
-    fetch(`/wz/data/map/${mapId}`)
-      .then((res) => (res.ok ? res.json() : null))
+    json<{ mapName?: string }>(`/wz/data/map/${mapId}`)
       .then((data) => {
         if (data?.mapName) {
           mapNameCache.set(mapId, data.mapName);

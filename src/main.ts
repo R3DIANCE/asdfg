@@ -15,8 +15,10 @@ import { GmDatGui } from "./components/GmDatGui.ts";
 import { setUiMode, getUiMode, type UiMode } from "./systems/ui-mode.ts";
 import { setupTouchScroll } from "./components/touch-scroll.ts";
 import { initClientSecurity } from "./systems/security.ts";
+import { SessionAssetCache } from "./session-cache.ts";
 
 initClientSecurity();
+SessionAssetCache.init().catch(() => {});
 
 let root: HTMLElement | null = null;
 let statsMgr: StatsManager = new StatsManager();

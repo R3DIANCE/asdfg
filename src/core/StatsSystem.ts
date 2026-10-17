@@ -104,6 +104,14 @@ export class StatsSystem {
       const nfLv = Math.max(1, game.buffs["0001002"].lv ?? game.lv("0001002"));
       mult += nfLv * 0.1;
     }
+    if (game.pets && game.pets.length > 0) {
+      for (const pet of game.pets) {
+        if (!pet.bonuses) continue;
+        for (const b of pet.bonuses) {
+          if (b.type === "speed") mult += b.value * 0.01;
+        }
+      }
+    }
     return WALK * mult * (game.speedMultiplier || 1);
   }
 
@@ -178,6 +186,27 @@ export class StatsSystem {
         else if (p.stat in gt) (gt as any)[p.stat] += p.pct;
       }
     }
+
+    // Add bonuses from equipped pets (unlocked every 25 levels)
+    if (game.pets && game.pets.length > 0) {
+      for (const pet of game.pets) {
+        if (!pet.bonuses) continue;
+        for (const b of pet.bonuses) {
+          if (b.type === "watk") gt.watk += b.value;
+          else if (b.type === "matk") gt.watk += b.value;
+          else if (b.type === "all_stat") {
+            gt.str += b.value;
+            gt.dex += b.value;
+            gt.int += b.value;
+            gt.luk += b.value;
+          } else if (b.type === "hp") gt.hp += b.value;
+          else if (b.type === "mp") { /* mp bonus handled in maxMp */ }
+          else if (b.type === "meso_rate") gt.meso += b.value;
+          else if (b.type === "drop_rate") gt.drop += b.value;
+        }
+      }
+    }
+
     game.gt = gt;
     s.maxHp = Math.round((s.baseHp * (1 + (game.lv("1000009") + game.lv("4110008") + game.lv("5100009")) * 0.03) + gt.hp) * (1 + gt.hpP / 100));
     s.maxMp = Math.round((s.baseMp + StatsSystem.totalStat(game, "int") * 2 + s.level * 5) * (1 + game.lv("2000006") * 0.05));

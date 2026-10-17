@@ -25,7 +25,7 @@ import {
   resolveCanvas,
   type WzProperty,
 } from "./wz/properties.ts";
-import { WzImage } from "./wz/wzfile.ts";
+import { WzImage, clearParsedImagesCache } from "./wz/wzfile.ts";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve as pathResolve } from "node:path";
 const ROOT = import.meta.dir;
@@ -82,6 +82,14 @@ const noClient = () =>
   );
 const jsonNoStore = (v: unknown, status = 200) =>
   Response.json(v, { status, headers: { "cache-control": "no-store" } });
+const jsonCached = (v: unknown, status = 200) =>
+  Response.json(v, {
+    status,
+    headers: {
+      "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
+      "access-control-allow-origin": "*",
+    },
+  });
 function pngResponse(png: Buffer | null, what: string): Response {
   if (!png)
     return Response.json(
@@ -449,7 +457,9 @@ function fxData(s: SpriteStore) {
   if (existsSync(cachePath)) {
     try {
       cachedFxData = JSON.parse(readFileSync(cachePath, "utf8"));
-      return cachedFxData;
+      if (cachedFxData && Array.isArray(cachedFxData.petLevelUp) && cachedFxData.petLevelUp.length > 0) {
+        return cachedFxData;
+      }
     } catch {}
   }
   const pick = (cat: string, imgName: string, path: string): any => {
@@ -472,6 +482,19 @@ function fxData(s: SpriteStore) {
     const v = pick("Effect", "BasicEff", `LevelUp/${i}`);
     if (!v) break;
     levelUp.push(v);
+  }
+  const petLevelUp: any[] = [];
+  for (let i = 0; i < 24; i++) {
+    const v = pick("Effect", "BasicEff", `ItemLevelUp/${i}`);
+    if (!v) break;
+    petLevelUp.push(v);
+  }
+  if (!petLevelUp.length) {
+    for (let i = 0; i < 8; i++) {
+      const v = pick("Effect", "BasicEff", `PetBuff/${i}`);
+      if (!v) break;
+      petLevelUp.push(v);
+    }
   }
   const portal: any[] = [];
   for (let i = 0; i < 8; i++) {
@@ -514,9 +537,13 @@ function fxData(s: SpriteStore) {
     hurtFirst: digits("NoViolet0"),
     miss: pick("Effect", "BasicEff", "NoRed0/Miss"),
     levelUp,
+    petLevelUp: petLevelUp.length ? petLevelUp : levelUp,
     portal,
     meso: meso.length ? meso : Array.from({ length: 10 }, (_, i) => pick("Effect", "BasicEff", `NoBlue1/${i}`)).filter(Boolean),
   };
+  try {
+    writeFileSync(cachePath, JSON.stringify(cachedFxData));
+  } catch {}
   return cachedFxData;
 }
 let cachedUiData: any = null;
@@ -1804,7 +1831,7 @@ function renderMinimapPng(
   const down = downsampleRgba(rmb.fb.data, rmb.w, rmb.h, targetW, targetH);
   const png = encodePng(down, targetW, targetH);
   if (png) {
-    if (minimapPngCache.size >= 100) {
+    if (minimapPngCache.size >= 25) {
       const firstKey = minimapPngCache.keys().next().value;
       if (firstKey !== undefined) minimapPngCache.delete(firstKey);
     }
@@ -1812,6 +1839,20 @@ function renderMinimapPng(
   }
   return png;
 }
+
+// Periodic server memory management and garbage collection
+setInterval(() => {
+  if (minimapPngCache.size > 15) {
+    minimapPngCache.clear();
+  }
+  if (guildEmblemPngCache.size > 25) {
+    guildEmblemPngCache.clear();
+  }
+  if (typeof (globalThis as any).gc === "function") {
+    try { (globalThis as any).gc(); } catch {}
+  }
+}, 60000);
+
 interface PlayerSession {
   id: string;
   username?: string;
@@ -1844,6 +1885,7 @@ interface PlayerSession {
   autoCombat?: boolean;
   speedMultiplier?: number;
   isGm?: boolean;
+  pets?: any[];
 }
 
 const wsPlayers = new Map<any, PlayerSession>();
@@ -2657,7 +2699,7 @@ const server = Bun.serve<{ id: string }>({
       if (!s) return noClient();
       const d = mobData(s, Number(req.params.id));
       return d
-        ? jsonNoStore(d)
+        ? jsonCached(d)
         : Response.json({ error: "mob not found" }, { status: 404 });
     }),
     "/wz/data/map/:id": guard((req) => {
@@ -2665,39 +2707,39 @@ const server = Bun.serve<{ id: string }>({
       if (!s) return noClient();
       const d = mapData(s, Number(req.params.id));
       return d
-        ? jsonNoStore(d)
+        ? jsonCached(d)
         : Response.json({ error: "map not found" }, { status: 404 });
     }),
     "/wz/data/skills": guard(() => {
       const s = getStore();
       if (!s) return noClient();
       try {
-        return jsonNoStore(skillsData(s));
+        return jsonCached(skillsData(s));
       } catch (e) {
         return Response.json({ error: (e as Error).message }, { status: 500 });
       }
     }),
     "/wz/data/fx": guard(() => {
       const s = getStore();
-      return s ? jsonNoStore(fxData(s)) : noClient();
+      return s ? jsonCached(fxData(s)) : noClient();
     }),
     "/wz/data/ui": guard(() => {
       const s = getStore();
-      return s ? jsonNoStore(uiData(s)) : noClient();
+      return s ? jsonCached(uiData(s)) : noClient();
     }),
     "/wz/data/windows": guard(() => {
       const s = getStore();
-      return s ? jsonNoStore(windowsData(s)) : noClient();
+      return s ? jsonCached(windowsData(s)) : noClient();
     }),
     "/wz/data/items": guard(() => {
       const s = getStore();
-      return s ? jsonNoStore(itemsData(s)) : noClient();
+      return s ? jsonCached(itemsData(s)) : noClient();
     }),
     "/wz/data/item-eff/:id": guard((req) => {
       const s = getStore();
       if (!s) return noClient();
       const d = itemEffData(s, Number(req.params.id));
-      return jsonNoStore(d ?? null);
+      return jsonCached(d ?? null);
     }),
     "/wz/item-eff/:id/:act/:fr": guard((req) => {
       const s = getStore();
@@ -2707,7 +2749,7 @@ const server = Bun.serve<{ id: string }>({
     }),
     "/wz/data/shadow-partner": guard(() => {
       const s = getStore();
-      return s ? jsonNoStore(shadowPartnerData(s)) : noClient();
+      return s ? jsonCached(shadowPartnerData(s)) : noClient();
     }),
     "/wz/shadow-partner/:act/:fr": guard((req) => {
       const s = getStore();
@@ -2717,13 +2759,13 @@ const server = Bun.serve<{ id: string }>({
     }),
     "/wz/data/pets/list": guard(() => {
       const s = getStore();
-      return s ? jsonNoStore(petList(s)) : noClient();
+      return s ? jsonCached(petList(s)) : noClient();
     }),
     "/wz/data/pet/:id": guard((req) => {
       const s = getStore();
       if (!s) return noClient();
       const d = petData(s, Number(req.params.id));
-      return d ? jsonNoStore(d) : Response.json({ error: "pet not found" }, { status: 404 });
+      return d ? jsonCached(d) : Response.json({ error: "pet not found" }, { status: 404 });
     }),
     "/wz/pet/:id/:act/:fr": guard((req) => {
       const s = getStore();
@@ -3280,6 +3322,26 @@ const server = Bun.serve<{ id: string }>({
         return Response.json({ ok: true });
       } catch (e: any) {
         return Response.json({ ok: false, error: e?.message || "Failed to save character" }, { status: 500 });
+      }
+    },
+    "/api/characters/live-sync": async (req: any) => {
+      try {
+        const body = await req.json();
+        const name = String(body.name || "").trim();
+        if (!name) return Response.json({ ok: false, error: "Character name required" }, { status: 400 });
+        const x = Math.round(Number(body.x || 0));
+        const y = Math.round(Number(body.y || 0));
+        const mapId = Math.round(Number(body.mapId || 910000000));
+        const face = Math.round(Number(body.face || 0));
+        const anim = String(body.anim || "stand1");
+        const frame = Math.round(Number(body.frame || 0));
+        const look = typeof body.look === "string" ? body.look : JSON.stringify(body.look || []);
+        const id = String(body.id || name);
+        // Call typed SpacetimeDB reducer for real-time state synchronization
+        await spacetimeCall("update_pos", [id, name, mapId, x, y, face, anim, frame, look]).catch(() => {});
+        return Response.json({ ok: true });
+      } catch (e: any) {
+        return Response.json({ ok: false, error: e?.message || "Live sync failed" }, { status: 500 });
       }
     },
     "/api/auction/listings": async (req: any) => {
@@ -4301,7 +4363,7 @@ const server = Bun.serve<{ id: string }>({
             frame: Number(msg.frame || 0),
             look: Array.isArray(msg.look) ? msg.look : [2000, 12000, 20000, 30030],
             fps: Number(msg.fps ?? 60),
-            ping: Number(msg.ping ?? 20),
+            ping: Number(msg.ping ?? 0),
             damageSkin: msg.damageSkin ?? 0,
             level: Number(msg.level || 1),
             job: String(msg.job || "Beginner"),
@@ -4317,6 +4379,7 @@ const server = Bun.serve<{ id: string }>({
             maxHp: msg.maxHp !== undefined ? Number(msg.maxHp) : 50,
             mp: msg.mp !== undefined ? Number(msg.mp) : 50,
             maxMp: msg.maxMp !== undefined ? Number(msg.maxMp) : 50,
+            pets: Array.isArray(msg.pets) ? msg.pets : [],
           };
           wsPlayers.set(ws, session);
           const g = getGuildForPlayer(session.name);
@@ -4362,11 +4425,16 @@ const server = Bun.serve<{ id: string }>({
           if (msg.maxHp !== undefined) session.maxHp = Number(msg.maxHp);
           if (msg.mp !== undefined) session.mp = Number(msg.mp);
           if (msg.maxMp !== undefined) session.maxMp = Number(msg.maxMp);
+          if (msg.vy !== undefined) (session as any).vy = Number(msg.vy);
+          if (msg.isClimbing !== undefined) (session as any).isClimbing = Boolean(msg.isClimbing);
+          if (Array.isArray(msg.pets)) session.pets = msg.pets;
           const moveMsg = JSON.stringify({
             t: "player_move",
             id: session.id,
             x: session.x,
             y: session.y,
+            vy: (session as any).vy,
+            isClimbing: (session as any).isClimbing,
             face: session.face,
             anim: session.anim,
             frame: session.frame,
@@ -4378,6 +4446,7 @@ const server = Bun.serve<{ id: string }>({
             maxHp: session.maxHp,
             mp: session.mp,
             maxMp: session.maxMp,
+            pets: session.pets,
           });
           for (const [c, p] of wsPlayers) {
             if (c !== ws && p.mapId === session.mapId) c.send(moveMsg);
@@ -4485,7 +4554,7 @@ const server = Bun.serve<{ id: string }>({
               frame: Number(msg.frame || 0),
               look: Array.isArray(msg.look) ? msg.look : [2000, 12000, 20000, 30030],
               fps: Number(msg.fps ?? 60),
-              ping: Number(msg.ping ?? 20),
+              ping: Number(msg.ping ?? 0),
               damageSkin: msg.damageSkin ?? 0,
               level: Number(msg.level || 1),
               job: String(msg.job || "Beginner"),
@@ -4883,6 +4952,15 @@ const server = Bun.serve<{ id: string }>({
           if (session) {
             if (msg.fps !== undefined) session.fps = Number(msg.fps);
             if (msg.ping !== undefined) session.ping = Number(msg.ping);
+            const telemMsg = JSON.stringify({
+              t: "player_telemetry",
+              id: session.id,
+              fps: session.fps,
+              ping: session.ping,
+            });
+            for (const [c, p] of wsPlayers) {
+              if (c !== ws && p.mapId === session.mapId) c.send(telemMsg);
+            }
           }
           ws.send(JSON.stringify({ t: "pong", sentAt: msg.sentAt }));
         }

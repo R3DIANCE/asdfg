@@ -1,46 +1,30 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 // Minimal performance overlay: FPS, Ping, and JS Heap in simple text with no background.
 export function DebugPanel() {
-  const last = useRef(performance.now());
-  const frames = useRef(0);
-  const timeAcc = useRef(0);
   const [fps, setFps] = useState(60);
   const [ping, setPing] = useState<number | null>(null);
   const [heap, setHeap] = useState<number | null>(null);
+  const [renderType, setRenderType] = useState<string>("WebGPU");
 
-  // Frame tick: calculate FPS over 0.5s intervals
+  // Read FPS, Ping, and renderer backend tracking at 1Hz (zero RAF loop overhead)
   useEffect(() => {
-    let animId: number;
-    const tick = () => {
-      const now = performance.now();
-      const dt = Math.min(0.05, (now - last.current) / 1000);
-      last.current = now;
-
-      timeAcc.current += dt;
-      frames.current += 1;
-      if (timeAcc.current >= 0.5) {
-        const currentFps = Math.round(frames.current / timeAcc.current);
-        setFps(currentFps);
-        timeAcc.current = 0;
-        frames.current = 0;
-      }
-      animId = requestAnimationFrame(tick);
-    };
-    animId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animId);
-  }, []);
-
-  // Ping tracking: read WebSocket ping heartbeat
-  useEffect(() => {
-    const checkPing = () => {
+    const checkState = () => {
       const g = (window as any).__game;
-      if (g && typeof g.wsPing === "number" && g.wsPing >= 0) {
-        setPing(g.wsPing);
+      if (g) {
+        if (typeof g.displayFps === "number") {
+          setFps(g.displayFps);
+        }
+        if (typeof g.wsPing === "number" && g.wsPing >= 0) {
+          setPing(g.displayPing ?? g.wsPing);
+        }
+        if (g.r?.renderType) {
+          setRenderType(g.r.renderType);
+        }
       }
     };
-    checkPing();
-    const t = setInterval(checkPing, 500);
+    checkState();
+    const t = setInterval(checkState, 1000);
     return () => clearInterval(t);
   }, []);
 
@@ -70,9 +54,9 @@ export function DebugPanel() {
         alignItems: "flex-start",
         gap: "1px",
         height: "32px",
-        minWidth: "85px",
+        minWidth: "95px",
         boxSizing: "border-box",
-        padding: "0 4px",
+        padding: "0 6px",
         background: "transparent",
         border: "none",
         boxShadow: "none",
@@ -85,12 +69,15 @@ export function DebugPanel() {
         whiteSpace: "nowrap",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 700, lineHeight: 1.25 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", fontWeight: 700, lineHeight: 1.25 }}>
         <span style={{ color: fpsColor }}>{fps} FPS</span>
+        <span style={{ color: "rgba(255, 255, 255, 0.4)" }}>·</span>
         <span style={{ color: pingColor }}>{pingStr}</span>
+        <span style={{ color: "rgba(255, 255, 255, 0.4)" }}>·</span>
+        <span style={{ color: "#38bdf8" }}>{renderType}</span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "9.5px", fontWeight: 600, color: "#94a3b8", lineHeight: 1.2 }}>
-        {heap != null ? <span>{heap} MB</span> : <span>JS</span>}
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "9.5px", fontWeight: 600, color: "#94a3b8", lineHeight: 1.2 }}>
+        {heap != null ? <span>JS {heap} MB</span> : null}
       </div>
     </div>
   );

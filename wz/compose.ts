@@ -337,7 +337,7 @@ export function composeCharacter(
       let pixels: Buffer | null = null;
       try {
         const raw = canvas.pngData();
-        const readerKey = canvas.image?.file?.reader?.key ?? file.reader.key;
+        const readerKey = canvas.image?.file?.key ?? canvas.image?.file?.reader?.key ?? file.key ?? file.reader?.key;
         pixels = decodePixels(
           decompressCanvas(raw, readerKey),
           canvas.width, canvas.height, canvas.format + canvas.format2,

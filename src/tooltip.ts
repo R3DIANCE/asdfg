@@ -350,3 +350,57 @@ export function renderMatTooltip(id: number, owned = 0, note = ""): string {
     </div>
   `;
 }
+
+/** Tooltip for Pet Companions */
+export function renderPetTooltip(pet: { id: number; name: string; level: number; exp: number; maxExp: number; rarity: number; bonuses?: { level: number; label: string }[] }, isEquipped = false, note = ""): string {
+  const rarities = ["Normal", "Rare", "Epic", "Unique", "Legendary"];
+  const rarityColors = ["#e4e4e7", "#38bdf8", "#c084fc", "#facc15", "#4ade80"];
+  const rar = Math.min(4, Math.max(0, pet.rarity ?? 0));
+  const rarName = rarities[rar];
+  const rarColor = rarityColors[rar];
+  const pct = Math.min(100, Math.floor(((pet.exp || 0) / (pet.maxExp || 100)) * 100));
+
+  let nextMilestone = 25;
+  if (pet.level >= 75) nextMilestone = 100;
+  else if (pet.level >= 50) nextMilestone = 75;
+  else if (pet.level >= 25) nextMilestone = 50;
+
+  const bonusesHtml = pet.bonuses && pet.bonuses.length > 0 ? pet.bonuses.map((b) => `
+    <div class="tt-stat-line"><span style="color:#a1a1aa">Lv.${b.level} Milestone</span> <b class="tt-good">${esc(b.label)}</b></div>
+  `).join("") : `<div class="text-[9.5px] text-zinc-400 italic">No bonuses yet. Unlocks first bonus at Lv. 25!</div>`;
+
+  return `
+    <div class="ms-tooltip-card min-w-[210px]">
+      <div class="tt-title" style="color:${rarColor}">${esc(pet.name)}</div>
+      <div class="tt-trade flex items-center justify-between">
+        <span>Pet Companion</span>
+        <span style="color:${rarColor};font-weight:bold">${rarName}</span>
+      </div>
+      <div class="tt-divider"></div>
+      <div class="tt-meta-row">
+        <div class="tt-icon-box">
+          <img src="/wz/pet-icon/${pet.id}" alt="" class="tt-icon" onerror="this.src='/wz/item/${pet.id}/icon'" />
+        </div>
+        <div class="tt-meta-info">
+          <div class="text-[11px] font-bold text-amber-300">Level ${pet.level || 1}</div>
+          <div class="text-[9px] text-zinc-400 mt-0.5">Auto-Loot & Follow</div>
+          <div class="w-full bg-zinc-800 rounded-full h-1.5 mt-1 overflow-hidden border border-white/10">
+            <div class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full" style="width:${pct}%"></div>
+          </div>
+          <div class="text-[8px] font-mono text-zinc-400 mt-0.5">${pet.exp || 0} / ${pet.maxExp || 100} EXP (${pct}%)</div>
+        </div>
+      </div>
+      <div class="tt-divider"></div>
+      <div class="tt-stats">
+        <div class="text-[9.5px] font-bold text-zinc-300 uppercase tracking-wider mb-1">Milestone Bonuses (Every 25 Lvls)</div>
+        ${bonusesHtml}
+        ${pet.level < 100 ? `<div class="text-[8.5px] text-sky-400 mt-1 font-semibold">★ Next milestone unlocks at Level ${nextMilestone}</div>` : ""}
+      </div>
+      <div class="tt-divider"></div>
+      <div class="tt-footer-meta">
+        <div class="tt-note highlight">${note || (isEquipped ? "Currently Summoned · Click to unequip" : "Companion Inventory · Click to equip")}</div>
+      </div>
+    </div>
+  `;
+}
+

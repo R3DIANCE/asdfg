@@ -28,19 +28,19 @@ export class StatsManager {
     this.wrapper = document.createElement("div");
     this.wrapper.className = "stats-hud-wrapper";
     this.wrapper.style.position = "fixed";
-    this.wrapper.style.top = "48px";
+    this.wrapper.style.top = "68px";
     this.wrapper.style.right = "8px";
     this.wrapper.style.zIndex = "9999";
     this.wrapper.style.display = "none";
     this.wrapper.style.flexDirection = "column";
-    this.wrapper.style.gap = "4px";
-    this.wrapper.style.padding = "4px 5px";
-    this.wrapper.style.background = "rgba(10, 15, 26, 0.72)";
+    this.wrapper.style.gap = "3px";
+    this.wrapper.style.padding = "3px 4px";
+    this.wrapper.style.background = "rgba(6, 8, 14, 0.92)";
     this.wrapper.style.backdropFilter = "blur(14px)";
     this.wrapper.style.setProperty("-webkit-backdrop-filter", "blur(14px)");
-    this.wrapper.style.border = "1px solid rgba(255, 255, 255, 0.12)";
-    this.wrapper.style.borderRadius = "8px";
-    this.wrapper.style.boxShadow = "0 8px 30px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08)";
+    this.wrapper.style.border = "1px solid rgba(255, 255, 255, 0.08)";
+    this.wrapper.style.borderRadius = "6px";
+    this.wrapper.style.boxShadow = "0 8px 30px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.05)";
     this.wrapper.style.userSelect = "none";
     this.wrapper.style.transition = "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)";
 
@@ -135,19 +135,22 @@ export class StatsManager {
   }
 
   begin() {
+    if (this.wrapper.style.display === "none") return;
     this.stats.begin();
   }
 
   end() {
+    if (this.wrapper.style.display === "none") return;
     this.stats.end();
   }
 
   update(dt: number) {
+    if (this.wrapper.style.display === "none") return;
     this.pingTimer += dt;
-    if (this.pingTimer >= 0.3) {
+    if (this.pingTimer >= 1.0) {
       this.pingTimer = 0;
       const g = this.game || (window as any).__game;
-      const ping = Math.max(1, Number(g?.wsPing || 20));
+      const ping = typeof g?.displayPing === "number" ? g.displayPing : (typeof g?.wsPing === "number" ? g.wsPing : 0);
       this.pingPanel.update(Math.min(300, ping), 300);
 
       // Active network packet activity metric

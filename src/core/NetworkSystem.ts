@@ -1,5 +1,5 @@
 import type { Game } from "../game.ts";
-import { charUrlFor, FREE_MARKET_MAP, type ChatKind } from "../game-types.ts";
+import { ANIMS, charUrlFor, FREE_MARKET_MAP, type ChatKind } from "../game-types.ts";
 import { SKILL } from "../skills.ts";
 import { spacetime } from "../spacetimedb.ts";
 import { CombatSystem } from "./CombatSystem.ts";
@@ -201,10 +201,20 @@ export class NetworkSystem {
         if (game.wsPingTimer) clearInterval(game.wsPingTimer);
         game.wsPingTimer = setInterval(() => {
           if (game.ws && game.ws.readyState === WebSocket.OPEN) {
-            game.ws.send(JSON.stringify({ t: "ping", sentAt: performance.now() }));
+            game.ws.send(JSON.stringify({
+              t: "ping",
+              sentAt: performance.now(),
+              ping: typeof game.displayPing === "number" ? game.displayPing : (typeof game.wsPing === "number" ? game.wsPing : 0),
+              fps: Math.round(game.displayFps || game.fps || 60),
+            }));
           }
         }, 1000);
-        ws.send(JSON.stringify({ t: "ping", sentAt: performance.now() }));
+        ws.send(JSON.stringify({
+          t: "ping",
+          sentAt: performance.now(),
+          ping: typeof game.displayPing === "number" ? game.displayPing : (typeof game.wsPing === "number" ? game.wsPing : 0),
+          fps: Math.round(game.displayFps || game.fps || 60),
+        }));
       };
 
       ws.onmessage = (ev) => {
@@ -278,8 +288,8 @@ export class NetworkSystem {
       anim: game.p.anim,
       frame: game.p.frame,
       look: game.look,
-      fps: Math.round(game.fps),
-      ping: Math.round(game.wsPing),
+      fps: Math.round(game.displayFps || game.fps || 60),
+      ping: typeof game.displayPing === "number" ? game.displayPing : (typeof game.wsPing === "number" ? game.wsPing : 0),
       damageSkin: game.damageSkin,
       gmEffect: game.gmEffect,
       godMode: Boolean(game.godMode),
@@ -315,8 +325,8 @@ export class NetworkSystem {
       anim: game.p.anim,
       frame: game.p.frame,
       look: game.look,
-      fps: Math.round(game.fps),
-      ping: Math.round(game.wsPing),
+      fps: Math.round(game.displayFps || game.fps || 60),
+      ping: typeof game.displayPing === "number" ? game.displayPing : (typeof game.wsPing === "number" ? game.wsPing : 0),
       damageSkin: game.damageSkin,
       gmEffect: game.gmEffect,
       godMode: Boolean(game.godMode),
@@ -347,6 +357,8 @@ export class NetworkSystem {
     }));
   }
 
+  private static lastSpacetimeLiveSync = 0;
+
   static syncMove(game: Game) {
     if (!game.fullyLoaded || game.loadingMap || !game.ws || game.ws.readyState !== WebSocket.OPEN) return;
     const now = performance.now();
@@ -355,21 +367,39 @@ export class NetworkSystem {
     const dy = Math.abs(p.y - game.lastSyncedState.y);
     const animChanged = p.anim !== game.lastSyncedState.anim || p.frame !== game.lastSyncedState.frame || p.face !== game.lastSyncedState.face;
     const isMoving = Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.1;
-    const stoppedMoving = !isMoving && (game.lastSyncedState.anim.startsWith("walk") || game.lastSyncedState.anim === "jump");
+    const isClimb = p.anim.startsWith("ladder") || p.anim.startsWith("rope");
+    const wasClimb = game.lastSyncedState.anim.startsWith("ladder") || game.lastSyncedState.anim.startsWith("rope");
+    const wasMoving = Boolean((game.lastSyncedState as any).wasMoving);
+    const stoppedMoving = !isMoving && wasMoving && (
+      game.lastSyncedState.anim.startsWith("walk") ||
+      game.lastSyncedState.anim === "jump" ||
+      wasClimb
+    );
 
-    if ((now - game.lastMoveSync > 50 && (dx > 2 || dy > 2 || animChanged)) || stoppedMoving || (now - game.lastMoveSync > 2000)) {
+    // High performance real-time sync at ~35 Hz (28ms) with instant stop notification
+    if ((now - game.lastMoveSync > 28 && (dx > 1 || dy > 1 || animChanged)) || stoppedMoving || (now - game.lastMoveSync > 1500)) {
       game.lastMoveSync = now;
-      game.lastSyncedState = { x: Math.round(p.x), y: Math.round(p.y), face: p.face, anim: p.anim, frame: p.frame };
-      game.ws.send(JSON.stringify({
-        t: "move",
-        mapId: game.map?.id || FREE_MARKET_MAP,
+      game.lastSyncedState = {
         x: Math.round(p.x),
         y: Math.round(p.y),
         face: p.face,
         anim: p.anim,
         frame: p.frame,
-        fps: Math.round(game.fps),
-        ping: Math.round(game.wsPing),
+        wasMoving: isMoving,
+      } as any;
+      game.ws.send(JSON.stringify({
+        t: "move",
+        mapId: game.map?.id || FREE_MARKET_MAP,
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+        vx: Math.round(p.vx),
+        vy: Math.round(p.vy),
+        face: p.face,
+        anim: p.anim,
+        frame: p.frame,
+        isClimbing: isClimb && Math.abs(p.vy) > 0.1,
+        fps: Math.round(game.displayFps || game.fps || 60),
+        ping: typeof game.displayPing === "number" ? game.displayPing : (typeof game.wsPing === "number" ? game.wsPing : 0),
         damageSkin: game.damageSkin,
         gmEffect: game.gmEffect,
         godMode: Boolean(game.godMode),
@@ -383,9 +413,35 @@ export class NetworkSystem {
         maxHp: game.stats.maxHp,
         mp: game.stats.mp,
         maxMp: game.stats.maxMp,
+        pets: (game.pets || []).map((pt) => ({
+          id: pt.id,
+          name: pt.name,
+          slotIndex: pt.slotIndex,
+          x: Math.round(pt.x),
+          y: Math.round(pt.y),
+          dir: pt.dir,
+          state: pt.state,
+          frame: pt.frame,
+          level: pt.level,
+          rarity: pt.rarity,
+        })),
       }));
       if (game.partyId) {
         NetworkSystem.sendPartySync(game);
+      }
+
+      // Fast background live-sync to SpacetimeDB every 1.5 seconds
+      if (now - NetworkSystem.lastSpacetimeLiveSync > 1500 && game.stats.name) {
+        NetworkSystem.lastSpacetimeLiveSync = now;
+        spacetime.syncLiveState(game.stats.name, {
+          mapId: game.map?.id || FREE_MARKET_MAP,
+          x: Math.round(p.x),
+          y: Math.round(p.y),
+          hp: game.stats.hp,
+          mp: game.stats.mp,
+          level: game.stats.level,
+          exp: game.stats.exp,
+        }).catch(() => {});
       }
     }
   }
@@ -511,33 +567,93 @@ export class NetworkSystem {
         for (const p of msg.players) {
           if (p.id !== game.wsId && !NetworkSystem.isSamePlayerName(p.name, game.stats.name)) {
             NetworkSystem.removeDuplicateRemoteByName(game, p.name, p.id);
+            const pets = Array.isArray(p.pets) ? p.pets.map((mp: any) => ({
+              id: Number(mp.id),
+              name: String(mp.name || "Pet"),
+              slotIndex: Number(mp.slotIndex || 0),
+              level: Number(mp.level || 1),
+              exp: 0,
+              maxExp: 100,
+              rarity: Number(mp.rarity || 0),
+              bonuses: [],
+              x: Number(mp.x ?? p.x),
+              y: Number(mp.y ?? p.y),
+              vx: 0,
+              vy: 0,
+              dir: (mp.dir === -1 ? -1 : 1),
+              state: mp.state || "stand0",
+              animTimer: 0,
+              frame: Number(mp.frame || 0),
+              fh: null,
+              isLocal: false,
+              ownerId: p.id,
+            })) : [];
             game.remotePlayers.set(p.id, {
               ...p,
+              pets,
               targetX: p.x,
               targetY: p.y,
               fps: p.fps ?? 60,
-              ping: p.ping ?? 20,
+              ping: p.ping ?? 0,
               damageSkin: p.damageSkin ?? 0,
               gmEffect: Boolean(p.gmEffect),
             });
             if (p.damageSkin) DamageSkinSystem.preloadSkin(game, p.damageSkin);
+            if (p.look?.length) {
+              for (const act of ["stand1", "walk1", "jump", "prone", "ladder", "rope", "swingO1"]) {
+                const frCount = ANIMS[act]?.length || 1;
+                for (let f = 0; f < frCount; f++) {
+                  game.assets.load(charUrlFor(p.look, act, f));
+                }
+              }
+            }
           }
         }
       }
     } else if (msg.t === "player_join") {
       if (msg.player && msg.player.id !== game.wsId && !NetworkSystem.isSamePlayerName(msg.player.name, game.stats.name)) {
         NetworkSystem.removeDuplicateRemoteByName(game, msg.player.name, msg.player.id);
+        const pets = Array.isArray(msg.player.pets) ? msg.player.pets.map((mp: any) => ({
+          id: Number(mp.id),
+          name: String(mp.name || "Pet"),
+          slotIndex: Number(mp.slotIndex || 0),
+          level: Number(mp.level || 1),
+          exp: 0,
+          maxExp: 100,
+          rarity: Number(mp.rarity || 0),
+          bonuses: [],
+          x: Number(mp.x ?? msg.player.x),
+          y: Number(mp.y ?? msg.player.y),
+          vx: 0,
+          vy: 0,
+          dir: (mp.dir === -1 ? -1 : 1),
+          state: mp.state || "stand0",
+          animTimer: 0,
+          frame: Number(mp.frame || 0),
+          fh: null,
+          isLocal: false,
+          ownerId: msg.player.id,
+        })) : [];
         game.remotePlayers.set(msg.player.id, {
           ...msg.player,
+          pets,
           targetX: msg.player.x,
           targetY: msg.player.y,
           fps: msg.player.fps ?? 60,
-          ping: msg.player.ping ?? 20,
+          ping: msg.player.ping ?? 0,
           damageSkin: msg.player.damageSkin ?? 0,
           gmEffect: Boolean(msg.player.gmEffect),
         });
         game.onChat("system", `${msg.player.name} entered the map.`);
         if (msg.player.damageSkin) DamageSkinSystem.preloadSkin(game, msg.player.damageSkin);
+        if (msg.player.look?.length) {
+          for (const act of ["stand1", "walk1", "jump", "prone", "ladder", "rope", "swingO1"]) {
+            const frCount = ANIMS[act]?.length || 1;
+            for (let f = 0; f < frCount; f++) {
+              game.assets.load(charUrlFor(msg.player.look, act, f));
+            }
+          }
+        }
       }
     } else if (msg.t === "player_move") {
       if (msg.id === game.wsId) return;
@@ -545,7 +661,46 @@ export class NetworkSystem {
       if (rp) {
         rp.targetX = msg.x;
         rp.targetY = msg.y;
-        rp.face = msg.face;
+        rp.targetAnim = msg.anim;
+        if (msg.vy !== undefined) rp.vy = Number(msg.vy);
+        if (msg.isClimbing !== undefined) {
+          rp.isClimbing = Boolean(msg.isClimbing);
+        } else if (msg.anim?.startsWith("ladder") || msg.anim?.startsWith("rope")) {
+          rp.isClimbing = Math.abs(msg.vy || 0) > 0.1;
+        }
+
+        if (Array.isArray(msg.pets)) {
+          rp.pets = msg.pets.map((mp: any) => ({
+            id: Number(mp.id),
+            name: String(mp.name || "Pet"),
+            slotIndex: Number(mp.slotIndex || 0),
+            level: Number(mp.level || 1),
+            exp: 0,
+            maxExp: 100,
+            rarity: Number(mp.rarity || 0),
+            bonuses: [],
+            x: Number(mp.x ?? rp.targetX),
+            y: Number(mp.y ?? rp.targetY),
+            vx: 0,
+            vy: 0,
+            dir: (mp.dir === -1 ? -1 : 1),
+            state: mp.state || "stand0",
+            animTimer: 0,
+            frame: Number(mp.frame || 0),
+            fh: null,
+            isLocal: false,
+            ownerId: rp.id,
+          }));
+        }
+
+        if (!rp.attackTimer || rp.attackTimer <= 0) {
+          rp.face = msg.face;
+          rp.anim = msg.anim;
+          const isClimb = msg.anim?.startsWith("ladder") || msg.anim?.startsWith("rope");
+          if (!isClimb || !rp.isClimbing) {
+            rp.frame = msg.frame;
+          }
+        }
         if (msg.fps !== undefined) rp.fps = msg.fps;
         if (msg.ping !== undefined) rp.ping = msg.ping;
         if (msg.damageSkin !== undefined && msg.damageSkin !== rp.damageSkin) {
@@ -559,21 +714,28 @@ export class NetworkSystem {
         if (msg.maxHp !== undefined) rp.maxHp = Number(msg.maxHp);
         if (msg.mp !== undefined) rp.mp = Number(msg.mp);
         if (msg.maxMp !== undefined) rp.maxMp = Number(msg.maxMp);
-        if (!rp.attackTimer || rp.attackTimer <= 0) {
-          rp.anim = msg.anim;
-          rp.frame = msg.frame;
-        }
       } else {
         NetworkSystem.syncAll(game, false);
+      }
+    } else if (msg.t === "player_telemetry") {
+      if (msg.id === game.wsId) return;
+      const rp = game.remotePlayers.get(msg.id);
+      if (rp) {
+        if (msg.fps !== undefined) rp.fps = Number(msg.fps);
+        if (msg.ping !== undefined) rp.ping = Number(msg.ping);
       }
     } else if (msg.t === "player_action") {
       if (msg.id === game.wsId) return;
       const rp = game.remotePlayers.get(msg.id);
       if (rp) {
-        rp.anim = msg.anim || "swingO1";
+        const anim = msg.anim || "swingO1";
+        rp.anim = anim;
+        rp.lastAnim = anim;
         rp.frame = 0;
         rp.animTimer = 0;
-        rp.attackTimer = 0.65;
+        const animTable = ANIMS[anim] ?? [300, 150, 350];
+        const totalDur = (animTable as number[]).reduce((a: number, b: number) => a + b, 0) / 1000;
+        rp.attackTimer = Math.max(0.5, totalDur);
         rp.face = msg.face ?? rp.face;
         rp.targetX = msg.x ?? rp.targetX;
         rp.targetY = msg.y ?? rp.targetY;

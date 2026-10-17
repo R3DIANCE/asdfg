@@ -135,6 +135,10 @@ export class CharacterRendererComponent extends ComponentBase {
           if (!tex && (anim !== "stand1" || frame !== 0)) {
             tex = await g.assets.load(charUrlFor(look, "stand1", 0));
           }
+          if (CharacterRendererComponent.frameCache.size > 400) {
+            const first = CharacterRendererComponent.frameCache.keys().next().value;
+            if (first) CharacterRendererComponent.frameCache.delete(first);
+          }
           CharacterRendererComponent.frameCache.set(key, tex);
           return tex;
         } catch {
@@ -169,7 +173,8 @@ export class CharacterRendererComponent extends ComponentBase {
     const ox = Math.round(tex.w / 2);
     const oy = tex.w === 96 && tex.h === 96 ? 88 : tex.h === 384 ? 256 : Math.round(tex.h * (256 / 384));
     const drawPosY = this.y + (opts?.hoverY ?? 0);
-    const flip = opts?.flip ?? (this.face === 1);
+    const isClimb = this.anim.startsWith("ladder") || this.anim.startsWith("rope");
+    const flip = isClimb ? false : (opts?.flip ?? (this.face === 1));
     const alpha = opts?.alpha ?? 1;
 
     game.r.draw(

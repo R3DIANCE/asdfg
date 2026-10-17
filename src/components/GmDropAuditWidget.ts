@@ -15,6 +15,7 @@ export class GmDropAuditWidget extends ComponentBase {
 
   private game!: Game;
   private wins?: Windows;
+  private isEnabled = false;
   private isOpen = false;
   private isMinimized = false;
   private isPaused = false;
@@ -46,17 +47,18 @@ export class GmDropAuditWidget extends ComponentBase {
     this.game = game;
     this.wins = wins;
 
-    // Load saved open state (default to true for GMs so it is easily discoverable)
+    // Disabled and hidden by default unless explicitly enabled via GM Control Panel
     try {
-      const savedOpen = localStorage.getItem("ms_gm_drop_widget_open");
-      this.isOpen = savedOpen !== null ? savedOpen === "true" : true;
+      this.isEnabled = localStorage.getItem("ms_gm_drop_widget_enabled") === "true";
+      this.isOpen = this.isEnabled && (localStorage.getItem("ms_gm_drop_widget_open") === "true");
       this.isMinimized = localStorage.getItem("ms_gm_drop_widget_minimized") === "true";
     } catch {
-      this.isOpen = true;
+      this.isEnabled = false;
+      this.isOpen = false;
       this.isMinimized = false;
     }
 
-    // 1. Floating Trigger Pill on Screen
+    // 1. Floating Trigger Pill on Screen (strictly hidden unless widget is enabled)
     this.root = el(
       "div",
       "gm-drop-pill-container fixed z-[125] select-none pointer-events-auto transition-all duration-150",
@@ -64,6 +66,7 @@ export class GmDropAuditWidget extends ComponentBase {
     );
     this.root.style.left = "8px";
     this.root.style.top = "62px";
+    this.root.style.display = (this.isEnabled && this.isOpen) ? "block" : "none";
 
     this.pillBtn = el(
       "button",
@@ -83,7 +86,7 @@ export class GmDropAuditWidget extends ComponentBase {
     this.win.style.left = "200px";
     this.win.style.top = "70px";
 
-    if (!this.isOpen) {
+    if (!this.isOpen || !this.isEnabled) {
       this.win.classList.add("hidden");
     }
 
@@ -92,7 +95,7 @@ export class GmDropAuditWidget extends ComponentBase {
     // Event listeners
     window.addEventListener("gm-drop-pickup", () => {
       this.updatePillStatus();
-      if (this.isOpen && !this.isPaused) {
+      if (this.isOpen && this.isEnabled && !this.isPaused) {
         this.renderFeed();
       }
     });
@@ -101,13 +104,58 @@ export class GmDropAuditWidget extends ComponentBase {
       this.toggle();
     });
 
+    window.addEventListener("set-gm-drop-widget-enabled", (e: any) => {
+      const targetEnabled = typeof e.detail?.enabled === "boolean" ? e.detail.enabled : !this.isEnabled;
+      this.setEnabled(targetEnabled);
+    });
+
     this.updatePillStatus();
-    this.render();
+    if (this.isEnabled && this.isOpen) {
+      this.render();
+    }
+  }
+
+  public setEnabled(val: boolean) {
+    if (!this.game?.isGm?.()) {
+      this.game?.onChat?.("notice", "[GM] Access restricted. GameMaster privileges required.");
+      return;
+    }
+    this.isEnabled = val;
+    try {
+      localStorage.setItem("ms_gm_drop_widget_enabled", String(val));
+    } catch {}
+
+    if (val) {
+      this.isOpen = true;
+      try {
+        localStorage.setItem("ms_gm_drop_widget_open", "true");
+      } catch {}
+      this.win.classList.remove("hidden");
+      this.render();
+      this.bringToFront();
+      this.game.onChat("notice", "★ [GM Tool] Monster Drop & Inventory Audit Widget enabled.");
+    } else {
+      this.isOpen = false;
+      try {
+        localStorage.setItem("ms_gm_drop_widget_open", "false");
+      } catch {}
+      this.win.classList.add("hidden");
+      this.game.onChat("notice", "★ [GM Tool] Monster Drop & Inventory Audit Widget disabled and hidden.");
+    }
+    this.updatePillStatus();
+  }
+
+  public getEnabled(): boolean {
+    return this.isEnabled;
   }
 
   public toggle(force?: boolean) {
     if (!this.game.isGm()) {
       this.game.onChat("notice", "[GM] Access restricted. GameMaster privileges required.");
+      return;
+    }
+    if (!this.isEnabled) {
+      this.setEnabled(true);
       return;
     }
     this.isOpen = typeof force === "boolean" ? force : !this.isOpen;
@@ -141,7 +189,7 @@ export class GmDropAuditWidget extends ComponentBase {
 
   public updatePillStatus() {
     if (!this.game) return;
-    if (!this.game.isGm()) {
+    if (!this.game.isGm() || !this.isEnabled || !this.isOpen) {
       this.root.style.display = "none";
       return;
     }
@@ -191,6 +239,19 @@ export class GmDropAuditWidget extends ComponentBase {
     `;
 
     const titleRight = el("div", "flex items-center gap-1", titlebar);
+
+    const hideBtn = el(
+      "button",
+      "px-2 py-0.5 flex items-center gap-1 rounded text-[10px] font-bold text-amber-300 hover:text-white bg-amber-950/60 hover:bg-amber-900 border border-amber-500/40 transition-colors mr-1 cursor-pointer",
+      titleRight
+    ) as HTMLButtonElement;
+    hideBtn.type = "button";
+    hideBtn.title = "Disable and hide tool (Can be re-enabled from GM Control Panel)";
+    hideBtn.innerHTML = `<span>Hide</span>`;
+    hideBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.setEnabled(false);
+    });
 
     const minBtn = el(
       "button",

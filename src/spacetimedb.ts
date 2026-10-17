@@ -230,6 +230,20 @@ export class SpacetimeClient {
       return { ok: false, error: e?.message || "Network error" };
     }
   }
+
+  /** Fast real-time sync of character position, map, and telemetry to SpacetimeDB */
+  async syncLiveState(name: string, data: { mapId: number; x: number; y: number; hp?: number; mp?: number; level?: number; exp?: number }): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/characters/live-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, ...data }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
 }
 
 export const spacetime = new SpacetimeClient();

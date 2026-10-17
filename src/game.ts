@@ -28,6 +28,9 @@ import {
   type Mob,
   type Drop,
   type GmDropPickupRecord,
+  type PetItem,
+  type PetBonus,
+  type PetInstance,
   type Projectile,
   type Fx,
   type DmgText,
@@ -53,7 +56,6 @@ import {
   JUMP,
   CLIMB,
   rand,
-  type PetInstance,
 } from "./game-types.ts";
 import { WorldRenderer, STATUS_UI, EXP_UI, MENU_UI } from "./systems/render-system.ts";
 import { AutoCombatSystem } from "./systems/auto-combat.ts";
@@ -83,6 +85,14 @@ export class Game extends ComponentBase {
   fx: Fx[] = [];
   dmg: DmgText[] = [];
   pets: PetInstance[] = [];
+  petItems: PetItem[] = [];
+  petNameVisibility: "hide" | "all" | "only_me" | "only_others" = (() => {
+    try {
+      return (localStorage.getItem("maple_pet_name_visibility") as any) || "hide";
+    } catch {
+      return "hide";
+    }
+  })();
   portals: Portal[] = [];
   teleportCooldown = 0;
   lastPortalTex: Tex | null = null;
@@ -201,8 +211,13 @@ export class Game extends ComponentBase {
   windows: any = null;
   shadowPartnerArt: Record<string, Sprite[]> = {};
   fps = 60;
+  displayFps = 60;
+  displayPing = 20;
+  fpsAccumTime = 0;
+  fpsAccumFrames = 0;
   damageSkin: number | string = 0;
   lastMagnetBroadcast = 0;
+  memPruneTimer = 0;
 
   setDamageSkin(skinId: number | string) {
     this.damageSkin = isNaN(Number(skinId)) ? skinId : Number(skinId);
@@ -403,7 +418,7 @@ export class Game extends ComponentBase {
     this.look = this.computeLook();
     for (const [a, fr] of Object.entries(ANIMS)) fr.forEach((_, i) => loads.push(this.assets.load(charUrlFor(this.look, a, i))));
     const fxs = [this.fxData.dmg, this.fxData.dmgFirst, this.fxData.hurt, this.fxData.hurtFirst].flatMap((o: any) => Object.values(o));
-    for (const s of [...fxs, ...this.fxData.meso, ...this.fxData.portal, this.fxData.miss, ...(this.fxData.levelUp ?? [])] as Sprite[]) if (s) loads.push(this.assets.load(s.url));
+    for (const s of [...fxs, ...this.fxData.meso, ...this.fxData.portal, this.fxData.miss, ...(this.fxData.levelUp ?? []), ...(this.fxData.petLevelUp ?? [])] as Sprite[]) if (s) loads.push(this.assets.load(s.url));
     for (const a of Object.values(this.skillArt)) for (const f of [...a.effect, ...a.effect0, ...a.hit, ...(a.ball ?? [])]) this.assets.load(f.url);
     try {
       const savedSkin = localStorage.getItem("ms_damage_skin");
@@ -468,7 +483,12 @@ export class Game extends ComponentBase {
     if (this.boss) this.endBoss(false);
     this.loadingMap = true;
     try {
+      // Free VRAM from previous map background before loading new one
+      const prevRenderUrl = this.map?.render;
       const m = await json<MapData>(`/wz/data/map/${id}`);
+      if (prevRenderUrl && prevRenderUrl !== m.render) {
+        this.assets.unloadMapAssets(prevRenderUrl);
+      }
       await Promise.all([...new Set(m.spawns.map((s) => s.id))].map(async (mid) => {
         if (!this.mobData.has(mid)) this.mobData.set(mid, await json(`/wz/data/mob/${mid}`));
       }));
@@ -1028,9 +1048,17 @@ export class Game extends ComponentBase {
   // ------------------------------------------------------------ update
   update(dt: number) {
     this.time += dt;
-    if (dt > 0.0001) {
-      this.fps = Math.round(this.fps * 0.95 + (1 / dt) * 0.05);
+    this.fpsAccumTime += dt;
+    this.fpsAccumFrames++;
+    if (this.fpsAccumTime >= 1.0) {
+      this.displayFps = Math.max(1, Math.round(this.fpsAccumFrames / this.fpsAccumTime));
+      const curPing = typeof this.wsPing === "number" && !isNaN(this.wsPing) ? this.wsPing : 0;
+      this.displayPing = Math.max(0, Math.round(curPing));
+      this.fps = this.displayFps;
+      this.fpsAccumTime = 0;
+      this.fpsAccumFrames = 0;
     }
+
     if (this.teleportCooldown > 0) this.teleportCooldown -= dt;
     if (this.sessionReplaced || this.loadingMap || !this.map) { this.pressed.clear(); return; }
     this.fade = Math.max(0, this.fade - dt * 2.5);
@@ -1119,7 +1147,7 @@ export class Game extends ComponentBase {
     this.updateDrops(dt);
     PetSystem.updatePets(this, dt);
     for (const f of this.fx) f.t += dt * 1000;
-    this.fx = this.fx.filter((f) => f.t < f.frames.reduce((a, s) => a + (s.delay ?? 100), 0));
+    this.fx = this.fx.filter((f) => f.t < ((f as any).totalDur ??= f.frames.reduce((a, s) => a + (s.delay ?? 100), 0)));
     for (const d of this.dmg) d.t += dt;
     this.dmg = this.dmg.filter((d) => d.t < 1.5);
 
@@ -1128,37 +1156,92 @@ export class Game extends ComponentBase {
       const dx = rp.targetX - rp.x;
       const dy = rp.targetY - rp.y;
       const dist = Math.hypot(dx, dy);
-      rp.x += dx * Math.min(1, dt * 15);
-      rp.y += dy * Math.min(1, dt * 15);
+
+      // Snap on teleport/warp or large delta
+      if (dist > 250) {
+        rp.x = rp.targetX;
+        rp.y = rp.targetY;
+      } else {
+        const lerpFactor = Math.min(1, dt * 20);
+        rp.x += dx * lerpFactor;
+        rp.y += dy * lerpFactor;
+        if (dist < 0.2) {
+          rp.x = rp.targetX;
+          rp.y = rp.targetY;
+        }
+      }
+
+      // Face direction: face horizontal movement direction unless locked in attack or climbing
+      const isClimbAnim = rp.anim?.startsWith("ladder") || rp.anim?.startsWith("rope") || rp.targetAnim?.startsWith("ladder") || rp.targetAnim?.startsWith("rope");
+      if ((!rp.attackTimer || rp.attackTimer <= 0) && !isClimbAnim) {
+        if (dx > 1.5) rp.face = 1;
+        else if (dx < -1.5) rp.face = -1;
+      }
+
+      // Attack timer countdown
+      const isAttackAnim = (anim: string) =>
+        anim.startsWith("swing") || anim.startsWith("stab") || anim.startsWith("shoot") || anim === "heal";
 
       if (rp.attackTimer && rp.attackTimer > 0) {
         rp.attackTimer -= dt;
+        if (rp.attackTimer <= 0) {
+          rp.attackTimer = 0;
+          const resumeAnim = rp.targetAnim || (dist > 1.5 ? "walk1" : "stand1");
+          rp.anim = resumeAnim;
+          rp.frame = 0;
+          rp.animTimer = 0;
+        }
       }
+
       if (rp.magnetTimer && rp.magnetTimer > 0) {
         rp.magnetTimer -= dt;
         if (rp.magnetTimer <= 0) rp.magnetActive = false;
       }
 
-      // Smooth frame advancement
-      rp.animTimer = (rp.animTimer ?? 0) + dt * 1000;
-      let animKey = rp.anim || "stand1";
-      if ((!rp.attackTimer || rp.attackTimer <= 0) && !animKey.startsWith("jump") && !animKey.startsWith("ladder") && !animKey.startsWith("rope")) {
-        animKey = dist > 1.5 ? "walk1" : "stand1";
-        rp.anim = animKey;
-      }
-      const d = ANIMS[animKey] ?? ANIMS.stand1;
-      if (d?.length) {
-        while (rp.animTimer > (d[rp.frame] ?? 120)) {
-          rp.animTimer -= d[rp.frame] ?? 120;
-          rp.frame = (animKey.startsWith("swing") || animKey.startsWith("stab") || animKey.startsWith("shoot"))
-            ? Math.min(rp.frame + 1, d.length - 1)
-            : (rp.frame + 1) % d.length;
+      // Animation selection when not actively attacking
+      if (!rp.attackTimer || rp.attackTimer <= 0) {
+        const animKey = rp.targetAnim || rp.anim || "stand1";
+        if (animKey.startsWith("jump") || animKey.startsWith("ladder") || animKey.startsWith("rope") || animKey === "prone" || animKey === "fly" || animKey === "sit") {
+          rp.anim = animKey;
+        } else {
+          if (dist > 1.5) {
+            rp.anim = animKey.startsWith("walk") ? animKey : "walk1";
+          } else {
+            rp.anim = (animKey.startsWith("stand") || animKey === "alert") ? animKey : "stand1";
+          }
         }
       }
-      if (rp.attackTimer && rp.attackTimer <= 0 && (animKey.startsWith("swing") || animKey.startsWith("stab") || animKey.startsWith("shoot"))) {
-        rp.anim = dist > 1.5 ? "walk1" : "stand1";
+
+      // Detect animation change to cleanly reset frame and timer
+      if (rp.anim !== rp.lastAnim) {
+        rp.lastAnim = rp.anim;
         rp.frame = 0;
+        rp.animTimer = 0;
       }
+
+      // Advance animation frames based on authentic WZ timings
+      const d = ANIMS[rp.anim] ?? ANIMS.stand1;
+      if (d?.length) {
+        if (rp.frame >= d.length) rp.frame = 0;
+        rp.animTimer = (rp.animTimer ?? 0) + dt * 1000;
+        const frameDur = d[rp.frame] ?? 120;
+        if (rp.animTimer >= frameDur) {
+          rp.animTimer -= frameDur;
+          if (isAttackAnim(rp.anim)) {
+            if (rp.frame < d.length - 1) {
+              rp.frame++;
+            }
+          } else if (rp.anim.startsWith("ladder") || rp.anim.startsWith("rope")) {
+            const isMovingOnLadder = Boolean(rp.isClimbing) || (typeof rp.vy === "number" && Math.abs(rp.vy) > 0.1) || Math.abs(dy) > 0.6;
+            if (isMovingOnLadder) {
+              rp.frame = (rp.frame + 1) % d.length;
+            }
+          } else {
+            rp.frame = (rp.frame + 1) % d.length;
+          }
+        }
+      }
+
       if (rp.balloon) {
         rp.balloon.t = Math.max(0, rp.balloon.t - dt);
       }
@@ -1263,7 +1346,7 @@ export class Game extends ComponentBase {
         p.blinkFrameTimer = 0.08;
       }
     }
-    if (p.dead || p.invuln > 1.2) {
+    if (p.dead || p.invuln > 2.0) {
       p.expr = "hit";
       p.exprFrame = 0;
     } else if (p.blinkStep < 0) {
@@ -1392,12 +1475,17 @@ export class Game extends ComponentBase {
     if (p.ladder) {
       const L = p.ladder;
       const vy = (downK ? 1 : 0) - (up ? 1 : 0);
-      p.y += vy * CLIMB * dt;
+      p.vy = vy * CLIMB;
+      p.vx = 0;
+      p.y += p.vy * dt;
       p.x = L.x;
 
       // Jump dismount: with direction hops off strongly, alone drops off
       if (jump) {
         p.ladder = null;
+        p.anim = "jump";
+        p.frame = 0;
+        p.ft = 0;
         if (dir !== 0) {
           p.vx = dir * this.speed() * 1.15;
           p.vy = -JUMP * 0.72;
@@ -1406,6 +1494,7 @@ export class Game extends ComponentBase {
           p.vx = 0;
           p.vy = -120;
         }
+        this.syncMove();
         return;
       }
 
@@ -1418,6 +1507,11 @@ export class Game extends ComponentBase {
           p.x = land.x;
           p.y = land.y;
           p.vy = 0;
+          p.anim = "stand1";
+          p.frame = 0;
+          p.ft = 0;
+          this.syncMove();
+          return;
         } else {
           p.y = L.y1; // Stop at the top of the rope if no top platform exists
         }
@@ -1432,6 +1526,11 @@ export class Game extends ComponentBase {
         } else {
           p.vy = 0;
         }
+        p.anim = land ? "stand1" : "jump";
+        p.frame = 0;
+        p.ft = 0;
+        this.syncMove();
+        return;
       }
       this.animate(dt, L.isLadder ? "ladder" : "rope", vy !== 0);
       this.checkMobContact();
@@ -1448,11 +1547,37 @@ export class Game extends ComponentBase {
       // Grab ladder upwards / downwards from ground
       if (up && p.attack <= 0) {
         const L = nearLadder((L) => p.y >= L.y1 - 15 && p.y <= L.y2 + 32);
-        if (L) { p.ladder = L; p.fh = null; p.x = L.x; p.y = Math.min(p.y - 4, L.y2); this.animate(dt, L.isLadder ? "ladder" : "rope", false); return; }
+        if (L) {
+          p.ladder = L;
+          p.fh = null;
+          p.x = L.x;
+          p.y = Math.min(p.y - 4, L.y2);
+          p.vy = -CLIMB;
+          p.vx = 0;
+          p.anim = L.isLadder ? "ladder" : "rope";
+          p.frame = 0;
+          p.ft = 0;
+          this.animate(dt, p.anim, false);
+          this.syncMove();
+          return;
+        }
       }
       if (downK && p.attack <= 0) {
         const L = nearLadder((L) => (Math.abs(L.y1 - p.y) < 35) || (p.y >= L.y1 - 5 && p.y <= L.y2));
-        if (L) { p.ladder = L; p.fh = null; p.x = L.x; p.y = Math.max(L.y1 + 12, Math.min(p.y + 10, L.y2)); this.animate(dt, L.isLadder ? "ladder" : "rope", false); return; }
+        if (L) {
+          p.ladder = L;
+          p.fh = null;
+          p.x = L.x;
+          p.y = Math.max(L.y1 + 12, Math.min(p.y + 10, L.y2));
+          p.vy = CLIMB;
+          p.vx = 0;
+          p.anim = L.isLadder ? "ladder" : "rope";
+          p.frame = 0;
+          p.ft = 0;
+          this.animate(dt, p.anim, false);
+          this.syncMove();
+          return;
+        }
       }
       if (downK && jumpHeld && p.attack <= 0) {
         const below = tree.below(p.x, p.y + 4, p.fh.id);
@@ -1536,7 +1661,11 @@ export class Game extends ComponentBase {
           p.vx = 0;
           p.vy = 0;
           p.x = L.x;
-          this.animate(dt, L.isLadder ? "ladder" : "rope", false);
+          p.anim = L.isLadder ? "ladder" : "rope";
+          p.frame = 0;
+          p.ft = 0;
+          this.animate(dt, p.anim, false);
+          this.syncMove();
           return;
         }
       }
@@ -1607,7 +1736,16 @@ export class Game extends ComponentBase {
   dropUseItem(id: number, count = 1): boolean { return InventorySystem.dropUseItem(this, id, count); }
   dropMat(id: number, count = 1): boolean { return InventorySystem.dropMat(this, id, count); }
   equipPet(id: number, slotIndex?: number) { return PetSystem.equipPet(this, id, slotIndex); }
+  equipPetItem(petItem: PetItem, slotIndex?: number) { return PetSystem.equipPetItem(this, petItem, slotIndex); }
   unequipPet(slotIndex: number) { PetSystem.unequipPet(this, slotIndex); }
+  unequipPetByUid(uid: string) { PetSystem.unequipPetByUid(this, uid); }
+  setPetNameVisibility(v: "hide" | "all" | "only_me" | "only_others") {
+    this.petNameVisibility = v;
+    try {
+      localStorage.setItem("maple_pet_name_visibility", v);
+    } catch {}
+    this.onChange();
+  }
 
   // ------------------------------------------------------------ drop collection & GM drop audit
   recordGmDropPickup(record: GmDropPickupRecord) {
@@ -1864,7 +2002,19 @@ export class Game extends ComponentBase {
     return {
       v: 1, stats: this.stats, inv: this.inv, skillLv: this.skillLv, quick: this.quick, auto: this.auto, map: this.map?.id,
       p: { x: Math.round(this.p.x), y: Math.round(this.p.y), face: this.p.face },
-      mats: this.mats, bag: this.bag, eq: this.eq, visualEq: this.visualEq, pets: this.pets.map((p) => ({ id: p.id, slotIndex: p.slotIndex })),
+      mats: this.mats, bag: this.bag, eq: this.eq, visualEq: this.visualEq,
+      pets: this.pets.map((p) => ({
+        id: p.id,
+        name: p.name,
+        slotIndex: p.slotIndex,
+        level: p.level,
+        exp: p.exp,
+        maxExp: p.maxExp,
+        rarity: p.rarity,
+        bonuses: p.bonuses,
+      })),
+      petItems: this.petItems,
+      petNameVisibility: this.petNameVisibility,
       stage: this.stage, idle: this.idle, ah: this.ah.save(), savedAt: Date.now(),
       lastLogoutAt: this.lastLogoutAt || Date.now(),
       lastOfflineClaimAt: this.lastOfflineClaimAt,
@@ -1936,10 +2086,25 @@ export class Game extends ComponentBase {
         }
       }
     }
+    if (d.petNameVisibility) {
+      this.petNameVisibility = d.petNameVisibility;
+    }
+    if (Array.isArray(d.petItems)) {
+      this.petItems = d.petItems;
+    } else {
+      this.petItems = [];
+    }
     if (Array.isArray(d.pets)) {
       for (const p of d.pets) {
         if (p && typeof p.id === "number") {
-          this.equipPet(p.id, p.slotIndex);
+          let item = this.petItems.find((it) => it.id === p.id);
+          if (!item) {
+            item = PetSystem.createPetItem(p.id, p.name, p.rarity, p.level || 1);
+            if (p.bonuses) item.bonuses = p.bonuses;
+            if (typeof p.exp === "number") item.exp = p.exp;
+            this.petItems.push(item);
+          }
+          this.equipPetItem(item, p.slotIndex);
         }
       }
     }

@@ -1915,24 +1915,15 @@ body.ui-mode-old .gm-online-container {
 }
 .gcell.blank { cursor: default; background: transparent !important; border-color: rgba(255, 255, 255, 0.05); }
 .gcell:not(.blank):hover { border-color: #38bdf8; box-shadow: 0 0 0 1px #38bdf8 inset; }
-/* Animated Border Beam for Rare/Epic/Unique/Legendary Items (libraries.dev/beam standard) */
-@property --item-beam-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: true;
-}
-
-:root {
-  --item-beam-angle: 0deg;
-  animation: item-beam-spin 2.4s linear infinite;
-}
-
-@keyframes item-beam-spin {
-  0% {
-    --item-beam-angle: 0deg;
+/* Simple, Lightweight CSS Rarity Styling (Rare / Epic / Unique / Legendary) */
+@keyframes rarity-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 4px var(--r-glow), 0 0 3px var(--r-glow);
+    border-color: var(--r-border);
   }
-  100% {
-    --item-beam-angle: 360deg;
+  50% {
+    box-shadow: inset 0 0 7px var(--r-glow), 0 0 7px var(--r-glow);
+    border-color: var(--r-border-hi);
   }
 }
 
@@ -1940,102 +1931,61 @@ body.ui-mode-old .gm-online-container {
 .eslot.r1, .eslot.r2, .eslot.r3, .eslot.r4 {
   position: relative;
   overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .gcell.r1, .eslot.r1 {
-  border-color: rgba(56, 189, 248, 0.4) !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.25) !important;
-}
-.gcell.r1::after, .eslot.r1::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  box-sizing: border-box;
-  background: conic-gradient(from var(--item-beam-angle, 0deg), transparent 0%, transparent 55%, rgba(56, 189, 248, 0.2) 65%, #38bdf8 82%, #0284c7 92%, transparent 100%);
-  -webkit-mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
-  -webkit-mask-clip: content-box, border-box;
-  -webkit-mask-composite: xor;
-  mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
-  mask-clip: content-box, border-box;
-  mask-composite: exclude;
-  pointer-events: none;
-  animation: item-beam-spin 2.4s linear infinite;
-  z-index: 6;
+  --r-border: rgba(56, 189, 248, 0.7);
+  --r-border-hi: #38bdf8;
+  --r-glow: rgba(56, 189, 248, 0.45);
+  border: 1.5px solid var(--r-border) !important;
+  background: rgba(56, 189, 248, 0.08) !important;
+  box-shadow: inset 0 0 5px var(--r-glow), 0 0 3px var(--r-glow) !important;
 }
 
 .gcell.r2, .eslot.r2 {
-  border-color: rgba(192, 132, 252, 0.4) !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.25) !important;
-}
-.gcell.r2::after, .eslot.r2::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  box-sizing: border-box;
-  background: conic-gradient(from var(--item-beam-angle, 0deg), transparent 0%, transparent 50%, rgba(192, 132, 252, 0.2) 62%, #c084fc 78%, #a855f7 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
-  -webkit-mask-clip: content-box, border-box;
-  -webkit-mask-composite: xor;
-  mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
-  mask-clip: content-box, border-box;
-  mask-composite: exclude;
-  pointer-events: none;
-  animation: item-beam-spin 2.4s linear infinite;
-  z-index: 6;
+  --r-border: rgba(192, 132, 252, 0.75);
+  --r-border-hi: #c084fc;
+  --r-glow: rgba(192, 132, 252, 0.5);
+  border: 1.5px solid var(--r-border) !important;
+  background: rgba(192, 132, 252, 0.08) !important;
+  box-shadow: inset 0 0 5px var(--r-glow), 0 0 4px var(--r-glow) !important;
 }
 
 .gcell.r3, .eslot.r3 {
-  border-color: rgba(250, 204, 21, 0.4) !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.25) !important;
-}
-.gcell.r3::after, .eslot.r3::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  box-sizing: border-box;
-  background: conic-gradient(from var(--item-beam-angle, 0deg), transparent 0%, transparent 45%, rgba(250, 204, 21, 0.25) 58%, #facc15 72%, #f59e0b 86%, #fbbf24 94%, transparent 100%);
-  -webkit-mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
-  -webkit-mask-clip: content-box, border-box;
-  -webkit-mask-composite: xor;
-  mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
-  mask-clip: content-box, border-box;
-  mask-composite: exclude;
-  pointer-events: none;
-  animation: item-beam-spin 2.4s linear infinite;
-  z-index: 6;
+  --r-border: rgba(250, 204, 21, 0.8);
+  --r-border-hi: #fde047;
+  --r-glow: rgba(250, 204, 21, 0.5);
+  border: 1.5px solid var(--r-border) !important;
+  background: rgba(250, 204, 21, 0.08) !important;
+  box-shadow: inset 0 0 6px var(--r-glow), 0 0 5px var(--r-glow) !important;
 }
 
 .gcell.r4, .eslot.r4 {
-  border-color: rgba(74, 222, 128, 0.4) !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.25) !important;
+  --r-border: rgba(74, 222, 128, 0.85);
+  --r-border-hi: #86efac;
+  --r-glow: rgba(74, 222, 128, 0.55);
+  border: 1.5px solid var(--r-border) !important;
+  background: rgba(74, 222, 128, 0.08) !important;
+  box-shadow: inset 0 0 6px var(--r-glow), 0 0 6px var(--r-glow) !important;
 }
-.gcell.r4::after, .eslot.r4::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  box-sizing: border-box;
-  background: conic-gradient(from var(--item-beam-angle, 0deg), transparent 0%, transparent 35%, #4ade80 50%, #38bdf8 65%, #f43f5e 80%, #facc15 92%, transparent 100%);
-  -webkit-mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
-  -webkit-mask-clip: content-box, border-box;
-  -webkit-mask-composite: xor;
-  mask-image: linear-gradient(#fff 0 0), linear-gradient(#fff 0 0);
-  mask-clip: content-box, border-box;
-  mask-composite: exclude;
-  pointer-events: none;
-  animation: item-beam-spin 2.4s linear infinite;
-  z-index: 6;
+
+/* Subtle rarity glow pulse only for active, visible items */
+#inv-win:not(.hidden) .gcell.beam-active,
+#equip-win:not(.hidden) .eslot.r1,
+#equip-win:not(.hidden) .eslot.r2,
+#equip-win:not(.hidden) .eslot.r3,
+#equip-win:not(.hidden) .eslot.r4 {
+  animation: rarity-pulse 2.8s ease-in-out infinite;
+}
+
+/* Stop animations when windows are hidden or items scrolled out */
+.win.hidden .gcell,
+.win.hidden .eslot,
+#inv-win.hidden .gcell,
+#equip-win.hidden .eslot,
+#inv-win .gcell:not(.beam-active) {
+  animation: none !important;
 }
 .eslot-icon-placeholder {
   display: flex;
@@ -5438,9 +5388,9 @@ body.ui-mode-old .gm-online-container {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 8px;
+  padding: 2px 10px;
   height: 18px;
-  border-radius: 4px;
+  border-radius: 9999px;
   background: rgba(10, 12, 18, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.18);
   overflow: visible;
@@ -5465,7 +5415,7 @@ body.ui-mode-old .gm-online-container {
 .guild-beam-bloom {
   position: absolute;
   inset: -4px;
-  border-radius: 8px;
+  border-radius: 9999px;
   pointer-events: none;
   z-index: 0;
   opacity: 0.85;
@@ -5478,7 +5428,7 @@ body.ui-mode-old .gm-online-container {
 .guild-beam-border {
   position: absolute;
   inset: -1.5px;
-  border-radius: 5px;
+  border-radius: 9999px;
   padding: 1.5px;
   box-sizing: border-box;
   pointer-events: none;

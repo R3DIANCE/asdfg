@@ -228,7 +228,7 @@ export class SpriteStore {
 
     if (!res) return null;
     this.stats.sprites++;
-    const key = res.canvas.image?.file?.reader?.key ?? res.found.file.reader.key;
+    const key = res.canvas.image?.file?.key ?? res.canvas.image?.file?.reader?.key ?? res.found.file.key ?? res.found.file.reader?.key;
     return canvasToPng(res.canvas, key);
   }
 

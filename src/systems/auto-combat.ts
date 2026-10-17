@@ -194,14 +194,17 @@ export class AutoCombatSystem {
     return false;
   }
 
+  private static readonly MANUAL_MOVE_KEYS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Left", "Right", "Up", "Down", "a", "A", "d", "D", "w", "W", "s", "S", "Alt", " ", "Space"];
+  private static readonly MANUAL_HORIZ_KEYS = ["ArrowLeft", "ArrowRight", "Left", "Right", "a", "A", "d", "D"];
+
   public static update(game: Game, dt: number) {
     const ai = game.ai, p = game.p, tree = game.tree;
     ai.keys.clear();
 
-    const manualMove = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Left", "Right", "Up", "Down", "a", "A", "d", "D", "w", "W", "s", "S", "Alt", " ", "Space"].some(
+    const manualMove = AutoCombatSystem.MANUAL_MOVE_KEYS.some(
       (k) => game.keys.has(k) || game.pressed.has(k)
     );
-    const manualHoriz = ["ArrowLeft", "ArrowRight", "Left", "Right", "a", "A", "d", "D"].some(
+    const manualHoriz = AutoCombatSystem.MANUAL_HORIZ_KEYS.some(
       (k) => game.keys.has(k) || game.pressed.has(k)
     );
 
@@ -286,6 +289,19 @@ export class AutoCombatSystem {
           if (onCurrentPlat.length > 0) pool = onCurrentPlat;
         }
 
+        const hasLadderDown = currentPlat && game.map.ladders.some(
+          (L) => L.y2 > p.y + 20 && Math.abs(L.y1 - p.y) < 45 && L.x >= currentPlat.minX - 35 && L.x <= currentPlat.maxX + 35
+        );
+        const canJumpUp = currentPlat && tree.floors.some((f) => {
+          if (f.id === p.fh?.id) return false;
+          const fy = (f.y1 + f.y2) / 2;
+          const delta = fy - p.y;
+          return delta < -15 && delta > -115 && Math.max(currentPlat.minX - 35, f.x1 - 35) <= Math.min(currentPlat.maxX + 35, f.x2 + 35);
+        });
+        const hasLadderUp = currentPlat && game.map.ladders.some(
+          (L) => L.y1 < p.y - 15 && p.y >= L.y1 - 10 && p.y <= L.y2 + 80 && L.x >= currentPlat.minX - 35 && L.x <= currentPlat.maxX + 35
+        );
+
         let best: Mob | null = null, bs = Infinity;
         for (const m of pool) {
           const mdx = Math.abs(m.x - p.x);
@@ -302,22 +318,10 @@ export class AutoCombatSystem {
             if (belowFh) {
               sc += absMdy * 1.5 + 60;
             } else {
-              const hasLadderDown = currentPlat && game.map.ladders.some(
-                (L) => L.y2 > p.y + 20 && Math.abs(L.y1 - p.y) < 45 && L.x >= currentPlat.minX - 35 && L.x <= currentPlat.maxX + 35
-              );
               sc += absMdy * 2.8 + (hasLadderDown ? 140 : 450);
             }
           } else {
             // Target is above the player
-            const canJumpUp = currentPlat && tree.floors.some((f) => {
-              if (f.id === p.fh?.id) return false;
-              const fy = (f.y1 + f.y2) / 2;
-              const delta = fy - p.y;
-              return delta < -15 && delta > -115 && Math.max(currentPlat.minX - 35, f.x1 - 35) <= Math.min(currentPlat.maxX + 35, f.x2 + 35);
-            });
-            const hasLadderUp = currentPlat && game.map.ladders.some(
-              (L) => L.y1 < p.y - 15 && p.y >= L.y1 - 10 && p.y <= L.y2 + 80 && L.x >= currentPlat.minX - 35 && L.x <= currentPlat.maxX + 35
-            );
             if (canJumpUp) {
               sc += absMdy * 1.8 + 80;
             } else if (hasLadderUp) {

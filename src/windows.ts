@@ -3,8 +3,9 @@ import { ItemBrowser } from "./item-browser.ts";
 import {
   GEAR, MATS, MAX_STAR, POT_LABEL, RARITY, RARITY_COLOR, RARITY_INK, SLOTS, SLOT_NAME, cubeCost, gearIcon, gearStats, gearValue, matIcon,
   npcSellPrice, recipeGearId, recipes, starCost, starMat, starRate, getWeaponStandAnim, isOverallItem, type Gear, type Recipe, type Slot,
+  PET_RARITY_NAME, PET_RARITY_COLOR, isPetItem,
 } from "./items.ts";
-import { renderGearTooltip, renderUseTooltip, renderMatTooltip } from "./tooltip.ts";
+import { renderGearTooltip, renderUseTooltip, renderMatTooltip, renderPetTooltip } from "./tooltip.ts";
 import { CashShop } from "./components/CashShop.ts";
 import { DamageSkinSystem, DAMAGE_SKIN_PRESETS } from "./systems/damage-skin-system.ts";
 import { icon, stars, dur } from "./util.ts";
@@ -209,12 +210,30 @@ export class Windows {
           if (!this.guildWin.classList.contains("hidden")) this.renderGuild();
         });
       }
+      if (this.ext) {
+        if (w === this.ext.invWin) this.ext.renderInv();
+        else if (w === this.ext.equipWin) this.ext.renderEquip();
+        else if (w === this.ext.craftWin) this.ext.renderCraft();
+        else if (w === this.ext.ahWin) this.ext.renderAh();
+      }
       clampWindow(w);
+    } else {
+      if (this.ext && w === this.ext.invWin) {
+        const active = this.ext.invWin.querySelectorAll(".beam-active");
+        for (const c of active) c.classList.remove("beam-active");
+      }
     }
   }
   closeTop() {
     const open = [...this.layer.querySelectorAll<HTMLElement>(".win:not(.hidden)")].sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
-    if (open[0]) { open[0].classList.add("hidden"); return true; }
+    if (open[0]) {
+      open[0].classList.add("hidden");
+      if (this.ext && open[0] === this.ext.invWin) {
+        const active = this.ext.invWin.querySelectorAll(".beam-active");
+        for (const c of active) c.classList.remove("beam-active");
+      }
+      return true;
+    }
     return false;
   }
   openCashShop() {
@@ -1609,6 +1628,20 @@ export class Windows {
       reconnectBtn.addEventListener("click", () => {
         g.initWs();
         g.onChat("system", "[Sync] Reconnecting WebSocket...");
+      });
+
+      // GM Drop Audit Tool Control
+      const secDropAudit = el("div", "debug-section", wd);
+      el("div", "debug-sec-title", secDropAudit).textContent = "GM Monster Drop Audit Tool";
+      const dropAuditRow = el("div", "debug-row gap-2", secDropAudit);
+      const isAuditOn = typeof localStorage !== "undefined" && localStorage.getItem("ms_gm_drop_widget_enabled") === "true";
+      const auditToggleBtn = el("button", `debug-btn flex-1 ${isAuditOn ? "green" : ""}`, dropAuditRow) as HTMLButtonElement;
+      auditToggleBtn.textContent = `Drop Audit Tool: ${isAuditOn ? "ENABLED (Click to Hide)" : "DISABLED (Click to Show)"}`;
+      auditToggleBtn.addEventListener("click", () => {
+        const next = !(localStorage.getItem("ms_gm_drop_widget_enabled") === "true");
+        window.dispatchEvent(new CustomEvent("set-gm-drop-widget-enabled", { detail: { enabled: next } }));
+        auditToggleBtn.textContent = `Drop Audit Tool: ${next ? "ENABLED (Click to Hide)" : "DISABLED (Click to Show)"}`;
+        auditToggleBtn.className = `debug-btn flex-1 ${next ? "green" : ""}`;
       });
     }
   }
@@ -3317,7 +3350,14 @@ export class Windows {
     `;
   }
 
+  private winUpdateTimer = 0;
+
   update(dt: number) {
+    this.renderLogs(dt);
+    this.winUpdateTimer += dt;
+    if (this.winUpdateTimer < 0.08) return;
+    this.winUpdateTimer = 0;
+
     this.renderCharacterInfo();
     this.renderStat();
     this.renderHyperStats();
@@ -3325,7 +3365,6 @@ export class Windows {
     this.renderSkill();
     this.ext.update();
     this.renderBuffs();
-    this.renderLogs(dt);
     if (this.partyWin && !this.partyWin.classList.contains("hidden")) {
       this.renderParty();
     }
@@ -3346,6 +3385,7 @@ export class ExtWindows {
   stageHud: HTMLElement; bossBar: HTMLElement; offline: HTMLElement | null = null;
   items: ItemBrowser;
   cashShop: CashShop;
+  private invBeamObserver: IntersectionObserver | null = null;
   tips = new Map<string, () => string>();
   sig: Record<string, string> = {};
   equipTab: "equip" | "visual" | "pet" | "damage" = "equip";
@@ -3376,13 +3416,30 @@ export class ExtWindows {
       win.addEventListener("pointermove", (e) => {
         if (w.ghost) return;
         const target = e.target as HTMLElement;
-        const t = target.closest<HTMLElement>("[data-tip], [data-uid], [data-use], [data-mat], [data-slot]");
+        const t = target.closest<HTMLElement>("[data-tip], [data-uid], [data-use], [data-mat], [data-slot], [data-pet-uid], [data-pet-id]");
         if (!t) {
           w.hideTip();
           return;
         }
 
         const g = this.w.game;
+
+        // Pet item or active pet companion
+        if (t.dataset.petUid || t.dataset.petId) {
+          const pUid = t.dataset.petUid;
+          const pId = Number(t.dataset.petId || 0);
+          const pet = (pUid ? g.petItems?.find((it) => it.uid === pUid) : null)
+            || (pUid ? g.pets.find((p) => p.uid === pUid) : null)
+            || (pId ? g.pets.find((p) => p.id === pId) : null)
+            || (pId ? g.petItems?.find((it) => it.id === pId) : null);
+
+          if (pet) {
+            const isEquipped = g.pets.some((p) => (pUid && p.uid === pUid) || p.id === pet.id);
+            const note = isEquipped ? "Currently Summoned · Click to unequip" : "Companion Inventory · Click to equip";
+            w.showTip(renderPetTooltip(pet, isEquipped, note), (e as PointerEvent).clientX, (e as PointerEvent).clientY);
+            return;
+          }
+        }
 
         // 1. Equipped items or bag items with data-uid
         const uid = t.dataset.uid;
@@ -3441,6 +3498,14 @@ export class ExtWindows {
       }
     });
 
+    this.equipWin.addEventListener("change", (e) => {
+      const t = e.target as HTMLElement;
+      if (t && t.classList.contains("pet-name-vis-select")) {
+        const val = (t as HTMLSelectElement).value as any;
+        this.w.game.setPetNameVisibility(val);
+      }
+    });
+
     w.item = this.invWin;
 
     this.menuPop = el("div", "menu-pop hidden", document.body);
@@ -3479,6 +3544,10 @@ export class ExtWindows {
     const isAlreadyOpen = !win.classList.contains("hidden");
     if (isAlreadyOpen) {
       win.classList.add("hidden");
+      if (k === "inv") {
+        const active = this.invWin.querySelectorAll(".beam-active");
+        for (const c of active) c.classList.remove("beam-active");
+      }
       return;
     }
     if (k === "ah") this.w.game.ah.refresh(Date.now());
@@ -3642,6 +3711,22 @@ export class ExtWindows {
         const id = Number(t.dataset.id);
         if (id) g.equipPet(id);
         this.renderEquip();
+        this.renderInv();
+        break;
+      }
+      case "adopt-pet": {
+        const id = Number(t.dataset.id);
+        if (id) g.equipPet(id);
+        this.renderEquip();
+        this.renderInv();
+        break;
+      }
+      case "equip-pet-item": {
+        const uid = t.dataset.uid;
+        const item = g.petItems?.find((it) => it.uid === uid);
+        if (item) g.equipPetItem(item);
+        this.renderEquip();
+        this.renderInv();
         break;
       }
       case "dismiss-pet": {
@@ -3649,12 +3734,14 @@ export class ExtWindows {
         const p = g.pets.find((x) => x.id === id);
         if (p) g.unequipPet(p.slotIndex);
         this.renderEquip();
+        this.renderInv();
         break;
       }
       case "unequip-pet": {
         const s = Number(t.dataset.slot);
         g.unequipPet(s);
         this.renderEquip();
+        this.renderInv();
         break;
       }
       case "equip-damage-skin": {
@@ -3906,39 +3993,89 @@ export class ExtWindows {
       const slotsHtml = [0, 1, 2].map((slotIdx) => {
         const pet = activePets.find((p) => p.slotIndex === slotIdx);
         if (pet) {
+          const rar = Math.min(4, Math.max(0, pet.rarity ?? 0));
+          const rarName = PET_RARITY_NAME[rar] ?? "Normal";
+          const rarColor = PET_RARITY_COLOR[rar] ?? "#e4e4e7";
+          const pct = Math.min(100, Math.floor(((pet.exp || 0) / (pet.maxExp || 100)) * 100));
+
+          const bonusesList = (pet.bonuses && pet.bonuses.length > 0)
+            ? pet.bonuses.map((b) => `<span class="px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 text-[8.5px] font-semibold">${esc(b.label)}</span>`).join(" ")
+            : `<span class="text-[8.5px] text-zinc-400 italic">Unlocks first bonus at Lv. 25</span>`;
+
           return `
-            <div class="pet-slot-card flex items-center justify-between p-2.5 rounded bg-zinc-900/60 border border-emerald-500/35 shadow-sm">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded bg-black/50 border border-emerald-500/40 flex items-center justify-center overflow-hidden">
-                  <img src="/wz/pet-icon/${pet.id}" alt="${pet.name}" class="w-8 h-8 object-contain pixelated" />
-                </div>
-                <div>
-                  <div class="text-[12px] font-bold text-emerald-300 flex items-center gap-1.5">
-                    ${pet.name} <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 font-semibold uppercase">Slot ${slotIdx + 1}</span>
+            <div class="pet-slot-card flex flex-col p-2.5 rounded bg-zinc-900/80 border border-white/15 shadow-sm gap-1.5 transition-all" data-pet-uid="${pet.uid || pet.id}">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-10 h-10 rounded bg-black/60 border flex items-center justify-center overflow-hidden flex-shrink-0" style="border-color:${rarColor}80">
+                    <img src="/wz/pet-icon/${pet.id}" alt="${pet.name}" class="w-8 h-8 object-contain pixelated" onerror="this.src='/wz/item/${pet.id}/icon'" />
                   </div>
-                  <div class="text-[9.5px] text-zinc-300 mt-0.5">Auto Follow · Active Field Looting</div>
+                  <div>
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-[11.5px] font-bold" style="color:${rarColor}">${esc(pet.name)}</span>
+                      <span class="text-[8px] font-mono font-bold px-1 py-0.2 rounded uppercase" style="color:${rarColor};background:${rarColor}20;border:1px solid ${rarColor}50">${rarName}</span>
+                      <span class="text-[8.5px] px-1 py-0.2 rounded bg-zinc-800 text-zinc-300 border border-white/10 font-bold">Slot ${slotIdx + 1}</span>
+                    </div>
+                    <div class="flex items-center gap-2 mt-0.5">
+                      <span class="text-[9.5px] font-bold text-amber-300">Lv. ${pet.level || 1}</span>
+                      <div class="w-24 bg-zinc-800 rounded-full h-1.5 overflow-hidden border border-white/10">
+                        <div class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full" style="width:${pct}%"></div>
+                      </div>
+                      <span class="text-[8px] font-mono text-zinc-400">${pet.exp || 0}/${pet.maxExp || 100}</span>
+                    </div>
+                  </div>
                 </div>
+                <button type="button" data-act="unequip-pet" data-slot="${slotIdx}" class="px-2 py-1 text-[9.5px] font-bold rounded bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40 transition-colors cursor-pointer">
+                  Unequip
+                </button>
               </div>
-              <button type="button" data-act="unequip-pet" data-slot="${slotIdx}" class="px-2.5 py-1 text-[10px] font-bold rounded bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40 transition-colors">
-                Dismiss
-              </button>
+              <div class="flex flex-wrap items-center gap-1 pt-1 border-t border-white/10">
+                <span class="text-[8px] uppercase tracking-wider text-zinc-400 font-bold mr-0.5">Bonuses:</span>
+                ${bonusesList}
+              </div>
             </div>
           `;
         }
         return `
           <div class="pet-slot-card flex items-center justify-between p-2.5 rounded bg-zinc-900/35 border border-dashed border-white/15">
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2.5">
               <div class="w-10 h-10 rounded bg-black/30 border border-dashed border-white/15 flex items-center justify-center text-zinc-500 text-[11px] font-bold">
                 ${slotIdx + 1}
               </div>
               <div>
-                <div class="text-[11.5px] font-medium text-zinc-400">Empty Pet Slot ${slotIdx + 1}</div>
-                <div class="text-[9.5px] text-zinc-500 mt-0.5">Summon a companion below (Max 3 pets)</div>
+                <div class="text-[11px] font-medium text-zinc-400">Empty Pet Socket ${slotIdx + 1}</div>
+                <div class="text-[9px] text-zinc-500 mt-0.5">Equip an companion from bag or adopt below (Max 3 pets)</div>
               </div>
             </div>
           </div>
         `;
       }).join("");
+
+      // Unequipped pets in companion inventory
+      const unequippedPets = (g.petItems || []).filter((it) => !activePets.some((p) => (it.uid && p.uid === it.uid) || p.id === it.id));
+      const unequippedHtml = unequippedPets.length > 0 ? unequippedPets.map((p) => {
+        const rar = Math.min(4, Math.max(0, p.rarity ?? 0));
+        const rarName = PET_RARITY_NAME[rar] ?? "Normal";
+        const rarColor = PET_RARITY_COLOR[rar] ?? "#e4e4e7";
+        return `
+          <div class="flex items-center justify-between p-2 rounded bg-zinc-900/60 border border-white/10 hover:border-white/20 transition-all" data-pet-uid="${p.uid}">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded bg-black/50 border flex items-center justify-center overflow-hidden flex-shrink-0" style="border-color:${rarColor}60">
+                <img src="/wz/pet-icon/${p.id}" alt="${p.name}" class="w-6 h-6 object-contain pixelated" onerror="this.src='/wz/item/${p.id}/icon'" />
+              </div>
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[10.5px] font-bold" style="color:${rarColor}">${esc(p.name)}</span>
+                  <span class="text-[7.5px] font-mono px-1 py-0.2 rounded uppercase" style="color:${rarColor};background:${rarColor}15;border:1px solid ${rarColor}40">${rarName}</span>
+                </div>
+                <div class="text-[8.5px] text-amber-300/90 font-medium">Lv. ${p.level || 1} · ${p.bonuses?.length || 0} Bonuses</div>
+              </div>
+            </div>
+            <button type="button" data-act="equip-pet-item" data-uid="${p.uid}" class="px-2 py-0.5 text-[9px] font-bold rounded bg-sky-600/80 hover:bg-sky-500 text-white border border-sky-400/40 transition-colors cursor-pointer">
+              Equip
+            </button>
+          </div>
+        `;
+      }).join("") : `<div class="text-[9.5px] text-zinc-500 italic p-2 rounded bg-black/20 border border-dashed border-white/10 text-center">No unequipped companions in bag. Adopt a new companion below!</div>`;
 
       const catalog = [
         { id: 5000000, name: "Brown Kitty" },
@@ -3958,13 +4095,13 @@ export class ExtWindows {
       const catalogHtml = catalog.map((p) => {
         const isSummoned = activePets.some((x) => x.id === p.id);
         return `
-          <div class="pet-cat-card p-2 rounded bg-zinc-900/50 border ${isSummoned ? "border-emerald-500/50 bg-emerald-950/25 shadow-[0_0_8px_rgba(16,185,129,0.15)]" : "border-white/10 hover:border-white/25"} flex flex-col items-center text-center gap-1.5 transition-all">
+          <div class="pet-cat-card p-2 rounded bg-zinc-900/50 border ${isSummoned ? "border-emerald-500/50 bg-emerald-950/25 shadow-[0_0_8px_rgba(16,185,129,0.15)]" : "border-white/10 hover:border-white/25"} flex flex-col items-center text-center gap-1.5 transition-all" data-pet-id="${p.id}">
             <div class="w-10 h-10 rounded bg-black/40 flex items-center justify-center overflow-hidden">
-              <img src="/wz/pet-icon/${p.id}" alt="${p.name}" class="w-8 h-8 object-contain pixelated" />
+              <img src="/wz/pet-icon/${p.id}" alt="${p.name}" class="w-8 h-8 object-contain pixelated" onerror="this.src='/wz/item/${p.id}/icon'" />
             </div>
             <div class="text-[11px] font-semibold text-zinc-200 line-clamp-1">${p.name}</div>
-            <button type="button" data-act="${isSummoned ? "dismiss-pet" : "summon-pet"}" data-id="${p.id}" class="w-full py-1 text-[9.5px] font-bold rounded ${isSummoned ? "bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40" : "bg-sky-600/70 hover:bg-sky-500 text-white border border-sky-400/40"} transition-colors">
-              ${isSummoned ? "Dismiss" : "Summon"}
+            <button type="button" data-act="${isSummoned ? "dismiss-pet" : "adopt-pet"}" data-id="${p.id}" class="w-full py-1 text-[9.5px] font-bold rounded ${isSummoned ? "bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-500/40" : "bg-sky-600/70 hover:bg-sky-500 text-white border border-sky-400/40"} transition-colors cursor-pointer">
+              ${isSummoned ? "Dismiss" : "Adopt"}
             </button>
           </div>
         `;
@@ -3977,16 +4114,36 @@ export class ExtWindows {
           <button type="button" data-act="equiptab" data-v="pet" class="equip-tab on">Pet</button>
           <button type="button" data-act="equiptab" data-v="damage" class="equip-tab">Damage Skin</button>
         </div>
-        <div class="equip-sub-bar">
-          <span class="equip-title-label">PET COMPANIONS (${activePets.length} / 3 ACTIVE)</span>
-          <span class="text-[10px] text-emerald-400 font-bold">Auto-Follow & Looting</span>
+        <div class="equip-sub-bar flex items-center justify-between px-2 py-1 bg-zinc-950/80 border-b border-white/10">
+          <span class="equip-title-label text-[10px] font-bold text-zinc-300">PET COMPANIONS (${activePets.length} / 3 ACTIVE)</span>
+          <div class="flex items-center gap-1.5">
+            <span class="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Pet Names:</span>
+            <select class="pet-name-vis-select bg-zinc-900 border border-white/20 rounded px-1.5 py-0.5 text-[9.5px] text-zinc-200 cursor-pointer">
+              <option value="hide" ${g.petNameVisibility === "hide" ? "selected" : ""}>Hide All (Default)</option>
+              <option value="all" ${g.petNameVisibility === "all" ? "selected" : ""}>Show All</option>
+              <option value="only_me" ${g.petNameVisibility === "only_me" ? "selected" : ""}>Only Mine</option>
+              <option value="only_others" ${g.petNameVisibility === "only_others" ? "selected" : ""}>Only Others</option>
+            </select>
+          </div>
         </div>
-        <div class="pet-equip-view flex flex-col gap-2 p-3 overflow-y-auto max-h-[380px] scrollbar-thin">
-          <div class="text-[11px] font-bold text-zinc-300 uppercase tracking-wider">Active Pets (Follows player & loots drops)</div>
+        <div class="pet-equip-view flex flex-col gap-2 p-2.5 overflow-y-auto max-h-[380px] scrollbar-thin">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">Equipped Pet Sockets</span>
+            <span class="text-[9px] text-emerald-400 font-medium">Bonuses stack every 25 levels</span>
+          </div>
           <div class="flex flex-col gap-1.5">
             ${slotsHtml}
           </div>
-          <div class="text-[11px] font-bold text-zinc-300 uppercase tracking-wider mt-2">Available Pets (Click to Summon up to 3)</div>
+
+          <div class="flex items-center justify-between mt-2">
+            <span class="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">Companion Bag (Owned)</span>
+            <span class="text-[9px] text-zinc-400 font-mono">${unequippedPets.length} In Bag</span>
+          </div>
+          <div class="flex flex-col gap-1">
+            ${unequippedHtml}
+          </div>
+
+          <div class="text-[10px] font-bold text-zinc-300 uppercase tracking-wider mt-2">Adopt New Companion</div>
           <div class="grid grid-cols-3 gap-2">
             ${catalogHtml}
           </div>
@@ -4196,6 +4353,8 @@ export class ExtWindows {
         const b = GEAR.get(it.id);
         return Boolean(b?.cosmetic || b?.cash);
       });
+      const unequippedPets = (g.petItems || []).filter((p) => !g.pets.some((ep) => ep.uid === p.uid || ep.id === p.id));
+
       if (q) {
         bag = bag.filter((it) => (GEAR.get(it.id)?.name ?? "").toLowerCase().includes(q));
         bag.sort((a, b) => {
@@ -4207,15 +4366,22 @@ export class ExtWindows {
           return nameA.localeCompare(nameB);
         });
       }
-      curCount = bag.length;
+      curCount = bag.length + unequippedPets.length;
+
+      // Render unequipped pet companion items first in cash tab
+      for (const pet of unequippedPets) {
+        grid += `<div class="gcell r${pet.rarity} pet-item-cell cursor-pointer" data-act="equip-pet-item" data-uid="${pet.uid}" data-pet-uid="${pet.uid}"><img src="/wz/pet-icon/${pet.id}" alt="${pet.name}" class="w-7 h-7 object-contain pixelated" onerror="this.src='/wz/item/${pet.id}/icon'" /><span class="gstar" style="background:#047857;color:#fff;border-color:#10b981">Lv.${pet.level || 1}</span></div>`;
+      }
+
       const maxSlot = bag.reduce((m, it) => Math.max(m, it.slot ?? 0), 0);
-      const targetPad = Math.max(32, Math.ceil((q ? bag.length : maxSlot + 1) / 8) * 8);
-      for (let i = 0; i < targetPad; i++) {
-        const it = q ? bag[i] : bag.find((x) => x.slot === i);
+      const targetPad = Math.max(32, Math.ceil((q ? bag.length + unequippedPets.length : maxSlot + unequippedPets.length + 1) / 8) * 8);
+      for (let i = unequippedPets.length; i < targetPad; i++) {
+        const bagIdx = i - unequippedPets.length;
+        const it = q ? bag[bagIdx] : bag.find((x) => x.slot === bagIdx);
         if (it) {
-          grid += `<div class="gcell r${it.rarity}" data-act="equip-visual" data-uid="${it.uid}" data-slot-idx="${it.slot ?? i}" data-is-cash="1" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to equip as visual cosmetic · drag to move anywhere · right-click for actions"))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
+          grid += `<div class="gcell r${it.rarity}" data-act="equip-visual" data-uid="${it.uid}" data-slot-idx="${it.slot ?? bagIdx}" data-is-cash="1" ${this.tip("g" + it.uid, () => this.gearTip(it, "Click to equip as visual cosmetic · drag to move anywhere · right-click for actions"))}>${icon(gearIcon(it.id))}${it.star ? `<span class="gstar">★${it.star}</span>` : ""}</div>`;
         } else {
-          grid += `<div class="gcell blank" data-slot-idx="${i}" data-is-cash="1"></div>`;
+          grid += `<div class="gcell blank" data-slot-idx="${bagIdx}" data-is-cash="1"></div>`;
         }
       }
     } else {
@@ -4298,6 +4464,66 @@ export class ExtWindows {
     }
 
     this.setupInventoryDrag(body);
+    this.setupInventoryBeamObserver(body);
+  }
+
+  private setupInventoryBeamObserver(body: HTMLElement) {
+    if (this.invBeamObserver) {
+      this.invBeamObserver.disconnect();
+      this.invBeamObserver = null;
+    }
+    const gridEl = body.querySelector(".inv-grid") as HTMLElement | null;
+    if (!gridEl) return;
+
+    const beamCells = gridEl.querySelectorAll<HTMLElement>(".gcell.r1, .gcell.r2, .gcell.r3, .gcell.r4");
+    if (beamCells.length === 0) return;
+
+    const updateVisibility = () => {
+      if (this.invWin.classList.contains("hidden")) {
+        for (const cell of beamCells) cell.classList.remove("beam-active");
+        return;
+      }
+      const rect = gridEl.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      for (const cell of beamCells) {
+        const r = cell.getBoundingClientRect();
+        const isVisible = r.bottom >= rect.top - 2 && r.top <= rect.bottom + 2;
+        if (isVisible) {
+          cell.classList.add("beam-active");
+        } else {
+          cell.classList.remove("beam-active");
+        }
+      }
+    };
+
+    if (typeof IntersectionObserver !== "undefined") {
+      this.invBeamObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          if (entry.isIntersecting && !this.invWin.classList.contains("hidden")) {
+            el.classList.add("beam-active");
+          } else {
+            el.classList.remove("beam-active");
+          }
+        }
+      }, {
+        root: gridEl,
+        rootMargin: "4px",
+        threshold: 0.01,
+      });
+
+      for (const cell of beamCells) {
+        this.invBeamObserver.observe(cell);
+      }
+    }
+
+    gridEl.addEventListener("scroll", () => {
+      if (!this.invBeamObserver) {
+        updateVisibility();
+      }
+    }, { passive: true });
+
+    requestAnimationFrame(updateVisibility);
   }
 
   private setupInventoryDrag(body: HTMLElement) {

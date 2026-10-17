@@ -147,6 +147,9 @@ export class WzSubProperty extends WzNullProperty {
     p.parent = this;
     this.map.set(p.name, p);
   }
+  clear(): void {
+    this.map.clear();
+  }
   override child(name: string): WzProperty | null {
     return this.map.get(name) ?? null;
   }

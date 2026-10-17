@@ -58,6 +58,12 @@ const MAX = 16384;
 export class Renderer {
   backend: "webgpu" | "webgl" = "webgpu";
 
+  get renderType(): string {
+    if (this.backend === "webgpu") return "WebGPU";
+    if (this.backend === "webgl") return this.isWebGL2 ? "WebGL2" : "WebGL";
+    return "Canvas";
+  }
+
   // WebGPU pipeline
   device!: GPUDevice;
   ctx!: GPUCanvasContext;
@@ -83,6 +89,7 @@ export class Renderer {
 
   // Shared state
   data = new Float32Array(MAX * FLOATS);
+  private viewData = new Float32Array(4);
   count = 0;
   batches: { tex: Tex; start: number; n: number }[] = [];
   white!: Tex;
@@ -345,6 +352,38 @@ export class Renderer {
     }
   }
 
+  /** Explicitly releases WebGPU / WebGL VRAM and scene objects for a texture */
+  destroyTexture(t: Tex | null | undefined) {
+    if (!t) return;
+    if (t.tex) {
+      try { t.tex.destroy(); } catch {}
+      t.tex = undefined;
+    }
+    if (t.bind) {
+      t.bind = undefined;
+    }
+    if (t.glTex && this.gl) {
+      try { this.gl.deleteTexture(t.glTex); } catch {}
+      t.glTex = undefined;
+    }
+    if (t.bitmapTexture) {
+      try { (t.bitmapTexture as any).destroy?.(); } catch {}
+      t.bitmapTexture = undefined;
+    }
+    if (this.activeSpriteRenderers.has(t)) {
+      const sr = this.activeSpriteRenderers.get(t);
+      if (sr?.object3D) {
+        if (this.spriteContainer) {
+          try { this.spriteContainer.removeChild(sr.object3D); } catch {}
+        } else if (this.scene) {
+          try { this.scene.removeChild(sr.object3D); } catch {}
+        }
+        try { (sr.object3D as any).destroy?.(); } catch {}
+      }
+      this.activeSpriteRenderers.delete(t);
+    }
+  }
+
   /** Create or retrieve an Orillusion SpriteRenderer component bound to this asset texture */
   getOrCreateSpriteRenderer(t: Tex, size?: { w: number; h: number }): SpriteRenderer | null {
     if (!this.scene || !t.orillusionSprite) return null;
@@ -384,10 +423,11 @@ export class Renderer {
 
 
   resize() {
-    const dpr = Math.min(2, devicePixelRatio || 1);
-    const w = Math.ceil(innerWidth * dpr), h = Math.ceil(innerHeight * dpr);
+    const dpr = Math.min(1.25, Math.max(1, devicePixelRatio || 1));
+    const w = Math.min(1920, Math.ceil(innerWidth * dpr));
+    const h = Math.min(1080, Math.ceil(innerHeight * dpr));
     if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
-    this.scale = dpr;
+    this.scale = w / Math.max(1, innerWidth);
     this.width = innerWidth;
     this.height = innerHeight;
   }
@@ -425,7 +465,9 @@ export class Renderer {
   end() {
     if (this.backend === "webgpu") {
       const q = this.device.queue;
-      q.writeBuffer(this.viewBuf, 0, new Float32Array([this.canvas.width, this.canvas.height, 0, 0]));
+      this.viewData[0] = this.canvas.width;
+      this.viewData[1] = this.canvas.height;
+      q.writeBuffer(this.viewBuf, 0, this.viewData);
       q.writeBuffer(this.inst, 0, this.data, 0, this.count * FLOATS);
       const enc = this.device.createCommandEncoder();
       const pass = enc.beginRenderPass({

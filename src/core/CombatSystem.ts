@@ -14,6 +14,7 @@ import { MOB_MAT, ORES, makeGear, randomGearFor, getWeaponAttackAnim, isRangedWe
 import { groundMove } from "../physics.ts";
 import { StageSystem } from "../systems/stage-system.ts";
 import { NetworkSystem } from "./NetworkSystem.ts";
+import { PetSystem } from "../systems/pet-system.ts";
 
 export class CombatSystem {
   static skillCooldown(game: Game, id: string): number {
@@ -394,6 +395,7 @@ export class CombatSystem {
 
       const exp = Math.max(1, Math.round((m.data.meta?.exp ?? 5) * m.mul.exp * lvExpMul * (1 + game.gt.exp / 100)));
       CombatSystem.gainExp(game, exp);
+      PetSystem.onMobKilled(game, m.data.meta?.level || 10);
 
       // Authentic Modern MapleStory Combo Kill System
       const now = game.time;
@@ -565,7 +567,7 @@ export class CombatSystem {
             y: Math.round(hurtY),
           }));
         }
-        p.invuln = 2; p.alert = 3;
+        p.invuln = 3.0; p.alert = 3;
         const away = p.x < m.x ? -1 : 1;
         p.ladder = null; p.fh = null; p.vx = away * 130; p.vy = -260; p.attack = 0;
         game.ai.ladderIntent = null;

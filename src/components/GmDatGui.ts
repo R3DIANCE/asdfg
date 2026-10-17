@@ -543,10 +543,18 @@ export class GmDatGui {
     actionsGrid.appendChild(
       createActionBtn("Map Alert Banner", "bell", "text-yellow-400", () => this.promptMapAlert())
     );
+    const dropAuditEnabled = typeof localStorage !== "undefined" && localStorage.getItem("ms_gm_drop_widget_enabled") === "true";
     actionsGrid.appendChild(
-      createActionBtn("Drop Audit Widget", "package", "text-amber-400", () => {
-        window.dispatchEvent(new CustomEvent("toggle-gm-drop-widget"));
-      })
+      createActionBtn(
+        `Drop Audit: ${dropAuditEnabled ? "ON" : "OFF"}`,
+        "package",
+        dropAuditEnabled ? "text-emerald-400" : "text-zinc-500",
+        () => {
+          const next = !(localStorage.getItem("ms_gm_drop_widget_enabled") === "true");
+          window.dispatchEvent(new CustomEvent("set-gm-drop-widget-enabled", { detail: { enabled: next } }));
+          this.renderTabContent();
+        }
+      )
     );
 
     wrap.appendChild(actionsGrid);
@@ -1387,6 +1395,40 @@ export class GmDatGui {
     });
 
     wrap.appendChild(modeCard);
+
+    // GM Drop Audit Tool Toggle Card
+    const auditCard = document.createElement("div");
+    auditCard.style.background = "rgba(255, 255, 255, 0.02)";
+    auditCard.style.border = "1px solid rgba(255, 255, 255, 0.08)";
+    auditCard.style.borderRadius = "6px";
+    auditCard.style.padding = "8px 10px";
+
+    const isAuditActive = typeof localStorage !== "undefined" && localStorage.getItem("ms_gm_drop_widget_enabled") === "true";
+    auditCard.innerHTML = `
+      <div style="font-size:10.5px;font-weight:700;color:#fff;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${lucideIcon("package", 13, isAuditActive ? "text-amber-400" : "text-zinc-400")}
+          <span>Drop Audit & Verification Tool</span>
+        </div>
+        <span style="font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:4px;background:${isAuditActive ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)"};color:${isAuditActive ? "#34d399" : "#94a3b8"};border:1px solid ${isAuditActive ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.1)"};">
+          ${isAuditActive ? "ENABLED" : "DISABLED / HIDDEN"}
+        </span>
+      </div>
+      <div style="font-size:9px;color:#94a3b8;margin-bottom:8px;">Real-time ground loot tracking and player inventory confirmation panel. Hidden by default.</div>
+      <div style="display:flex;gap:6px;">
+        <button type="button" class="gm-audit-toggle" style="flex:1;padding:6px;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid ${isAuditActive ? "#f59e0b" : "rgba(255,255,255,0.1)"};background:${isAuditActive ? "rgba(245,158,11,0.25)" : "rgba(255,255,255,0.04)"};color:${isAuditActive ? "#fcd34d" : "#cbd5e1"};">
+          ${isAuditActive ? "Disable & Hide Drop Tool" : "Enable & Show Drop Tool"}
+        </button>
+      </div>
+    `;
+
+    auditCard.querySelector(".gm-audit-toggle")?.addEventListener("click", () => {
+      const next = !isAuditActive;
+      window.dispatchEvent(new CustomEvent("set-gm-drop-widget-enabled", { detail: { enabled: next } }));
+      this.renderTabContent();
+    });
+
+    wrap.appendChild(auditCard);
     this.contentEl.appendChild(wrap);
   }
 

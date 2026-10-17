@@ -411,16 +411,17 @@ export class Hud extends ComponentBase {
     const p = g.p;
     this.wins.update(dt);
     this.mini.updatePlayer(p.x, p.y, g.remotePlayers);
-    this.quick.render();
     this.gmPanel?.update(dt);
-    this.partyWidget?.update();
-
-    if (this.menu) {
-      this.menu.setActive("chat", this.chat?.isOpen ?? false);
-      this.menu.setActive("stat", this.statsComp?.isOpen ?? false);
-      this.menu.setActive("equip", this.equipComp?.isOpen ?? false);
-      this.menu.setActive("inv", this.invComp?.isOpen ?? false);
-      this.menu.setActive("party", this.partyComp?.isOpen ?? false);
+    this.partyWidget?.update(dt);
+    if (g.uiMode === "old") {
+      this.quick.render();
+      if (this.menu) {
+        this.menu.setActive("chat", this.chat?.isOpen ?? false);
+        this.menu.setActive("stat", this.statsComp?.isOpen ?? false);
+        this.menu.setActive("equip", this.equipComp?.isOpen ?? false);
+        this.menu.setActive("inv", this.invComp?.isOpen ?? false);
+        this.menu.setActive("party", this.partyComp?.isOpen ?? false);
+      }
     }
   }
 

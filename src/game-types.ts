@@ -90,10 +90,35 @@ export interface PetData {
   actions: Record<string, PetFrame[]>;
 }
 
+export interface PetBonus {
+  level: number;
+  type: "watk" | "matk" | "all_stat" | "speed" | "jump" | "hp" | "mp" | "meso_rate" | "drop_rate";
+  value: number;
+  label: string;
+}
+
+export interface PetItem {
+  uid: string;
+  id: number;
+  name: string;
+  level: number;
+  exp: number;
+  maxExp: number;
+  rarity: number; // 0: Normal, 1: Rare, 2: Epic, 3: Unique, 4: Legendary
+  bonuses: PetBonus[];
+  slotIndex?: number; // 0, 1, 2 if equipped
+}
+
 export interface PetInstance {
+  uid?: string;
   id: number;
   name: string;
   slotIndex: number; // 0, 1, 2 (max 3 pets)
+  level: number;
+  exp: number;
+  maxExp: number;
+  rarity: number;
+  bonuses: PetBonus[];
   x: number;
   y: number;
   vx: number;
@@ -108,6 +133,8 @@ export interface PetInstance {
   lootCooldown?: number;
   lastTex?: Tex | null;
   lastFr?: PetFrame | null;
+  isLocal?: boolean;
+  ownerId?: string;
 }
 
 // World links and constants
@@ -138,6 +165,8 @@ export interface RemotePlayer {
   look: number[];
   balloon?: { text: string; t: number };
   lastTex?: Tex | null;
+  targetAnim?: string;
+  lastAnim?: string;
   attackTimer?: number;
   animTimer?: number;
   guildId?: string;
@@ -153,7 +182,10 @@ export interface RemotePlayer {
   maxHp?: number;
   mp?: number;
   maxMp?: number;
+  vy?: number;
+  isClimbing?: boolean;
   charComp?: any;
+  pets?: PetInstance[];
 }
 
 export const BODY = [2000, 12000, 20000, 30030];

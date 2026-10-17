@@ -148,7 +148,7 @@ export class MobSystem {
               y: Math.round(hurtY),
             }));
           }
-          p.invuln = 1.5; p.alert = 3; p.ladder = null; p.fh = null; p.vx = (dx < 0 ? -1 : 1) * 200; p.vy = -320; p.attack = 0;
+          p.invuln = 3.0; p.alert = 3; p.ladder = null; p.fh = null; p.vx = (dx < 0 ? -1 : 1) * 200; p.vy = -320; p.attack = 0;
           if (game.stats.hp <= 0) CombatSystem.die(game);
         }
         m.attacking = undefined; m.skillT = rand(3, 5.5); m.frame = 0; m.anim = 0;

@@ -11,6 +11,7 @@ import {
   type RemotePlayer,
   type ActiveRune,
   type RuneType,
+  type PetInstance,
   charUrlFor,
   DEFAULT_LOOK,
   expToLevel,
@@ -25,18 +26,23 @@ import { CharacterRendererComponent } from "./CharacterRendererComponent.ts";
 const textTexCache = new Map<string, Tex>();
 const textTexPending = new Set<string>();
 
+// Permanent UI Textures Cache (Key labels, player names, guild tags, static badges)
+// These textures are NEVER evicted or destroyed to ensure absolute zero HUD blinking.
+const uiTexCache = new Map<string, Tex>();
+const uiTexPending = new Set<string>();
+
 export function renderLabelTexture(r: Renderer, text: string, fontSize = 8, color = "#d2d8e1"): Tex | null {
   const key = `label:${text}:${fontSize}:${color}`;
-  const hit = textTexCache.get(key);
+  const hit = uiTexCache.get(key);
   if (hit) return hit;
-  if (textTexPending.has(key)) return null;
-  textTexPending.add(key);
+  if (uiTexPending.has(key)) return null;
+  uiTexPending.add(key);
 
   try {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      textTexPending.delete(key);
+      uiTexPending.delete(key);
       return null;
     }
 
@@ -65,13 +71,13 @@ export function renderLabelTexture(r: Renderer, text: string, fontSize = 8, colo
 
     createImageBitmap(canvas).then((bmp) => {
       const tex = r.texture(bmp);
-      textTexCache.set(key, tex);
-      textTexPending.delete(key);
+      uiTexCache.set(key, tex);
+      uiTexPending.delete(key);
     }).catch(() => {
-      textTexPending.delete(key);
+      uiTexPending.delete(key);
     });
   } catch {
-    textTexPending.delete(key);
+    uiTexPending.delete(key);
   }
 
   return null;
@@ -356,17 +362,17 @@ export function clearGuildTagCache() {
 export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: GuildEmblem): Tex | null {
   const embKey = emblem ? `${emblem.bgShape}_${emblem.bgColor}_${emblem.symbolShape}_${emblem.symbolColor}` : "default";
   const key = `guildtag_out:${guildName}:${embKey}`;
-  const hit = textTexCache.get(key);
+  const hit = uiTexCache.get(key);
   if (hit) return hit;
-  if (textTexPending.has(key)) return null;
-  textTexPending.add(key);
+  if (uiTexPending.has(key)) return null;
+  uiTexPending.add(key);
 
   const drawTag = (embImg?: HTMLImageElement) => {
     try {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
       if (!ctx) {
-        textTexPending.delete(key);
+        uiTexPending.delete(key);
         return;
       }
 
@@ -397,7 +403,7 @@ export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: G
       const panelX = sidePad;
       ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
       ctx.beginPath();
-      if ((ctx as any).roundRect) (ctx as any).roundRect(panelX, 0, panelW, h, 3);
+      if ((ctx as any).roundRect) (ctx as any).roundRect(panelX, 0, panelW, h, 7);
       else ctx.rect(panelX, 0, panelW, h);
       ctx.fill();
 
@@ -413,13 +419,13 @@ export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: G
 
       createImageBitmap(canvas).then((bmp) => {
         const tex = r.texture(bmp);
-        textTexCache.set(key, tex);
-        textTexPending.delete(key);
+        uiTexCache.set(key, tex);
+        uiTexPending.delete(key);
       }).catch(() => {
-        textTexPending.delete(key);
+        uiTexPending.delete(key);
       });
     } catch {
-      textTexPending.delete(key);
+      uiTexPending.delete(key);
     }
   };
 
@@ -438,16 +444,16 @@ export function renderGuildTagTexture(r: Renderer, guildName: string, emblem?: G
 
 export function renderPlayerNameTexture(r: Renderer, name: string): Tex | null {
   const key = `playername:${name}`;
-  const hit = textTexCache.get(key);
+  const hit = uiTexCache.get(key);
   if (hit) return hit;
-  if (textTexPending.has(key)) return null;
-  textTexPending.add(key);
+  if (uiTexPending.has(key)) return null;
+  uiTexPending.add(key);
 
   try {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      textTexPending.delete(key);
+      uiTexPending.delete(key);
       return null;
     }
 
@@ -478,101 +484,116 @@ export function renderPlayerNameTexture(r: Renderer, name: string): Tex | null {
 
     createImageBitmap(canvas).then((bmp) => {
       const tex = r.texture(bmp);
-      textTexCache.set(key, tex);
-      textTexPending.delete(key);
+      uiTexCache.set(key, tex);
+      uiTexPending.delete(key);
     }).catch(() => {
-      textTexPending.delete(key);
+      uiTexPending.delete(key);
     });
   } catch {
-    textTexPending.delete(key);
+    uiTexPending.delete(key);
   }
 
   return null;
 }
 
 let lastGmTelemetryTex: Tex | null = null;
+const gmTelemetryCache = new Map<string, Tex>();
+const gmTelemetryPending = new Set<string>();
 const gmTelemetryKeys: string[] = [];
 
 export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number): Tex | null {
-  const qFps = Math.max(0, Math.round(fps));
-  const qPing = Math.max(0, Math.round(ping));
-  const key = `gmtelemetry:${qFps}:${qPing}`;
-  const hit = textTexCache.get(key);
+  const qFps = Math.max(0, Math.round(fps / 2) * 2);
+  const qPing = Math.max(0, Math.round(ping / 5) * 5);
+  const rType = r.renderType;
+  const key = `gmtelemetry:${qFps}:${qPing}:${rType}`;
+  const hit = gmTelemetryCache.get(key);
   if (hit) {
     lastGmTelemetryTex = hit;
     return hit;
   }
-  if (textTexPending.has(key)) return lastGmTelemetryTex;
-  textTexPending.add(key);
+  if (gmTelemetryPending.has(key)) return lastGmTelemetryTex;
+  gmTelemetryPending.add(key);
 
   try {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      textTexPending.delete(key);
+      gmTelemetryPending.delete(key);
       return lastGmTelemetryTex;
     }
 
-    const text = `${qFps} FPS · ${qPing}ms`;
-    ctx.font = "bold 9px 'Inter', -apple-system, sans-serif";
-    const tm = ctx.measureText(text);
-    const tw = Math.ceil(tm.width);
-    const w = tw + 10;
-    const h = 14;
+    ctx.font = "bold 8.5px 'Inter', -apple-system, sans-serif";
+    const fpsText = `${qFps} FPS`;
+    const dotText = "·";
+    const pingText = `${qPing}ms`;
+    const rTypeText = rType;
+    const fpsW = ctx.measureText(fpsText).width;
+    const dotW = ctx.measureText(dotText).width;
+    const pingW = ctx.measureText(pingText).width;
+    const rTypeW = ctx.measureText(rTypeText).width;
+    const gap = 3;
+    const totalW = fpsW + gap + dotW + gap + pingW + gap + dotW + gap + rTypeW;
+    const w = Math.ceil(totalW) + 8;
+    const h = 13;
     canvas.width = w;
     canvas.height = h;
 
-    ctx.font = "bold 9px 'Inter', -apple-system, sans-serif";
+    ctx.font = "bold 8.5px 'Inter', -apple-system, sans-serif";
     ctx.textBaseline = "middle";
-    ctx.textAlign = "center";
+    ctx.textAlign = "left";
     ctx.imageSmoothingEnabled = false;
 
-    // Glassmorphism frosted glass background (no border, no opaque solid background)
-    const glassGrad = ctx.createLinearGradient(0, 0, 0, h);
-    glassGrad.addColorStop(0, "rgba(255, 255, 255, 0.22)");
-    glassGrad.addColorStop(0.35, "rgba(255, 255, 255, 0.10)");
-    glassGrad.addColorStop(0.7, "rgba(0, 0, 0, 0.12)");
-    glassGrad.addColorStop(1, "rgba(0, 0, 0, 0.24)");
-
-    ctx.fillStyle = glassGrad;
+    // Compact dark background with sleek subtle glass border
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+    bgGrad.addColorStop(0, "rgba(14, 18, 26, 0.90)");
+    bgGrad.addColorStop(1, "rgba(6, 8, 14, 0.95)");
+    ctx.fillStyle = bgGrad;
     ctx.beginPath();
     if ((ctx as any).roundRect) {
-      (ctx as any).roundRect(0, 0, w, h, 4);
+      (ctx as any).roundRect(0.5, 0.5, w - 1, h - 1, 9999);
     } else {
       ctx.rect(0, 0, w, h);
     }
     ctx.fill();
 
-    // Specular top glass reflection sheen
-    const sheen = ctx.createLinearGradient(0, 0, 0, h * 0.55);
-    sheen.addColorStop(0, "rgba(255, 255, 255, 0.18)");
-    sheen.addColorStop(1, "rgba(255, 255, 255, 0.0)");
-    ctx.fillStyle = sheen;
-    ctx.beginPath();
-    if ((ctx as any).roundRect) {
-      (ctx as any).roundRect(0.5, 0.5, w - 1, h * 0.55, 3);
-    } else {
-      ctx.rect(0.5, 0.5, w - 1, h * 0.55);
-    }
-    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     // Text drop shadow for high readability on any map background
-    ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
     ctx.shadowBlur = 2;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 1;
 
+    let curX = Math.round((w - totalW) / 2);
+    const midY = h / 2 + 0.5;
+
     // FPS text with color coding
     const fpsColor = qFps >= 50 ? "#4ade80" : qFps >= 30 ? "#facc15" : "#f87171";
     ctx.fillStyle = fpsColor;
-    ctx.fillText(`${qFps} FPS`, w / 2 - 12, h / 2);
+    ctx.fillText(fpsText, curX, midY);
+    curX += fpsW + gap;
 
-    ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-    ctx.fillText("·", w / 2 + 5, h / 2);
+    // Separator dot
+    ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+    ctx.fillText(dotText, curX, midY);
+    curX += dotW + gap;
 
+    // Ping text with color coding
     const pingColor = qPing < 60 ? "#4ade80" : qPing < 120 ? "#facc15" : "#f87171";
     ctx.fillStyle = pingColor;
-    ctx.fillText(`${qPing}ms`, w / 2 + 18, h / 2);
+    ctx.fillText(pingText, curX, midY);
+    curX += pingW + gap;
+
+    // Separator dot
+    ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+    ctx.fillText(dotText, curX, midY);
+    curX += dotW + gap;
+
+    // Render type text (WebGPU / WebGL2 / WebGL)
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillText(rTypeText, curX, midY);
 
     // Reset shadow
     ctx.shadowColor = "transparent";
@@ -582,33 +603,26 @@ export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number)
 
     createImageBitmap(canvas).then((bmp) => {
       const tex = r.texture(bmp);
-      textTexCache.set(key, tex);
+      gmTelemetryCache.set(key, tex);
       lastGmTelemetryTex = tex;
-      textTexPending.delete(key);
+      gmTelemetryPending.delete(key);
 
       gmTelemetryKeys.push(key);
       if (gmTelemetryKeys.length > 25) {
         const oldKey = gmTelemetryKeys.shift();
         if (oldKey && oldKey !== key) {
-          const oldTex = textTexCache.get(oldKey);
-          if (oldTex && oldTex !== lastGmTelemetryTex) {
-            if ((oldTex as any).gpuTexture?.destroy) {
-              try { (oldTex as any).gpuTexture.destroy(); } catch {}
-            }
-            textTexCache.delete(oldKey);
-          }
+          gmTelemetryCache.delete(oldKey);
         }
       }
     }).catch(() => {
-      textTexPending.delete(key);
+      gmTelemetryPending.delete(key);
     });
   } catch {
-    textTexPending.delete(key);
+    gmTelemetryPending.delete(key);
   }
 
   return lastGmTelemetryTex;
 }
-
 
 export const STATUS_UI = {
   backgrnd: "/wz/sprite/UI/StatusBar3/mainBar/status/backgrnd",
@@ -1039,13 +1053,12 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 export class WorldRenderer {
   public static draw(game: Game) {
     const r = game.r;
-    r.resize();
     r.begin();
-    if (!game.map) {
-      r.end();
-      return;
-    }
-    const cx = Math.round(game.cam.x), cy = Math.round(game.cam.y);
+    try {
+      if (!game.map) {
+        return;
+      }
+      const cx = Math.round(game.cam.x), cy = Math.round(game.cam.y);
     WorldRenderer.drawBacks(game, false, cx, cy);
 
     const mt = game.assets.get(game.map.render);
@@ -1246,8 +1259,9 @@ export class WorldRenderer {
       try { WorldRenderer.drawQuickBar(game); } catch (e) { console.error("HUD QuickBar error:", e); }
       try { WorldRenderer.drawHudTooltips(game); } catch (e) { console.error("HUD Tooltips error:", e); }
     }
-
-    r.end();
+    } finally {
+      r.end();
+    }
   }
 
   public static drawHpMpPanel(game: Game) {
@@ -1847,9 +1861,9 @@ export class WorldRenderer {
         const perim = 120;
         for (let b = 0; b < 2; b++) {
           const head = ((game.time * 80) + b * 60) % perim;
-          const segs = 12;
+          const segs = 4;
           for (let s = 0; s < segs; s++) {
-            const pPos = (head - (segs - 1 - s) * 2.2 + perim) % perim;
+            const pPos = (head - (segs - 1 - s) * 3.5 + perim) % perim;
             const ratio = (s + 1) / segs;
             let bx = sx;
             let by = sy;
@@ -1866,7 +1880,7 @@ export class WorldRenderer {
               bx = sx;
               by = sy + 30 - (pPos - 90);
             }
-            const isTip = s >= segs - 2;
+            const isTip = s >= segs - 1;
             const colRgba: [number, number, number, number] = isTip
               ? [1, 0.99, 0.92, 0.98]
               : isBuff
@@ -2013,7 +2027,7 @@ export class WorldRenderer {
       const isFront = obj.layer >= 7;
       if (isFront !== front) continue;
       if (!obj.frames || obj.frames.length === 0) continue;
-      const total = obj.frames.reduce((sum, f) => sum + (f.delay ?? 100), 0) || 100;
+      const total = (obj as any).totalDelay ??= (obj.frames.reduce((sum, f) => sum + (f.delay ?? 100), 0) || 100);
       let tRem = (game.time * 1000) % total;
       let fr = obj.frames[obj.frames.length - 1];
       for (const f of obj.frames) {
@@ -2070,7 +2084,7 @@ export class WorldRenderer {
       if (b.front !== front) continue;
       let s = b.sprite;
       if (b.frames && b.frames.length > 0) {
-        const total = b.frames.reduce((n, f) => n + (f.delay ?? 100), 0) || 100;
+        const total = (b as any).totalDelay ??= (b.frames.reduce((n, f) => n + (f.delay ?? 100), 0) || 100);
         let tRem = (game.time * 1000) % total;
         s = b.frames[b.frames.length - 1];
         for (const fr of b.frames) {
@@ -2109,11 +2123,17 @@ export class WorldRenderer {
       const baseX = (hmove ? b.x + game.time * b.rx * 5 - cx : b.x + WO + (b.rx * cx) / 100) - ox;
       const baseY = (vmove ? b.y + game.time * b.ry * 5 - cy : b.y + Math.min(HO, 300) + (b.ry * (camCenterY - 300)) / 100) - s.oy;
 
-      const minI = htile ? Math.floor(-baseX / cxx) : 0;
-      const maxI = htile ? Math.ceil((W - baseX) / cxx) : 0;
+      if (cxx <= 0 || cyy <= 0) continue;
+      const rawMinI = htile ? Math.floor(-baseX / cxx) : 0;
+      const rawMaxI = htile ? Math.ceil((W - baseX) / cxx) : 0;
+      const minI = Math.max(-20, Math.min(20, rawMinI));
+      const maxI = Math.max(minI, Math.min(minI + 30, rawMaxI));
+
       const allowVTile = vtile || (b.type === 1 && s.h >= 600);
-      const minJ = allowVTile ? Math.floor(-baseY / cyy) : 0;
-      const maxJ = allowVTile ? Math.ceil((H - baseY) / cyy) : 0;
+      const rawMinJ = allowVTile ? Math.floor(-baseY / cyy) : 0;
+      const rawMaxJ = allowVTile ? Math.ceil((H - baseY) / cyy) : 0;
+      const minJ = Math.max(-10, Math.min(10, rawMinJ));
+      const maxJ = Math.max(minJ, Math.min(minJ + 20, rawMaxJ));
 
       for (let i = minI; i <= maxI; i++) {
         for (let j = minJ; j <= maxJ; j++) {
@@ -2154,122 +2174,22 @@ export class WorldRenderer {
       r.rect(px, py, pw, ph, [0, 0, 0, 0.78]);
     }
 
-    const beamEffect = emblem?.beamEffect || "gold";
-    const beamMotion = emblem?.beamMotion || "rotate";
-    WorldRenderer.drawGuildBorderBeam(r, px, py, pw, ph, time, beamEffect, beamMotion);
   }
 
-  public static drawGuildBorderBeam(
+  public static drawGmTelemetryTag(
     r: Renderer,
-    px: number,
-    py: number,
-    pw: number,
-    ph: number,
-    time: number,
-    beamStyle = "gold",
-    beamMotion = "rotate"
+    fps: number,
+    ping: number,
+    x: number,
+    y: number,
+    cx: number,
+    cy: number,
+    hasGuild: boolean,
+    extraY = 0
   ) {
-    if (!beamStyle || beamStyle === "none") return;
-
-    const pal = BEAM_PALETTES[beamStyle] || BEAM_PALETTES.gold;
-    const g = pal.glow;
-
-    // 1. Soft ambient breathing bloom around the perimeter (replicates .guild-beam-bloom)
-    const pulseT = 0.5 + 0.5 * Math.sin(time * 3.5);
-    const bloomAlpha = beamMotion === "pulse" ? 0.35 + 0.55 * pulseT : 0.5;
-    r.rect(px - 3, py - 3, pw + 6, ph + 6, [g[0], g[1], g[2], 0.08 * bloomAlpha]);
-    r.rect(px - 2, py - 2, pw + 4, ph + 4, [g[0], g[1], g[2], 0.18 * bloomAlpha]);
-    r.rect(px - 1, py - 1, pw + 2, ph + 2, [g[0], g[1], g[2], 0.35 * bloomAlpha]);
-
-    // 2. Base perimeter border track (1px)
-    r.rect(px, py, pw, 1, [g[0], g[1], g[2], 0.5]);
-    r.rect(px, py + ph - 1, pw, 1, [g[0], g[1], g[2], 0.5]);
-    r.rect(px, py, 1, ph, [g[0], g[1], g[2], 0.5]);
-    r.rect(px + pw - 1, py, 1, ph, [g[0], g[1], g[2], 0.5]);
-
-    // 3. Dynamic Motion Layer (replicates libraries.dev/beam)
-    if (beamMotion === "pulse") {
-      const lineAlpha = 0.55 + 0.45 * pulseT;
-      const core = pal.core;
-      r.rect(px, py, pw, 1.5, [core[0], core[1], core[2], lineAlpha]);
-      r.rect(px, py + ph - 1.5, pw, 1.5, [core[0], core[1], core[2], lineAlpha]);
-      r.rect(px, py, 1.5, ph, [core[0], core[1], core[2], lineAlpha]);
-      r.rect(px + pw - 1.5, py, 1.5, ph, [core[0], core[1], core[2], lineAlpha]);
-    } else if (beamMotion === "line") {
-      // Traveling laser streak shooting horizontally across top and bottom borders
-      const streakT = (time * 1.6) % 1;
-      const streakX = px - 25 + streakT * (pw + 50);
-      const streakLen = 14;
-      for (let i = 0; i < streakLen; i++) {
-        const segX = Math.round(streakX - i * 1.6);
-        const ratio = (streakLen - i) / streakLen;
-        if (segX >= px && segX < px + pw) {
-          const isTip = i <= 2;
-          const col = isTip ? pal.tip : pal.core;
-          // Top laser streak
-          r.rect(segX, py - 1, 2, 2.5, [col[0], col[1], col[2], ratio * 0.95]);
-          // Bottom laser streak
-          r.rect(segX, py + ph - 1.5, 2, 2.5, [col[0], col[1], col[2], ratio * 0.95]);
-        }
-      }
-      // Vertical corner flares
-      const flare = 0.45 + 0.45 * Math.sin(time * 5);
-      r.rect(px, py, 1.5, ph, [pal.core[0], pal.core[1], pal.core[2], flare]);
-      r.rect(px + pw - 1.5, py, 1.5, ph, [pal.core[0], pal.core[1], pal.core[2], flare]);
-    } else {
-      // Default: "rotate" mode — Orbiting dual laser beam sweep around the perimeter
-      const perim = 2 * (pw + ph);
-      const isRainbow = beamStyle === "colorful" || beamStyle === "rainbow";
-      for (let b = 0; b < 2; b++) {
-        const head = ((time * 95) + b * (perim / 2)) % perim;
-        const segs = 14;
-        for (let s = 0; s < segs; s++) {
-          const pPos = (head - (segs - 1 - s) * 1.8 + perim) % perim;
-          const ratio = (s + 1) / segs;
-          let bx = px;
-          let by = py;
-          if (pPos < pw) {
-            bx = px + pPos;
-            by = py;
-          } else if (pPos < pw + ph) {
-            bx = px + pw - 1;
-            by = py + (pPos - pw);
-          } else if (pPos < 2 * pw + ph) {
-            bx = px + pw - 1 - (pPos - (pw + ph));
-            by = py + ph - 1;
-          } else {
-            bx = px;
-            by = py + ph - 1 - (pPos - (2 * pw + ph));
-          }
-
-          const isTip = s >= segs - 2;
-          let col: [number, number, number] = pal.core;
-          if (isRainbow) {
-            const hue = (time * 1.2 + ratio * 0.5 + b * 0.5) % 1;
-            col = hslToRgb(hue, 1, isTip ? 0.92 : 0.65);
-          } else if (isTip) {
-            col = pal.tip;
-          } else {
-            col = [
-              pal.accent[0] + (pal.core[0] - pal.accent[0]) * ratio,
-              pal.accent[1] + (pal.core[1] - pal.accent[1]) * ratio,
-              pal.accent[2] + (pal.core[2] - pal.accent[2]) * ratio,
-            ];
-          }
-
-          // Outer bloom halo dot
-          r.rect(Math.round(bx - 1), Math.round(by - 1), 3, 3, [col[0], col[1], col[2], ratio * 0.35]);
-          // Bright inner laser core
-          r.rect(Math.round(bx), Math.round(by), 1.5, 1.5, [col[0], col[1], col[2], ratio * 0.95]);
-        }
-      }
-    }
-  }
-
-  public static drawGmTelemetryTag(r: Renderer, fps: number, ping: number, x: number, y: number, cx: number, cy: number, hasGuild: boolean) {
     const tex = renderGmTelemetryTexture(r, fps, ping);
     if (tex) {
-      const tagOffset = hasGuild ? 34 : 20;
+      const tagOffset = (hasGuild ? 39 : 23) + extraY;
       r.draw(tex, Math.round(x - tex.w / 2 - cx), Math.round(y + tagOffset - cy), tex.w, tex.h);
     }
   }
@@ -2297,7 +2217,7 @@ export class WorldRenderer {
     const hpH = 2;
     const mpH = 2;
     const drawX = Math.round(x - barW / 2 - cx);
-    const drawY = Math.round(y - 68 - cy);
+    const drawY = Math.round(y - cy);
 
     const safeMaxHp = Math.max(1, maxHp);
     const safeMaxMp = Math.max(1, maxMp);
@@ -2446,38 +2366,43 @@ export class WorldRenderer {
     ) ?? rp.lastTex;
     if (t) {
       rp.lastTex = t;
-      rp.charComp.draw(game, cx, cy, { flip: rp.face === 1 });
+      const isClimb = rp.anim.startsWith("ladder") || rp.anim.startsWith("rope");
+      rp.charComp.draw(game, cx, cy, { flip: isClimb ? false : (rp.face === 1) });
     }
     for (const eff of remoteEffs) {
       WorldRenderer.drawItemEffect(game, eff, rp.x, drawPosY, rp.face, rp.anim, cx, cy, "front");
     }
-    WorldRenderer.drawNameTag(game.r, rp.name, rp.x, drawPosY, cx, cy);
-    if (rp.guildName) {
-      WorldRenderer.drawGuildTag(game.r, rp.guildName, rp.guildEmblem, rp.x, drawPosY, cx, cy, game.time);
-    }
-    if (game.isGm()) {
-      WorldRenderer.drawGmTelemetryTag(game.r, rp.fps ?? 60, rp.ping ?? 20, rp.x, drawPosY, cx, cy, Boolean(rp.guildName));
-    }
-
     const partyMem = game.party?.members?.find(
       (m) => m.name.toLowerCase() === (rp.name || "").toLowerCase()
     );
-    const rpHp = rp.hp ?? partyMem?.hp ?? 100;
-    const rpMaxHp = rp.maxHp ?? partyMem?.maxHp ?? 100;
-    const rpMp = rp.mp ?? partyMem?.mp ?? 100;
-    const rpMaxMp = rp.maxMp ?? partyMem?.maxMp ?? 100;
-    WorldRenderer.drawPartyOverheadBar(
-      game.r,
-      rpHp,
-      rpMaxHp,
-      rpMp,
-      rpMaxMp,
-      false,
-      rp.x,
-      drawPosY,
-      cx,
-      cy
-    );
+    const partyYOffset = partyMem ? 7 : 0;
+
+    if (partyMem) {
+      const rpHp = rp.hp ?? partyMem.hp ?? 100;
+      const rpMaxHp = rp.maxHp ?? partyMem.maxHp ?? 100;
+      const rpMp = rp.mp ?? partyMem.mp ?? 100;
+      const rpMaxMp = rp.maxMp ?? partyMem.maxMp ?? 100;
+      WorldRenderer.drawPartyOverheadBar(
+        game.r,
+        rpHp,
+        rpMaxHp,
+        rpMp,
+        rpMaxMp,
+        false,
+        rp.x,
+        drawPosY + 1,
+        cx,
+        cy
+      );
+    }
+
+    WorldRenderer.drawNameTag(game.r, rp.name, rp.x, drawPosY + partyYOffset, cx, cy);
+    if (rp.guildName) {
+      WorldRenderer.drawGuildTag(game.r, rp.guildName, rp.guildEmblem, rp.x, drawPosY + partyYOffset, cx, cy, game.time);
+    }
+    if (game.isGm()) {
+      WorldRenderer.drawGmTelemetryTag(game.r, rp.fps ?? 60, rp.ping ?? 0, rp.x, drawPosY, cx, cy, Boolean(rp.guildName), partyYOffset);
+    }
 
     if (rp.balloon && rp.balloon.t > 0 && rp.balloon.text) {
       WorldRenderer.drawSpeechBalloon(game.r, rp.balloon.text, rp.x, drawPosY, cx, cy);
@@ -2521,7 +2446,7 @@ export class WorldRenderer {
     ) ?? game.lastPlayerTex;
     if (t) {
       game.lastPlayerTex = t;
-      const invulnAlpha = p.invuln > 0 ? (0.7 + 0.3 * Math.sin(game.time * 8)) : 1;
+      const invulnAlpha = p.invuln > 0 ? (0.5 + 0.5 * Math.sin(game.time * 26)) : 1;
       const isDarkSight = !!game.buffs["4001003"];
       const baseAlpha = isDarkSight || game.gmHide ? 0.45 : invulnAlpha;
 
@@ -2563,8 +2488,9 @@ export class WorldRenderer {
         }
       }
 
+      const isClimb = p.anim.startsWith("ladder") || p.anim.startsWith("rope");
       game.charComp.draw(game, cx, cy, {
-        flip: p.face === 1,
+        flip: isClimb ? false : (p.face === 1),
         alpha: baseAlpha,
       });
     }
@@ -2579,7 +2505,7 @@ export class WorldRenderer {
       WorldRenderer.drawGuildTag(game.r, game.guildName, game.guildEmblem, p.x, drawPosY, cx, cy, game.time);
     }
     if (game.isGm()) {
-      WorldRenderer.drawGmTelemetryTag(game.r, Math.round(game.fps || 60), Math.round(game.wsPing || 20), p.x, drawPosY, cx, cy, Boolean(game.guildName));
+      WorldRenderer.drawGmTelemetryTag(game.r, Math.round(game.displayFps ?? game.fps ?? 60), Math.round(game.displayPing ?? game.wsPing ?? 0), p.x, drawPosY, cx, cy, Boolean(game.guildName));
     }
 
     if (game.balloon && game.balloon.t > 0 && game.balloon.text) {
@@ -2673,7 +2599,8 @@ export class WorldRenderer {
     const tagY = rune.y - 128;
     if (dist < 90) {
       if (game.runeCooldown > 0) {
-        WorldRenderer.drawNameTag(r, `Rune of ${runeDef.name} (${Math.ceil(game.runeCooldown)}s)`, rune.x, tagY, cx, cy);
+        const cdSteps = Math.ceil(game.runeCooldown / 5) * 5;
+        WorldRenderer.drawNameTag(r, `Rune on Cooldown (${cdSteps}s)`, rune.x, tagY, cx, cy);
       } else {
         WorldRenderer.drawNameTag(r, `[SPACE] Liberate Rune of ${runeDef.name}`, rune.x, tagY, cx, cy);
       }
@@ -2740,17 +2667,18 @@ export class WorldRenderer {
   }
 
   public static drawPets(game: Game, cx: number, cy: number) {
-    if (!game.pets?.length) return;
     const r = game.r;
-    for (const pet of game.pets) {
+    const nameVis = game.petNameVisibility || "hide";
+
+    const drawSinglePet = (pet: PetInstance, isLocal: boolean) => {
       const data = PetSystem.getPetData(pet.id);
       const actionFrames = data?.actions[pet.state] ?? data?.actions.stand0 ?? (data ? Object.values(data.actions)[0] : undefined);
       if (!actionFrames?.length) {
         PetSystem.loadPetData(pet.id);
-        continue;
+        return;
       }
       const fr = actionFrames[pet.frame % actionFrames.length];
-      if (!fr) continue;
+      if (!fr) return;
       let tex = game.assets.get(fr.url);
       if (!tex) {
         game.assets.load(fr.url);
@@ -2763,7 +2691,37 @@ export class WorldRenderer {
         const left = flip ? pet.x - (fr.w - fr.ox) : pet.x - fr.ox;
         const top = pet.y - fr.oy;
         r.draw(tex, Math.round(left - cx), Math.round(top - cy), fr.w, fr.h, { flip });
-        WorldRenderer.drawNameTag(r, pet.name, Math.round(pet.x), Math.round(pet.y + 2), cx, cy);
+
+        // Pet name tag visibility check:
+        // "hide" (default): Never show
+        // "all": Show for everyone
+        // "only_me": Show only local player's pets
+        // "only_others": Show only other players' pets
+        let showName = false;
+        if (nameVis === "all") showName = true;
+        else if (nameVis === "only_me" && isLocal) showName = true;
+        else if (nameVis === "only_others" && !isLocal) showName = true;
+
+        if (showName) {
+          const tag = pet.level ? `${pet.name} (Lv.${pet.level})` : pet.name;
+          WorldRenderer.drawNameTag(r, tag, Math.round(pet.x), Math.round(pet.y + 2), cx, cy);
+        }
+      }
+    };
+
+    // 1. Draw local player's companion pets
+    if (game.pets && game.pets.length > 0) {
+      for (const pet of game.pets) {
+        drawSinglePet(pet, true);
+      }
+    }
+
+    // 2. Draw remote players' companion pets
+    for (const rp of game.remotePlayers.values()) {
+      if (rp.pets && rp.pets.length > 0) {
+        for (const remotePet of rp.pets) {
+          drawSinglePet(remotePet, false);
+        }
       }
     }
   }
@@ -2788,25 +2746,26 @@ export class WorldRenderer {
       return;
     }
 
-    const str = String(d.value);
-    const isCritical = Boolean(d.critical && !d.hurt && !d.heal && !d.poison);
+    const anyD = d as any;
+    if (!anyD._cached) {
+      const str = String(d.value);
+      const isCritical = Boolean(d.critical && !d.hurt && !d.heal && !d.poison);
+      anyD._urls = [...str].map((c) => {
+        if (d.heal) return `/wz/sprite/Effect/BasicEff/NoBlue1/${c}`;
+        if (d.poison) return `/wz/sprite/Effect/BasicEff/NoGreen1/${c}`;
+        if (d.hurt) return fx?.hurt?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoViolet1/${c}`;
+        if (isCritical) return skin.cri[c] || skin.criFirst[c] || fx?.dmg?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoCri1/${c}`;
+        return skin.dmg[c] || skin.dmgFirst[c] || fx?.dmg?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoRed1/${c}`;
+      });
+      anyD._isCrit = isCritical;
+      anyD._overlap = isCritical ? 4 : 6;
+      anyD._effUrl = isCritical ? (skin.criEffect || "/wz/sprite/Effect/BasicEff/NoCri1/effect") : null;
+      anyD._cached = true;
+    }
 
-    // Get glyph URLs based on hit type and skin (NoRed1 / NoCri1 are the full-size standard digit fonts)
-    const glyphUrls: string[] = [...str].map((c) => {
-      if (d.heal) {
-        return `/wz/sprite/Effect/BasicEff/NoBlue1/${c}`;
-      }
-      if (d.poison) {
-        return `/wz/sprite/Effect/BasicEff/NoGreen1/${c}`;
-      }
-      if (d.hurt) {
-        return fx?.hurt?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoViolet1/${c}`;
-      }
-      if (isCritical) {
-        return skin.cri[c] || skin.criFirst[c] || fx?.dmg?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoCri1/${c}`;
-      }
-      return skin.dmg[c] || skin.dmgFirst[c] || fx?.dmg?.[c]?.url || `/wz/sprite/Effect/BasicEff/NoRed1/${c}`;
-    });
+    const isCritical = anyD._isCrit;
+    const overlap = anyD._overlap;
+    const glyphUrls: string[] = anyD._urls;
 
     const glyphTexs = glyphUrls.map((u) => {
       const tex = u ? game.assets.get(u) : null;
@@ -2814,24 +2773,23 @@ export class WorldRenderer {
       return tex;
     });
 
-    const overlap = isCritical ? 4 : 6;
     const total = glyphTexs.reduce((a, t) => a + (t?.w ?? 22) - overlap, overlap);
     let x = d.x - total / 2;
     const base = d.y - rise;
 
     // Critical star effect drawn behind/above the first digit
-    if (isCritical) {
-      const effUrl = skin.criEffect || "/wz/sprite/Effect/BasicEff/NoCri1/effect";
-      let effTex = game.assets.get(effUrl) ?? game.assets.get("/wz/sprite/Effect/BasicEff/NoCri1/effect");
+    if (isCritical && anyD._effUrl) {
+      let effTex = game.assets.get(anyD._effUrl) ?? game.assets.get("/wz/sprite/Effect/BasicEff/NoCri1/effect");
       if (effTex) {
         game.r.draw(effTex, Math.round(x - 14 - cx), Math.round(base - effTex.h - 12 - cy), effTex.w, effTex.h, { alpha });
       } else {
-        game.assets.load(effUrl);
+        game.assets.load(anyD._effUrl);
         game.assets.load("/wz/sprite/Effect/BasicEff/NoCri1/effect");
       }
     }
 
-    glyphTexs.forEach((t, i) => {
+    for (let i = 0; i < glyphTexs.length; i++) {
+      const t = glyphTexs[i];
       const gw = t?.w ?? 22;
       const gh = t?.h ?? 30;
       const bounce = (isCritical && i === 0) ? -4 : 0;
@@ -2839,6 +2797,6 @@ export class WorldRenderer {
         game.r.draw(t, Math.round(x - cx), Math.round(base - gh + bounce - cy), gw, gh, { alpha });
       }
       x += gw - overlap;
-    });
+    }
   }
 }

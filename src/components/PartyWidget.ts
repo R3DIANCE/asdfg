@@ -61,8 +61,14 @@ export class PartyWidget extends ComponentBase {
     this.render();
   }
 
-  public update() {
+  private updateTimer = 0;
+
+  public update(dt = 0.016) {
     if (!this.game) return;
+    this.updateTimer += dt;
+    if (this.updateTimer < 0.2) return;
+    this.updateTimer = 0;
+
     const pt = this.game.party;
     if (!pt) {
       if (this.lastSig !== "no-party") {

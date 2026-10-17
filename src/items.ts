@@ -57,6 +57,11 @@ export const RARITY_COLOR = ["#ffffff", "#66d9ff", "#c77dff", "#ffcc33", "#5cff7
 export const RARITY_INK = ["#333333", "#0f7fb3", "#7a32c2", "#a87400", "#12893a"];
 export const MAX_STAR = 15;
 
+export type PetSlot = "pet1" | "pet2" | "pet3";
+export const isPetItem = (id: number): boolean => typeof id === "number" && id >= 5000000 && id < 5100000;
+export const PET_RARITY_NAME = ["Normal", "Rare", "Epic", "Unique", "Legendary"] as const;
+export const PET_RARITY_COLOR = ["#e4e4e7", "#38bdf8", "#c084fc", "#facc15", "#4ade80"] as const;
+
 // Starter look (also real equips) plus everything gathered from the client data.
 const STARTER: GearBase[] = [
   { id: 1302000, name: "Sword", slot: "weapon", req: 0, watk: 17, str: 0, dex: 0, int: 0, luk: 0, hp: 0, def: 0, price: 50 },
