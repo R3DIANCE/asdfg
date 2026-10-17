@@ -61,13 +61,16 @@ export class EngineAssetBridge {
     // 1. Prioritize internal WebSocket stream (zero client-side fetch exposure)
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        const base64: string = await this.requestAsset(url);
+        const base64: string = await this.requestAsset(url, 2500);
         const binary = atob(base64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         return new Blob([bytes], { type: "image/png" });
-      } catch {
-        // Fall back to encapsulated loader if WS timed out or endpoint unhandled
+      } catch (err: any) {
+        // If server explicitly responded that asset is not found, fail immediately without HTTP hammer
+        if (err?.message?.includes("not found") || err?.message?.includes("404")) {
+          throw err;
+        }
       }
     }
     // 2. Encapsulated internal fallback
@@ -80,10 +83,12 @@ export class EngineAssetBridge {
     // 1. Prioritize internal WebSocket stream
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        const data = await this.requestAsset(path);
+        const data = await this.requestAsset(path, 3000);
         return data as T;
-      } catch {
-        // Fall back to encapsulated loader
+      } catch (err: any) {
+        if (err?.message?.includes("not found") || err?.message?.includes("404")) {
+          throw err;
+        }
       }
     }
     // 2. Encapsulated internal fallback
@@ -97,6 +102,7 @@ export class EngineAssetBridge {
 export class Assets {
   private cache = new Map<string, Tex | null>();
   private failedAt = new Map<string, number>();
+  private permanentFailures = new Set<string>();
   private pending = new Map<string, Promise<Tex | null>>();
   loaded = 0;
   failed = 0;
@@ -104,18 +110,20 @@ export class Assets {
   constructor(private r: Renderer) {}
 
   load(url: string): Promise<Tex | null> {
+    if (this.permanentFailures.has(url)) return Promise.resolve(null);
     if (this.cache.has(url)) {
       const existing = this.cache.get(url);
       if (existing) return Promise.resolve(existing);
       const fTime = this.failedAt.get(url) ?? 0;
-      if (performance.now() - fTime < 3500) return Promise.resolve(null);
+      // Do not re-fetch failed assets for at least 300 seconds (5 minutes)
+      if (performance.now() - fTime < 300000) return Promise.resolve(null);
       this.cache.delete(url);
       this.failedAt.delete(url);
     }
     const hit = this.pending.get(url);
     if (hit) return hit;
     const p = (async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 2; attempt++) {
         try {
           while (active >= 16) await new Promise((r) => setTimeout(r, 20));
           active++;
@@ -127,8 +135,16 @@ export class Assets {
           this.failedAt.delete(url);
           this.loaded++;
           return t;
-        } catch {
-          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+        } catch (err: any) {
+          const errMsg = String(err?.message || "");
+          if (errMsg.includes("404") || errMsg.includes("not found")) {
+            // Permanent 404 - never retry
+            this.permanentFailures.add(url);
+            break;
+          }
+          if (attempt === 0) {
+            await new Promise((r) => setTimeout(r, 150));
+          }
         }
       }
       this.cache.set(url, null);
@@ -147,8 +163,10 @@ export class Assets {
     const t = this.cache.get(url);
     if (t) return t;
     if (t === null) {
+      if (this.permanentFailures.has(url)) return null;
       const fTime = this.failedAt.get(url) ?? 0;
-      if (performance.now() - fTime >= 3500) {
+      // Only retry transient failures after 5 minutes
+      if (performance.now() - fTime >= 300000) {
         this.cache.delete(url);
         this.failedAt.delete(url);
         this.load(url);

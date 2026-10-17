@@ -14,6 +14,9 @@ import { StatsManager } from "./systems/stats-manager.ts";
 import { GmDatGui } from "./components/GmDatGui.ts";
 import { setUiMode, getUiMode, type UiMode } from "./systems/ui-mode.ts";
 import { setupTouchScroll } from "./components/touch-scroll.ts";
+import { initClientSecurity } from "./systems/security.ts";
+
+initClientSecurity();
 
 let root: HTMLElement | null = null;
 let statsMgr: StatsManager = new StatsManager();
@@ -506,7 +509,6 @@ function frame(now: number) {
     statsMgr.begin();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    document.documentElement.style.setProperty("--item-beam-angle", `${((now % 2400) / 2400 * 360).toFixed(1)}deg`);
     if (running && !manual && game) game.update(dt);
     if (running && game) {
       game.draw();

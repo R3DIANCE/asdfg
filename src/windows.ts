@@ -11,6 +11,7 @@ import { icon, stars, dur } from "./util.ts";
 // Quick slots (drag/drop), Stat / Skill / Item / Auto windows, buff bar, tooltips and chat balloon.
 import { expToLevel, charUrlFor } from "./game.ts";
 import type { Game, ChatKind } from "./game.ts";
+import { RUNE_SKILL_DEFS } from "./game-types.ts";
 import {
   ITEMS, JOB_TABS, KEY_BADGES, KEY_LABEL, QUICK_KEYS, SKILL, SKILL_DEFS, TAB_LEVEL, WEAPON_ICON,
   cleanDesc, itemIcon, classFor, type Action, type ClassId,
@@ -1955,11 +1956,25 @@ export class Windows {
   renderBuffs() {
     const g = this.game;
     const ids = Object.keys(g.buffs);
-    const sig = ids.map((id) => `${id}:${Math.ceil(g.buffs[id].left)}`).join("|");
+    const runeDur = g.runeBuff && g.runeBuff.timeLeft > 0 ? Math.ceil(g.runeBuff.timeLeft) : 0;
+    const runeKey = runeDur > 0 ? `rune:${g.runeBuff!.type}:${runeDur}` : "";
+    const sig = ids.map((id) => `${id}:${Math.ceil(g.buffs[id].left)}`).join("|") + "|" + runeKey;
     if (sig === this.lastBuffs) return;
     this.lastBuffs = sig;
     const existing = new Map([...this.buffBar.children].map((c) => [(c as HTMLElement).dataset.id!, c as HTMLElement]));
-    for (const [id, c] of existing) if (!g.buffs[id]) c.remove();
+
+    // Clean up expired buffs
+    for (const [id, c] of existing) {
+      if (id.startsWith("rune_")) {
+        if (!g.runeBuff || g.runeBuff.timeLeft <= 0 || id !== `rune_${g.runeBuff.type}`) {
+          c.remove();
+        }
+      } else if (!g.buffs[id]) {
+        c.remove();
+      }
+    }
+
+    // Render standard skill buffs
     for (const id of ids) {
       let c = existing.get(id);
       if (!c) {
@@ -1974,6 +1989,38 @@ export class Windows {
       const b = g.buffs[id];
       (c.querySelector(".buff-time") as HTMLElement).textContent = b.left >= 60 ? `${Math.ceil(b.left / 60)}m` : `${Math.ceil(b.left)}`;
       (c.querySelector(".buff-shade") as HTMLElement).style.height = `${(1 - b.left / b.dur) * 100}%`;
+    }
+
+    // Render liberated rune as official WZ skill icon
+    if (g.runeBuff && g.runeBuff.timeLeft > 0) {
+      const runeType = g.runeBuff.type;
+      const runeId = `rune_${runeType}`;
+      const rDef = RUNE_SKILL_DEFS[runeType];
+      let c = existing.get(runeId);
+      if (!c) {
+        c = el("div", "buff rune-buff", this.buffBar);
+        c.dataset.id = runeId;
+        bg(c, rDef.iconUrl);
+        el("span", "buff-time", c);
+        el("div", "buff-shade", c);
+        c.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          g.runeBuff = null;
+          g.recalc();
+          g.onChange();
+        });
+        this.bindTip(c, () => `
+          <div class="tt-head">
+            <span class="tt-name" style="color:#c084fc;">${esc(rDef.name)}</span>
+          </div>
+          <div class="tt-desc" style="font-size:10px;color:#e4e4e7;margin-top:2px;">${esc(rDef.desc)}</div>
+          <p class="tip-dim" style="font-size:9px;color:#a1a1aa;margin-top:4px;">Right-click to cancel</p>
+        `);
+      }
+      const left = g.runeBuff.timeLeft;
+      const maxDur = 180;
+      (c.querySelector(".buff-time") as HTMLElement).textContent = left >= 60 ? `${Math.ceil(left / 60)}m` : `${Math.ceil(left)}`;
+      (c.querySelector(".buff-shade") as HTMLElement).style.height = `${(1 - left / maxDur) * 100}%`;
     }
   }
 
@@ -2311,7 +2358,7 @@ export class Windows {
             <tr>
               <td><span class="guild-rank-tag guild-rank-${m.rank}">${esc(rankTitle)}</span></td>
               <td class="${isSelf ? "text-amber-300" : "text-white"}">${esc(m.name)}${isSelf ? " (You)" : ""}</td>
-              <td class="text-zinc-300">Lv. ${m.level} ${esc(m.job)}</td>
+              <td class="text-zinc-300"><span class="guild-level-badge mr-1.5">Lv. ${m.level}</span> ${esc(m.job)}</td>
               <td class="text-amber-300 font-mono">${m.contribution.toLocaleString()} GP</td>
               <td>
                 <span class="guild-online-dot ${isOnline ? "online" : "offline"}"></span>
@@ -3149,11 +3196,11 @@ export class Windows {
               <div class="flex items-center gap-1">
                 <span class="w-2 h-2 rounded-full ${!isOnline ? "bg-zinc-600" : isGrayed ? "bg-zinc-400" : "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"} flex-shrink-0" title="${!isOnline ? "Offline" : inSameMap ? "Online (Same Map)" : "Online (Other Map)"}"></span>
                 <span class="font-bold text-[11px] ${isGrayed ? "text-zinc-400" : "text-white"} truncate">${esc(m.name)}</span>
-                ${isSelf ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">YOU</span>` : ""}
-                ${isMemLeader ? `<span class="px-1 py-0 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">LEADER</span>` : ""}
+                ${isSelf ? `<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">YOU</span>` : ""}
+                ${isMemLeader ? `<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30">LEADER</span>` : ""}
               </div>
               <div class="flex items-center gap-1.5 text-[9px] text-zinc-400 leading-tight">
-                <span class="${isGrayed ? "text-zinc-500" : "text-amber-200/90"} font-semibold">Lv.${m.level ?? 1}</span>
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full ${isGrayed ? "bg-zinc-800 text-zinc-500 border-zinc-700" : "bg-amber-400/20 text-amber-300 border-amber-400/35"} border font-mono text-[8px] font-bold">Lv. ${m.level ?? 1}</span>
                 <span class="truncate">${esc(m.job || "Beginner")}</span>
                 <span class="${!isOnline ? "text-zinc-500 italic" : inSameMap ? "text-emerald-300 font-semibold" : "text-zinc-500"} truncate">
                   ${esc(mapName)}
@@ -3768,7 +3815,7 @@ export class ExtWindows {
           <div class="damage-skin-card ${isEquipped ? "equipped" : ""}" data-name="${esc(preset.name.toLowerCase())}" data-id="${preset.id}">
             <div class="flex items-center justify-between gap-1">
               <span class="text-[10px] font-bold ${isEquipped ? "text-amber-300" : "text-zinc-200"} truncate font-sans" title="${esc(preset.name)}">${esc(preset.name)}</span>
-              ${isEquipped ? `<span class="text-[7.5px] font-mono px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase font-bold shrink-0">Equipped</span>` : ""}
+              ${isEquipped ? `<span class="text-[7.5px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase font-bold shrink-0">Equipped</span>` : ""}
             </div>
 
             <!-- Transparent Numbers Preview Strip (Normal by default, Critical on hover) -->
@@ -4579,13 +4626,11 @@ export class ExtWindows {
     const sfMul = g.starForceMultiplier(playerSf, reqSf).dmgMul;
     const sfColor = sfMul >= 1.5 ? "#34d399" : sfMul >= 1.0 ? "#facc15" : "#f87171";
     const sfTag = reqSf > 0 ? `<span class="st-sf" style="color:${sfColor};font-weight:700;margin-left:4px;" title="Star Force: Deal ${Math.round(sfMul * 100)}% DMG (150% at 1.5x requirement)">★${playerSf}/${reqSf}</span>` : "";
-    const runeDur = g.runeBuff ? Math.ceil(g.runeBuff.timeLeft) : 0;
-    const sig = `${s.n}|${s.kills}|${ready}|${!!g.boss}|${g.bossLoading}|${g.combatPower()}|${g.auto.boss}|${playerSf}|${reqSf}|${runeDur}`;
+    const sig = `${s.n}|${s.kills}|${ready}|${!!g.boss}|${g.bossLoading}|${g.combatPower()}|${g.auto.boss}|${playerSf}|${reqSf}`;
     if (sig !== this.sig.hud) {
       this.sig.hud = sig;
       const bossName = (g.mobData.get(g.bossFor())?.name ?? "Stage Boss").trim();
       this.stageHud.innerHTML = `<div class="st-top"><span class="st-n">STAGE ${s.n} ${sfTag}</span><span class="st-cp">CP ${fmt(g.combatPower())}</span></div>
-        ${g.runeBuff ? `<div class="st-buff-row" style="display:flex;justify-content:center;font-size:10px;font-weight:700;color:#c084fc;background:rgba(168,85,247,0.12);border-radius:4px;padding:2px 4px;margin-bottom:2px;">✦ LIBERATED RUNE (${g.runeBuff.type.toUpperCase()}: +100% EXP · ${runeDur}s)</div>` : ""}
         <div class="st-bar"><div class="st-fill" style="width:${Math.min(100, (s.kills / need) * 100)}%"></div><span>${g.boss ? "BOSS BATTLE" : `${Math.min(s.kills, need)} / ${need}`}</span></div>
         <div class="st-actions">
           <button type="button" class="auto-boss-toggle ${g.auto.boss ? "on" : ""}" title="Toggle Auto Boss Challenge"><span class="auto-dot"></span>AUTO BOSS: ${g.auto.boss ? "ON" : "OFF"}</button>

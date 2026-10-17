@@ -91,6 +91,8 @@ body.cursor-grabbing, body.cursor-grabbing *,
   -webkit-user-select: none !important;
   -moz-user-select: none !important;
   -ms-user-select: none !important;
+  -webkit-user-drag: none !important;
+  -webkit-touch-callout: none !important;
 }
 
 input, textarea, [contenteditable="true"], .chat-field, input * {
@@ -444,20 +446,30 @@ button, a, select, [role="button"],
 }
 
 /* ---------- UI Mode Switcher (New WebGPU Canvas vs Old DOM Tailwind) ---------- */
+html.ui-mode-new .dock,
 body.ui-mode-new .dock,
+html.ui-mode-new .dock-center,
+body.ui-mode-new .dock-center,
+html.ui-mode-new .ms-screen-exp-bar,
 body.ui-mode-new .ms-screen-exp-bar,
+html.ui-mode-new .gm-online-container,
 body.ui-mode-new .gm-online-container {
   display: none !important;
 }
 
-body.ui-mode-old .dock {
+html.ui-mode-old .dock,
+body.ui-mode-old .dock,
+html.ui-mode-old .dock-center,
+body.ui-mode-old .dock-center {
   display: flex !important;
 }
 
+html.ui-mode-old .ms-screen-exp-bar,
 body.ui-mode-old .ms-screen-exp-bar {
   display: flex !important;
 }
 
+html.ui-mode-old .gm-online-container,
 body.ui-mode-old .gm-online-container {
   display: block !important;
 }
@@ -2262,7 +2274,18 @@ body.ui-mode-old .gm-online-container {
   border: 1px solid var(--border); border-radius: var(--r-slot); background-color: rgba(255,255,255,.08);
 }
 .boss-main { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.boss-name small { color: var(--muted); font-weight: 400; }
+.boss-name small {
+  color: #fbbf24;
+  font-weight: 700;
+  font-size: 9px;
+  padding: 1.5px 6px;
+  background: rgba(245, 158, 11, 0.15);
+  border-radius: 4px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  margin-left: 6px;
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
 .boss-hp { position: relative; height: 13px; background: #3a0b0b; border: 1px solid var(--border-2); border-radius: var(--r-pill); overflow: hidden; }
 .boss-fill {
   position: absolute; inset: 0 auto 0 0;
@@ -2426,13 +2449,13 @@ body.ui-mode-old .gm-online-container {
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
-.ci-header-row {
+.ci-header-row, .ci-top-box {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.ci-job-badge {
+.ci-job-badge, .ci-top-box .ci-job {
   background: rgba(24, 24, 27, 0.85);
   border: 1px solid rgba(56, 189, 248, 0.35);
   border-radius: 12px;
@@ -2441,12 +2464,16 @@ body.ui-mode-old .gm-online-container {
   font: 800 10px -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-.ci-lv-badge {
-  color: #ffffff;
-  font: 900 11px -apple-system, BlinkMacSystemFont, sans-serif;
+.ci-lv-badge, .ci-top-box .ci-lv {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 12px;
+  padding: 1.5px 8px;
+  color: #fbbf24;
+  font: 800 10px -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-.ci-tri-grid {
+.ci-tri-grid, .ci-main-grid {
   display: grid;
   grid-template-columns: 86px 1fr 94px;
   gap: 6px;
@@ -2460,7 +2487,7 @@ body.ui-mode-old .gm-online-container {
   gap: 3px;
 }
 
-.ci-pill {
+.ci-pill, .ci-stat-pill {
   background: rgba(24, 24, 27, 0.85);
   border: 1px solid rgba(39, 39, 42, 0.8);
   border: 1px solid rgba(156, 168, 184, 0.2);
@@ -2473,7 +2500,7 @@ body.ui-mode-old .gm-online-container {
   color: #a1a1aa;
 }
 
-.ci-pill b {
+.ci-pill b, .ci-stat-pill b {
   color: #ffffff;
   font-weight: 800;
 }
@@ -2527,7 +2554,7 @@ body.ui-mode-old .gm-online-container {
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
 }
 
-.ci-name-tag {
+.ci-name-tag, .ci-name-pill {
   background: #00bcd4;
   color: #ffffff;
   border-radius: 12px;
@@ -2538,7 +2565,7 @@ body.ui-mode-old .gm-online-container {
   letter-spacing: 0.2px;
 }
 
-.ci-action-btn {
+.ci-action-btn, .ci-pill-btn {
   border-radius: 12px;
   padding: 2.5px 6px;
   font: 700 8.5px -apple-system, BlinkMacSystemFont, sans-serif;
@@ -2549,11 +2576,11 @@ body.ui-mode-old .gm-online-container {
   transition: filter 0.12s;
 }
 
-.ci-action-btn:hover { filter: brightness(1.1); }
-.ci-action-btn.cyan { background: #00bcd4; color: #ffffff; }
-.ci-action-btn.slate { background: #71717a; color: #ffffff; }
+.ci-action-btn:hover, .ci-pill-btn:hover { filter: brightness(1.1); }
+.ci-action-btn.cyan, .ci-pill-btn.cyan { background: #00bcd4; color: #ffffff; }
+.ci-action-btn.slate, .ci-pill-btn.slate { background: #71717a; color: #ffffff; }
 
-.ci-detail-toggle {
+.ci-detail-toggle, .ci-detail-btn {
   width: 100%;
   height: 22px;
   border-radius: 11px;
@@ -2570,7 +2597,7 @@ body.ui-mode-old .gm-online-container {
   transition: filter 0.12s;
 }
 
-.ci-detail-toggle:hover { filter: brightness(1.15); }
+.ci-detail-toggle:hover, .ci-detail-btn:hover { filter: brightness(1.15); }
 
 /* Combat Power Banner */
 .stat-cp-banner {
@@ -2939,7 +2966,11 @@ body.ui-mode-old .gm-online-container {
 }
 
 .hyper-lv {
-  color: #ffffff;
+  color: #fef08a;
+  background: rgba(24, 24, 27, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 1px 6px;
   font: 800 8.5px sans-serif;
   min-width: 26px;
   text-align: center;
@@ -5817,8 +5848,8 @@ body.ui-mode-old .gm-online-container {
 
 .guild-rank-tag {
   display: inline-block;
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 1.5px 6px;
+  border-radius: 4px;
   font-size: 9px;
   font-weight: 600;
 }

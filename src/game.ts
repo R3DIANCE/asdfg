@@ -36,6 +36,7 @@ import {
   type ChatKind,
   type RuneType,
   type ActiveRune,
+  RUNE_SKILL_DEFS,
   FREE_MARKET_MAP,
   HUNTING_AREAS,
   MAP_LINKS,
@@ -710,6 +711,7 @@ export class Game extends ComponentBase {
     this.rune = null;
     this.runeCooldown = 240; // 4 min cooldown between runes
     this.runeBuff = { type, timeLeft: 180 };
+    this.assets.load(RUNE_SKILL_DEFS[type].iconUrl);
 
     const typeNames: Record<RuneType, string> = {
       swiftness: "Swiftness (Maximum Agility & Attack Speed)",
@@ -1078,6 +1080,7 @@ export class Game extends ComponentBase {
           for (let f = 0; f < 7; f++) {
             this.assets.load(`/wz/sprite/Etc/RuneStone/runeStone/0/${runeId}/disappear/${f}`);
           }
+          this.assets.load(RUNE_SKILL_DEFS[selType].iconUrl);
           // Spawn authentic Rune appear animation
           const appearFrames = Array.from({ length: 13 }, (_, f) => ({
             url: `/wz/sprite/Etc/RuneStone/runeStone/0/${runeId}/appear/${f}`,

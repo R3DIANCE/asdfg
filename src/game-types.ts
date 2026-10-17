@@ -230,6 +230,40 @@ export const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 export type RuneType = "swiftness" | "might" | "thunder" | "destruction";
 
+export interface RuneSkillDef {
+  skillId: number;
+  name: string;
+  desc: string;
+  iconUrl: string;
+}
+
+export const RUNE_SKILL_DEFS: Record<RuneType, RuneSkillDef> = {
+  swiftness: {
+    skillId: 80001427,
+    name: "Rune of Swiftness",
+    desc: "Liberated Rune Power: Movement Speed, Jump & Attack Speed increased. EXP +100% (2x EXP).",
+    iconUrl: "/wz/skill/80001427/icon",
+  },
+  might: {
+    skillId: 80001752,
+    name: "Rune of Might",
+    desc: "Liberated Rune Power: Gigantism size & crushing damage. EXP +100% (2x EXP).",
+    iconUrl: "/wz/skill/80001752/icon",
+  },
+  thunder: {
+    skillId: 80001753,
+    name: "Rune of Thunder",
+    desc: "Liberated Rune Power: Periodic lightning strikes target nearby monsters. EXP +100% (2x EXP).",
+    iconUrl: "/wz/skill/80001753/icon",
+  },
+  destruction: {
+    skillId: 80001432,
+    name: "Rune of Destruction",
+    desc: "Liberated Rune Power: Attack Power increased by +50%. EXP +100% (2x EXP).",
+    iconUrl: "/wz/skill/80001432/icon",
+  },
+};
+
 export interface ActiveRune {
   x: number;
   y: number;

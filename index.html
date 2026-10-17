@@ -12,9 +12,25 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/src/style.css" />
+  <script>
+    (function() {
+      try {
+        var m = localStorage.getItem("ms_ui_mode") || "new";
+        document.documentElement.className = "ui-mode-" + m;
+      } catch (e) {}
+    })();
+  </script>
 </head>
-<body>
-  <canvas id="game" tabindex="0" aria-label="Game"></canvas>
+<body oncontextmenu="return false;">
+  <script>
+    (function() {
+      try {
+        var m = localStorage.getItem("ms_ui_mode") || "new";
+        document.body.className = "ui-mode-" + m;
+      } catch (e) {}
+    })();
+  </script>
+  <canvas id="game" tabindex="0" aria-label="Game" draggable="false" oncontextmenu="return false;"></canvas>
   <section id="title" class="overlay hidden"></section>
   <div id="loading" class="loading-overlay">
     <div class="loading-simple">

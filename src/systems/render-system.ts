@@ -490,11 +490,19 @@ export function renderPlayerNameTexture(r: Renderer, name: string): Tex | null {
   return null;
 }
 
+let lastGmTelemetryTex: Tex | null = null;
+const gmTelemetryKeys: string[] = [];
+
 export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number): Tex | null {
-  const key = `gmtelemetry:${fps}:${ping}`;
+  const qFps = Math.max(0, Math.round(fps));
+  const qPing = Math.max(0, Math.round(ping));
+  const key = `gmtelemetry:${qFps}:${qPing}`;
   const hit = textTexCache.get(key);
-  if (hit) return hit;
-  if (textTexPending.has(key)) return null;
+  if (hit) {
+    lastGmTelemetryTex = hit;
+    return hit;
+  }
+  if (textTexPending.has(key)) return lastGmTelemetryTex;
   textTexPending.add(key);
 
   try {
@@ -502,10 +510,10 @@ export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number)
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       textTexPending.delete(key);
-      return null;
+      return lastGmTelemetryTex;
     }
 
-    const text = `${fps} FPS · ${ping}ms`;
+    const text = `${qFps} FPS · ${qPing}ms`;
     ctx.font = "bold 9px 'Inter', -apple-system, sans-serif";
     const tm = ctx.measureText(text);
     const tw = Math.ceil(tm.width);
@@ -519,35 +527,78 @@ export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number)
     ctx.textAlign = "center";
     ctx.imageSmoothingEnabled = false;
 
-    // Dark pill container
-    ctx.fillStyle = "rgba(10, 14, 22, 0.88)";
+    // Glassmorphism frosted glass background (no border, no opaque solid background)
+    const glassGrad = ctx.createLinearGradient(0, 0, 0, h);
+    glassGrad.addColorStop(0, "rgba(255, 255, 255, 0.22)");
+    glassGrad.addColorStop(0.35, "rgba(255, 255, 255, 0.10)");
+    glassGrad.addColorStop(0.7, "rgba(0, 0, 0, 0.12)");
+    glassGrad.addColorStop(1, "rgba(0, 0, 0, 0.24)");
+
+    ctx.fillStyle = glassGrad;
     ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(0, 0, w, h, 3) : ctx.rect(0, 0, w, h);
+    if ((ctx as any).roundRect) {
+      (ctx as any).roundRect(0, 0, w, h, 4);
+    } else {
+      ctx.rect(0, 0, w, h);
+    }
     ctx.fill();
 
-    // Subtle GM gold border
-    ctx.strokeStyle = "rgba(255, 204, 68, 0.75)";
-    ctx.lineWidth = 1;
+    // Specular top glass reflection sheen
+    const sheen = ctx.createLinearGradient(0, 0, 0, h * 0.55);
+    sheen.addColorStop(0, "rgba(255, 255, 255, 0.18)");
+    sheen.addColorStop(1, "rgba(255, 255, 255, 0.0)");
+    ctx.fillStyle = sheen;
     ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(0.5, 0.5, w - 1, h - 1, 3) : ctx.rect(0.5, 0.5, w - 1, h - 1);
-    ctx.stroke();
+    if ((ctx as any).roundRect) {
+      (ctx as any).roundRect(0.5, 0.5, w - 1, h * 0.55, 3);
+    } else {
+      ctx.rect(0.5, 0.5, w - 1, h * 0.55);
+    }
+    ctx.fill();
+
+    // Text drop shadow for high readability on any map background
+    ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+    ctx.shadowBlur = 2;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 1;
 
     // FPS text with color coding
-    const fpsColor = fps >= 50 ? "#4ade80" : fps >= 30 ? "#facc15" : "#f87171";
+    const fpsColor = qFps >= 50 ? "#4ade80" : qFps >= 30 ? "#facc15" : "#f87171";
     ctx.fillStyle = fpsColor;
-    ctx.fillText(`${fps} FPS`, w / 2 - 12, h / 2);
+    ctx.fillText(`${qFps} FPS`, w / 2 - 12, h / 2);
 
-    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
     ctx.fillText("·", w / 2 + 5, h / 2);
 
-    const pingColor = ping < 60 ? "#4ade80" : ping < 120 ? "#facc15" : "#f87171";
+    const pingColor = qPing < 60 ? "#4ade80" : qPing < 120 ? "#facc15" : "#f87171";
     ctx.fillStyle = pingColor;
-    ctx.fillText(`${ping}ms`, w / 2 + 18, h / 2);
+    ctx.fillText(`${qPing}ms`, w / 2 + 18, h / 2);
+
+    // Reset shadow
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
 
     createImageBitmap(canvas).then((bmp) => {
       const tex = r.texture(bmp);
       textTexCache.set(key, tex);
+      lastGmTelemetryTex = tex;
       textTexPending.delete(key);
+
+      gmTelemetryKeys.push(key);
+      if (gmTelemetryKeys.length > 25) {
+        const oldKey = gmTelemetryKeys.shift();
+        if (oldKey && oldKey !== key) {
+          const oldTex = textTexCache.get(oldKey);
+          if (oldTex && oldTex !== lastGmTelemetryTex) {
+            if ((oldTex as any).gpuTexture?.destroy) {
+              try { (oldTex as any).gpuTexture.destroy(); } catch {}
+            }
+            textTexCache.delete(oldKey);
+          }
+        }
+      }
     }).catch(() => {
       textTexPending.delete(key);
     });
@@ -555,8 +606,9 @@ export function renderGmTelemetryTexture(r: Renderer, fps: number, ping: number)
     textTexPending.delete(key);
   }
 
-  return null;
+  return lastGmTelemetryTex;
 }
+
 
 export const STATUS_UI = {
   backgrnd: "/wz/sprite/UI/StatusBar3/mainBar/status/backgrnd",
@@ -1188,11 +1240,11 @@ export class WorldRenderer {
 
     // Unified WebGPU HUD rendered via WebGpuMenuInput with consistent theme across all panels (when uiMode !== "old")
     if (game.uiMode !== "old") {
-      WorldRenderer.drawHpMpPanel(game);
-      WorldRenderer.drawExpBar(game);
-      WorldRenderer.drawMenuButtons(game);
-      WorldRenderer.drawQuickBar(game);
-      WorldRenderer.drawHudTooltips(game);
+      try { WorldRenderer.drawHpMpPanel(game); } catch (e) { console.error("HUD HpMp error:", e); }
+      try { WorldRenderer.drawExpBar(game); } catch (e) { console.error("HUD Exp error:", e); }
+      try { WorldRenderer.drawMenuButtons(game); } catch (e) { console.error("HUD Menu error:", e); }
+      try { WorldRenderer.drawQuickBar(game); } catch (e) { console.error("HUD QuickBar error:", e); }
+      try { WorldRenderer.drawHudTooltips(game); } catch (e) { console.error("HUD Tooltips error:", e); }
     }
 
     r.end();
@@ -1216,11 +1268,13 @@ export class WorldRenderer {
     WebGpuMenuInput.hoveredMp = false;
     WebGpuMenuInput.hoveredLevel = false;
 
-    // 1. Panel Background
+    // 1. Panel Background (with solid glass fallback so panel never flickers)
     const bgTex = game.assets.get(STATUS_UI.backgrnd);
     if (bgTex) {
       r.draw(bgTex, x + 2, y + 24, 198, 37);
     } else {
+      r.rect(x + 2, y + 24, 198, 37, [0.05, 0.08, 0.14, 0.95]);
+      r.rect(x + 2, y + 24, 198, 1, [0.25, 0.35, 0.5, 0.8]);
       game.assets.load(STATUS_UI.backgrnd);
     }
 
@@ -1236,6 +1290,9 @@ export class WorldRenderer {
         r.draw(hpTex, x + 24, y + 28, hpFillW, 13, { sx: 0, sy: 0, sw: hpFillW, sh: 13 });
       }
     } else {
+      if (hpFillW > 0) {
+        r.rect(x + 24, y + 28, hpFillW, 13, [0.85, 0.18, 0.22, 0.95]);
+      }
       game.assets.load(STATUS_UI.hpBar);
     }
 
@@ -1263,6 +1320,9 @@ export class WorldRenderer {
         r.draw(mpTex, x + 24, y + 44, mpFillW, 13, { sx: 0, sy: 0, sw: mpFillW, sh: 13 });
       }
     } else {
+      if (mpFillW > 0) {
+        r.rect(x + 24, y + 44, mpFillW, 13, [0.18, 0.48, 0.92, 0.95]);
+      }
       game.assets.load(STATUS_UI.mpBar);
     }
 
@@ -1271,6 +1331,7 @@ export class WorldRenderer {
     if (coverTex) {
       r.draw(coverTex, x - 1, y, 204, 70);
     } else {
+      r.rect(x, y + 6, 204, 58, [0.07, 0.11, 0.18, 0.9]);
       game.assets.load(STATUS_UI.cover);
     }
 
@@ -1395,11 +1456,12 @@ export class WorldRenderer {
     const res = EXP_UI.res[resKey];
     const expY = r.height - 10;
 
-    // 1. Draw EXP Bar Background
+    // 1. Draw EXP Bar Background (with solid glass fallback so exp bar never flickers)
     const backTex = game.assets.get(res.back);
     if (backTex) {
       r.draw(backTex, 0, expY, r.width, 10);
     } else {
+      r.rect(0, expY, r.width, 10, [0.03, 0.05, 0.09, 0.96]);
       game.assets.load(res.back);
     }
 
@@ -1416,6 +1478,9 @@ export class WorldRenderer {
         r.draw(gaugeTex, 16, expY + 2, fillW, 7, { sx: 0, sy: 0, sw: fillW, sh: 7 });
       }
     } else {
+      if (fillW > 0) {
+        r.rect(16, expY + 2, fillW, 7, [0.1, 0.72, 0.45, 0.95]);
+      }
       game.assets.load(res.gauge);
     }
 
@@ -1627,6 +1692,8 @@ export class WorldRenderer {
       if (tex) {
         r.draw(tex, btnX, btnY, 34, 37);
       } else {
+        r.rect(btnX, btnY, 34, 37, isHover ? [0.15, 0.28, 0.45, 0.95] : [0.06, 0.10, 0.17, 0.92]);
+        r.rect(btnX, btnY, 34, 1, [0.35, 0.55, 0.8, 0.8]);
         game.assets.load(spriteUrl);
       }
 
@@ -1653,11 +1720,13 @@ export class WorldRenderer {
     const qsX = Math.round(r.width - qsW - 4);
     const qsY = Math.round(r.height - 10 - qsH + 2);
 
-    // 1. QuickSlot Background
+    // 1. QuickSlot Background (with solid glass fallback so quickbar never flickers)
     const bgTex = game.assets.get(QUICK_UI.backgrnd);
     if (bgTex) {
       r.draw(bgTex, qsX + 2, qsY + 3, 557, 67);
     } else {
+      r.rect(qsX + 2, qsY + 3, 557, 67, [0.05, 0.08, 0.14, 0.95]);
+      r.rect(qsX + 2, qsY + 3, 557, 1, [0.25, 0.35, 0.5, 0.8]);
       game.assets.load(QUICK_UI.backgrnd);
     }
 
@@ -2374,7 +2443,7 @@ export class WorldRenderer {
       rp.face,
       rp.x,
       drawPosY
-    );
+    ) ?? rp.lastTex;
     if (t) {
       rp.lastTex = t;
       rp.charComp.draw(game, cx, cy, { flip: rp.face === 1 });
@@ -2449,12 +2518,12 @@ export class WorldRenderer {
       p.face,
       p.x,
       drawPosY
-    );
+    ) ?? game.lastPlayerTex;
     if (t) {
       game.lastPlayerTex = t;
-      const invulnBlink = p.invuln > 0 && Math.floor(game.time * 16) % 2 === 0;
+      const invulnAlpha = p.invuln > 0 ? (0.7 + 0.3 * Math.sin(game.time * 8)) : 1;
       const isDarkSight = !!game.buffs["4001003"];
-      const baseAlpha = invulnBlink ? 0.35 : (isDarkSight || game.gmHide ? 0.45 : 1);
+      const baseAlpha = isDarkSight || game.gmHide ? 0.45 : invulnAlpha;
 
       const ox = Math.round(t.w / 2);
       const oy = t.w === 96 && t.h === 96 ? 88 : t.h === 384 ? 256 : Math.round(t.h * (256 / 384));
@@ -2508,6 +2577,9 @@ export class WorldRenderer {
     WorldRenderer.drawNameTag(game.r, game.stats.name, p.x, drawPosY, cx, cy);
     if (game.guildName) {
       WorldRenderer.drawGuildTag(game.r, game.guildName, game.guildEmblem, p.x, drawPosY, cx, cy, game.time);
+    }
+    if (game.isGm()) {
+      WorldRenderer.drawGmTelemetryTag(game.r, Math.round(game.fps || 60), Math.round(game.wsPing || 20), p.x, drawPosY, cx, cy, Boolean(game.guildName));
     }
 
     if (game.balloon && game.balloon.t > 0 && game.balloon.text) {

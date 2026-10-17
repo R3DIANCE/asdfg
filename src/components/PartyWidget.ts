@@ -5,6 +5,7 @@ import type { Game } from "../game.ts";
 import { el, esc } from "../util.ts";
 import { lucideIcon } from "../lucide.ts";
 import { PartyClient } from "../party.ts";
+import { RUNE_SKILL_DEFS } from "../game-types.ts";
 
 export class PartyWidget extends ComponentBase {
   root!: HTMLElement;
@@ -94,7 +95,7 @@ export class PartyWidget extends ComponentBase {
             ${lucideIcon("users", 12, "text-sky-400")}
             <span class="text-[10px] font-bold text-zinc-200">Party</span>
           </div>
-          <span class="text-[9px] font-mono text-zinc-400 bg-white/10 px-1 py-0.2 rounded border border-white/10">P</span>
+          <span class="text-[9px] font-mono text-zinc-400 bg-white/10 px-1.5 py-0.5 rounded border border-white/10">P</span>
         </div>
       `;
       this.container.onclick = () => {
@@ -130,11 +131,26 @@ export class PartyWidget extends ComponentBase {
 
         // Active Buffs List
         const buffIds = isSelf ? Object.keys(this.game.buffs) : (m.buffs || []);
+        const runeBuff = isSelf && this.game.runeBuff && this.game.runeBuff.timeLeft > 0 ? this.game.runeBuff : null;
+        const rDef = runeBuff ? RUNE_SKILL_DEFS[runeBuff.type] : null;
+
         let buffListHtml = "";
-        if (buffIds.length === 0) {
+        if (buffIds.length === 0 && !rDef) {
           buffListHtml = `<span class="text-[8px] text-zinc-400 italic">No active buffs</span>`;
         } else {
-          buffListHtml = `<div class="flex flex-col gap-1">` + buffIds.slice(0, 6).map((id) => {
+          let runeRow = "";
+          if (rDef && runeBuff) {
+            const left = Math.ceil(runeBuff.timeLeft);
+            const timeStr = left >= 60 ? `${Math.ceil(left / 60)}m` : `${left}s`;
+            runeRow = `
+              <div class="flex items-center gap-1.5">
+                <img src="${rDef.iconUrl}" class="w-3.5 h-3.5 rounded-[2px] bg-black/40 border border-purple-400/30 object-contain flex-shrink-0" alt="" />
+                <span class="text-[8px] text-purple-300 font-semibold truncate flex-1">${esc(rDef.name)}</span>
+                <span class="text-[7.5px] font-mono text-purple-300 flex-shrink-0">${timeStr}</span>
+              </div>
+            `;
+          }
+          const regularBuffs = buffIds.slice(0, 5).map((id) => {
             const art = this.game.skillArt[id];
             const skillName = art?.name || `Buff ${id}`;
             const iconUrl = art?.icon?.url || "";
@@ -150,7 +166,8 @@ export class PartyWidget extends ComponentBase {
                 ${timeStr ? `<span class="text-[7.5px] font-mono text-amber-300/90 flex-shrink-0">${timeStr}</span>` : ""}
               </div>
             `;
-          }).join("") + `</div>`;
+          }).join("");
+          buffListHtml = `<div class="flex flex-col gap-1">${runeRow}${regularBuffs}</div>`;
         }
 
         const statusTitle = !isOnline
@@ -164,7 +181,7 @@ export class PartyWidget extends ComponentBase {
             <!-- Row 1: Level, Name, Crown / Character Online Status Dot -->
             <div class="flex items-center justify-between gap-1 mb-1">
               <div class="flex items-center gap-1.5 min-w-0 ${isGrayed ? "grayscale" : ""}">
-                <span class="inline-flex items-center px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/35 font-mono text-[8.5px] font-bold leading-none shadow-sm">Lv.${m.level ?? 1}</span>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/35 font-mono text-[8.5px] font-bold leading-none shadow-sm">Lv.${m.level ?? 1}</span>
                 <span class="font-bold text-[10.5px] ${isGrayed ? "text-zinc-400" : isSelf ? "text-amber-200" : "text-white"} truncate leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">${esc(m.name)}</span>
                 ${isMemLeader ? `<span class="text-amber-400 flex-shrink-0" title="Leader">${lucideIcon("crown", 9)}</span>` : ""}
               </div>

@@ -295,8 +295,8 @@ export class CashShop {
 
       return `
         <div class="cs-item-card relative bg-zinc-900/90 border border-white/10 hover:border-pink-500/40 rounded-lg p-2 flex flex-col justify-between shadow-lg transition-all group hover:scale-[1.01]">
-          ${item.isHot ? `<span class="absolute top-1.5 right-1.5 px-1 py-0.2 rounded bg-rose-500 text-white font-bold text-[7.5px] tracking-wider uppercase shadow">HOT</span>` : ""}
-          ${item.isNew ? `<span class="absolute top-1.5 right-1.5 px-1 py-0.2 rounded bg-sky-500 text-white font-bold text-[7.5px] tracking-wider uppercase shadow">NEW</span>` : ""}
+          ${item.isHot ? `<span class="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-[3px] bg-rose-500 text-white font-bold text-[7.5px] tracking-wider uppercase shadow">HOT</span>` : ""}
+          ${item.isNew ? `<span class="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-[3px] bg-sky-500 text-white font-bold text-[7.5px] tracking-wider uppercase shadow">NEW</span>` : ""}
           
           <div>
             <div class="flex items-center gap-2 mb-1.5">
@@ -342,7 +342,7 @@ export class CashShop {
             <div>
               <h2 class="font-bold text-[13px] text-white leading-none tracking-wide flex items-center gap-1.5 font-sans">
                 MAPLE CASH SHOP
-                <span class="text-[8px] font-mono px-1 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">NX BOUTIQUE</span>
+                <span class="text-[8px] font-mono px-2 py-0.5 rounded-[4px] bg-pink-500/20 text-pink-300 border border-pink-500/30">NX BOUTIQUE</span>
               </h2>
             </div>
           </div>

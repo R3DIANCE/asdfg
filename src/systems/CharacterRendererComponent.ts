@@ -29,6 +29,7 @@ export class CharacterRendererComponent extends ComponentBase {
   // Shared memory texture cache across all instances to prevent duplicate network loads
   private static frameCache = new Map<string, Tex | null>();
   private static inflight = new Map<string, Promise<Tex | null>>();
+  private static lastKnownTexByLook = new Map<string, Tex>();
 
   constructor(param?: { game?: Game }) {
     super();
@@ -100,14 +101,15 @@ export class CharacterRendererComponent extends ComponentBase {
     }
 
     // 3. If already requesting this exact frame, smoothly draw previous frame (zero stutter/flicker)
+    const fallback = this.activeTex ?? this.lastValidTex ?? CharacterRendererComponent.lastKnownTexByLook.get(look.join(","));
     if (this.requestedKey === key) {
-      return this.activeTex ?? this.lastValidTex;
+      return fallback ?? null;
     }
 
     this.requestedKey = key;
     this.requestFrame(key, look, anim, frame, expr, exprFrame);
 
-    return this.activeTex ?? this.lastValidTex;
+    return fallback ?? null;
   }
 
   private async requestFrame(
@@ -151,6 +153,7 @@ export class CharacterRendererComponent extends ComponentBase {
         this.activeTex = res;
       }
       this.lastValidTex = res;
+      CharacterRendererComponent.lastKnownTexByLook.set(look.join(","), res);
     }
   }
 

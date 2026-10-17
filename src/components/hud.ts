@@ -82,7 +82,7 @@ export class StatusCapsule extends ComponentBase {
     // Shadcn Gold Level Badge
     this.levelBadge = el(
       "span",
-      "ms-status-lv inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/15 text-amber-300 font-mono font-black text-[9.5px] px-2 py-0.2 leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] tracking-tight flex-shrink-0 shadow-sm",
+      "ms-status-lv inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/15 text-amber-300 font-mono font-black text-[9.5px] px-2.5 py-0.5 leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] tracking-tight flex-shrink-0 shadow-sm",
       leftIdentity
     );
     this.levelBadge.textContent = "Lv. 1";
@@ -126,7 +126,7 @@ export class StatusCapsule extends ComponentBase {
       hpTrack
     );
     const hpLeft = el("span", "flex items-center gap-1.5", hpOverlay);
-    el("span", "text-rose-200 font-black text-[7.5px] bg-rose-500/25 px-1 py-0.2 rounded-[2px] border border-rose-400/30 leading-none", hpLeft).textContent = "HP";
+    el("span", "text-rose-200 font-black text-[7.5px] bg-rose-500/25 px-1.5 py-0.5 rounded-[3px] border border-rose-400/30 leading-none", hpLeft).textContent = "HP";
     this.hpValText = el("span", "ms-hp-val", hpLeft);
     this.hpValText.textContent = "50 / 50";
     this.hpPctText = el("span", "ms-hp-pct text-rose-200 font-bold text-[8px] tabular-nums", hpOverlay);
@@ -153,7 +153,7 @@ export class StatusCapsule extends ComponentBase {
       mpTrack
     );
     const mpLeft = el("span", "flex items-center gap-1.5", mpOverlay);
-    el("span", "text-cyan-200 font-black text-[7.5px] bg-cyan-500/25 px-1 py-0.2 rounded-[2px] border border-cyan-400/30 leading-none", mpLeft).textContent = "MP";
+    el("span", "text-cyan-200 font-black text-[7.5px] bg-cyan-500/25 px-1.5 py-0.5 rounded-[3px] border border-cyan-400/30 leading-none", mpLeft).textContent = "MP";
     this.mpValText = el("span", "ms-mp-val", mpLeft);
     this.mpValText.textContent = "5 / 5";
     this.mpPctText = el("span", "ms-mp-pct text-cyan-200 font-bold text-[8px] tabular-nums", mpOverlay);
@@ -263,10 +263,10 @@ export class PlayerStatusTag extends ComponentBase {
       "ms-player-bar flex items-center h-[28px] bg-zinc-950/80 border border-white/10 rounded-[6px] px-2.5 gap-2 backdrop-blur-[14px] shadow-[0_4px_16px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.08)] pointer-events-auto select-none",
       this.parentEl
     );
-    const lvBadge = el("div", "ms-player-lv flex items-baseline gap-0.5", this.root);
-    el("span", "text-zinc-400 font-bold text-[10.5px] leading-none", lvBadge).textContent = "Lv.";
-    this.levelVal = el("span", "text-amber-300 font-black text-[12px] leading-none font-mono", lvBadge);
-    this.nameVal = el("span", "ms-player-ign font-bold text-[12px] leading-none text-white tracking-[0.2px] drop-shadow-[0_1px_2px_#000]", this.root);
+    const lvBadge = el("div", "ms-player-lv inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/35 shadow-sm", this.root);
+    el("span", "text-amber-400/80 font-bold text-[10px] leading-none", lvBadge).textContent = "Lv.";
+    this.levelVal = el("span", "text-amber-300 font-black text-[11.5px] leading-none font-mono", lvBadge);
+    this.nameVal = el("span", "ms-player-ign font-bold text-[12px] leading-none text-white tracking-[0.2px] drop-shadow-[0_1px_2px_#000] ml-0.5", this.root);
   }
 
   update(level: number, name: string) {
@@ -328,7 +328,7 @@ export class MenuButtonComponent extends ComponentBase {
     if (item.badge) {
       this.badgeEl = el(
         "span",
-        "ms-badge-dot absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 border border-zinc-950 shadow-[0_0_6px_#f59e0b] animate-pulse hidden pointer-events-none",
+        "ms-badge-dot absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 border border-zinc-950 shadow-[0_0_6px_#f59e0b] hidden pointer-events-none",
         this.root
       );
     }

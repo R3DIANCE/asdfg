@@ -339,11 +339,11 @@ export class GmOnlinePanel extends ComponentBase {
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1.5 mb-0.5 flex-wrap">
-            <span class="px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/35 font-mono text-[9px] font-bold tracking-tight shadow-sm">Lv. ${p.level ?? 1}</span>
+            <span class="px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/35 font-mono text-[9px] font-bold tracking-tight shadow-sm">Lv. ${p.level ?? 1}</span>
             <span class="font-bold text-[11px] text-white truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">${p.name}</span>
-            ${p.isLocal ? `<span class="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-300 font-mono text-[7.5px] border border-sky-500/30 font-bold">YOU</span>` : ""}
-            ${isGodOn ? `<span class="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30 font-bold">GOD</span>` : ""}
-            ${isAutoOn ? `<span class="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[7.5px] border border-emerald-500/30 font-bold">AUTO</span>` : ""}
+            ${p.isLocal ? `<span class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-mono text-[7.5px] border border-sky-500/30 font-bold">YOU</span>` : ""}
+            ${isGodOn ? `<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[7.5px] border border-amber-500/30 font-bold">GOD</span>` : ""}
+            ${isAutoOn ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[7.5px] border border-emerald-500/30 font-bold">AUTO</span>` : ""}
           </div>
           <div class="text-[9px] text-zinc-400 flex items-center gap-1.5 truncate">
             <span class="text-sky-300 truncate font-medium">${mapName}</span>

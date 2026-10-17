@@ -109,7 +109,7 @@ export class Hud extends ComponentBase {
     // Floating Bottom Dock (Governed dynamically by UI Mode)
     this.dock = el("div", "dock fixed left-0 right-0 bottom-[14px] min-h-[58px] flex items-end justify-between px-3 pointer-events-none select-none z-[12]", this.root);
     this.dockLeft = el("div", "dock-left pointer-events-auto flex items-end gap-2 min-w-0", this.dock);
-    this.dockCenter = el("div", "dock-center pointer-events-none fixed left-1/2 bottom-[15px] -translate-x-1/2 flex items-center gap-2 z-[12]", this.root);
+    this.dockCenter = el("div", "dock-center pointer-events-none fixed left-1/2 bottom-[15px] -translate-x-1/2 flex items-center gap-2 z-[12]", this.dock);
     this.dockRight = el("div", "dock-right pointer-events-auto flex flex-col items-end gap-1 min-w-0", this.dock);
 
     // Windows Manager initialized before slots & menus
@@ -376,7 +376,8 @@ export class Hud extends ComponentBase {
     const need = Math.round(expToLevel(s.level));
     const sig = `${s.level}|${s.hp}|${s.maxHp}|${s.mp}|${s.maxMp}|${s.exp}|${s.name}|${s.ap}|${s.sp}|${g.stage.kills}`;
 
-    if (sig !== this.lastSig || performance.now() % 2000 < 20) {
+    if (sig !== this.lastSig) {
+      this.lastSig = sig;
       this.playerTag?.update(s.level, s.name);
       this.status.update({
         level: s.level,
